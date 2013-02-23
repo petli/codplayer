@@ -87,6 +87,11 @@ class Disc(object):
         track = None
 
         for line in toc.split('\n'):
+            # Strip comments
+            p = line.find('//')
+            if p != -1:
+                line = line[:p]
+                
             line = line.strip()
 
             # Don't bother about disc flags
@@ -146,7 +151,7 @@ class Disc(object):
 
                 # Just assume the last two are either 0 or an MSF
                 if len(p) < 4:
-                    raise DiscInfoError('missing offsets in file: %s', line)
+                    raise DiscInfoError('missing offsets in file: %s' % line)
 
                 offset = p[-2]
                 length = p[-1]
@@ -154,10 +159,38 @@ class Disc(object):
                 if offset == '0':
                     track.file_offset = 0
                 else:
-                    track.file_offset = PCM.msf_to_samples(offset)
+                    try:
+                        track.file_offset = PCM.msf_to_samples(offset)
+                    except ValueError:
+                        raise DiscInfoError('bad offset for file: %s' % line)
                     
-                track.length = PCM.msf_to_samples(length)
+                try:
+                    track.length = PCM.msf_to_samples(length)
+                except ValueError:
+                    raise DiscInfoError('bad length for file: %s' % line)
 
+
+            elif line.startswith('SILENCE '):
+                track.pregap_silence = disc.get_toc_msf_arg(line)
+
+            elif line.startswith('START '):
+                track.pregap_offset = disc.get_toc_msf_arg(line)
+
+            elif line.startswith('INDEX '):
+                # Adjust indices to be relative start of track instead
+                # of pregap
+                track.index.append(disc.get_toc_msf_arg(line)
+                                   + track.pregap_offset)
+                
+            elif line.startswith('ISRC '):
+                track.isrc = disc.get_toc_string_arg(line)
+
+            elif line.startswith('DATAFILE '):
+                pass
+
+            elif line != '':
+                raise DiscInfoError('unexpected line: %s' % line)
+                
 
         if track is not None:
             disc.add_track(track)
@@ -175,13 +208,29 @@ class Disc(object):
         """Parse out a string argument from a TOC line."""
         s = line.find('"')
         if s == -1:
-            raise DiscInfoError('no string argument in line: %s', line)
+            raise DiscInfoError('no string argument in line: %s' % line)
 
         e = line.find('"', s + 1)
         if s == -1:
-            raise DiscInfoError('no string argument in line: %s', line)
+            raise DiscInfoError('no string argument in line: %s' % line)
         
         return line[s + 1 : e]
+
+
+    @staticmethod
+    def get_toc_msf_arg(line):
+        """Parse an MSF from a TOC line."""
+
+        p = line.split()
+        if len(p) != 2:
+            raise DiscInfoError(
+                'expected a single MSF argument in line: %s' % line)
+
+        try:
+            return PCM.msf_to_samples(p[1])
+        except ValueError:
+            raise DiscInfoError('bad MSF in line: %s' % line)
+
 
 
 class Track(object):
@@ -194,10 +243,15 @@ class Track(object):
         self.file_offset = 0
         self.length = 0
 
-        # If the pregap isn't contained in the data file at all
-        self.pregap_silence = 0
+        # Where index switch from 0 to 1
+        self.pregap_offset = 0
 
-        self.indices = []
+        # If part or all of the pregap isn't contained in the data
+        # file at all
+        self.pregap_silence = 0
+        
+        # Any additional indices
+        self.index = []
 
         self.isrc = None
         
