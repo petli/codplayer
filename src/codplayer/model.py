@@ -1,4 +1,4 @@
-# codplayer - representation of discs
+# codplayer - data model for discs and tracks
 #
 # Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
 #

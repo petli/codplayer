@@ -6,6 +6,6 @@
 
 __all__ = [
     'db',
-    'disc',
+    'model',
     ]
 
