@@ -219,3 +219,57 @@ FILE "data.cdr" 0 03:27:10
         self.assertEqual(t.length, db.PCM.msf_to_samples('03:27:10'))
         self.assertEqual(t.isrc, "GBAYE0000351")
             
+
+# Helper object to avoid dragging in musicbrainz2 just for testing
+class MusicbrainzDiscDummy(object):
+    def __init__(self, *tracks):
+        self.tracks = tracks
+
+    def getTracks(self):
+        return self.tracks
+    
+
+class TestDiscFromMusicbrainz(unittest.TestCase):
+    def test_notracks(self):
+        mb_disc = MusicbrainzDiscDummy()
+
+        with self.assertRaises(db.DiscInfoError):
+            db.Disc.from_musicbrainz_disc(mb_disc)
+
+
+    def test_tracks(self):
+        mb_disc = MusicbrainzDiscDummy(
+            (150, 34630),
+            (34780, 37470),
+            (72250, 9037))
+
+        disc = db.Disc.from_musicbrainz_disc(mb_disc, 'test.cdr')
+
+        self.assertEqual(disc.catalog, None)
+        self.assertEqual(disc.data_file_name, "test.cdr")
+        self.assertEqual(disc.data_file_format, db.RAW_CD)
+        self.assertEqual(disc.data_sample_format, db.PCM)
+
+        self.assertEqual(len(disc.tracks), 3)
+
+        # The pregap will not be read by cdrdao
+
+        t = disc.tracks[0]
+        self.assertEqual(t.number, 1)
+        self.assertEqual(t.file_offset, 0)
+        self.assertEqual(t.length,
+                         34630 * db.PCM.samples_per_frame)
+
+        t = disc.tracks[1]
+        self.assertEqual(t.number, 2)
+        self.assertEqual(t.file_offset,
+                         (34780 - 150) * db.PCM.samples_per_frame)
+        self.assertEqual(t.length,
+                         37470 * db.PCM.samples_per_frame)
+
+        t = disc.tracks[2]
+        self.assertEqual(t.number, 3)
+        self.assertEqual(t.file_offset,
+                         (72250 - 150) * db.PCM.samples_per_frame)
+        self.assertEqual(t.length,
+                         9037 * db.PCM.samples_per_frame)
