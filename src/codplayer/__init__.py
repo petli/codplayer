@@ -5,5 +5,7 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 __all__ = [
+    'db',
+    'disc',
     ]
 
