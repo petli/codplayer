@@ -64,7 +64,7 @@ class TestDir(object):
 
     def tearDownDiscTopDir(self, d):
         for f in os.listdir(d):
-            if f in db.Database.DISC_BUCKET:
+            if f in db.Database.DISC_BUCKETS:
                 self.tearDownDiscBucket(os.path.join(d, f))
             else:
                 self.fail('unexpected disc dir entry in %s: %s' % (d, f))
@@ -99,13 +99,31 @@ class TestDir(object):
         os.rmdir(d)
 
 
+#
+# Negative test cases on init or opening DB dir
+#
+        
 class TestNonexistingDir(unittest.TestCase):
-    def test_non_existing_dir(self):
+    def test_init_non_existing_dir(self):
+        with self.assertRaises(db.DatabaseError):
+            db.Database.init_db('/no/such/directory')
+
+    def test_open_non_existing_dir(self):
         with self.assertRaises(db.DatabaseError):
             d = db.Database('/no/such/directory')
 
+
+
 class TestInvalidDir(TestDir, unittest.TestCase):
-    def test_empty_dir(self):
+    def test_init_non_empty_dir(self):
+        f = open(os.path.join(self.test_dir, db.Database.VERSION_FILE), 'wt')
+        f.write('foo\n')
+        f.close()
+
+        with self.assertRaises(db.DatabaseError):
+            db.Database.init_db(self.test_dir)
+
+    def test_open_empty_dir(self):
         with self.assertRaises(db.DatabaseError):
             d = db.Database(self.test_dir)
 
@@ -125,3 +143,18 @@ class TestInvalidDir(TestDir, unittest.TestCase):
         with self.assertRaises(db.DatabaseError):
             d = db.Database(self.test_dir)
     
+
+#
+# Positive test case setting up dir, verify by opening it
+#
+
+class TestInitDir(TestDir, unittest.TestCase):
+    def test_init_dir(self):
+        db.Database.init_db(self.test_dir)
+        d = db.Database(self.test_dir)
+        
+        # The database should be empty
+        disc_ids = list(d.iter_disc_ids())
+        self.assertEqual(len(disc_ids), 0)
+
+        

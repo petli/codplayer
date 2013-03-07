@@ -125,10 +125,31 @@ class Database(object):
     def init_db(cls, db_dir):
         """Initialise a database directory.
 
-        @param db_dir: database top directory.
+        @param db_dir: database top directory, must exist and be empty
+
+        @raise DatabaseError: if directory doesn't exist or isn't empty
         """
-        
-        pass
+
+        try:
+            if not os.path.isdir(db_dir):
+                raise DatabaseError(db_dir, 'no such dir')
+
+            if os.listdir(db_dir):
+                raise DatabaseError(db_dir, 'dir is not empty')
+
+            f = open(os.path.join(db_dir, cls.VERSION_FILE), 'wt')
+            f.write('%d\n' % cls.VERSION)
+            f.close()
+
+            disc_top_dir = os.path.join(db_dir, cls.DISC_DIR)
+            os.mkdir(disc_top_dir)
+            
+            for b in cls.DISC_BUCKETS:
+                os.mkdir(os.path.join(disc_top_dir, b))
+
+        # translate into a DatabaseError
+        except (IOError, OSError), e:
+            raise DatabaseError(self.db_dir, exc = e)
 
     
     def __init__(self, db_dir):
@@ -173,7 +194,34 @@ class Database(object):
                                     entry = self.VERSION_FILE)
                 
 
+            # Must have disc top dir
+
+            disc_top_dir = os.path.join(self.db_dir, self.DISC_DIR)
+
+            if not os.path.isdir(disc_top_dir):
+                raise DatabaseError(self.db_dir, 'missing disc dir')
+
+
+            # Must have all bucket dirs
+            for b in self.DISC_BUCKETS:
+                d = os.path.join(disc_top_dir, b)
+
+                if not os.path.isdir(d):
+                    raise DatabaseError(self.db_dir, 'missing bucket dir',
+                                        entry = b)
+
+
         # translate into a DatabaseError
         except (IOError, OSError), e:
             raise DatabaseError(self.db_dir, exc = e)
+
+
+    def iter_disc_ids(self):
+        """@return an iterator listing the IDs of all discs in the
+        database.
+        """
+
+        # TODO: implement this
+        return
+        yield
 
