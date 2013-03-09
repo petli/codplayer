@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+# Hey Emacs, this is -*-python-*-
+#
+# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+#
+# Distributed under an MIT license, please see LICENSE in the top dir.
+
+import sys
+import argparse
+
+from codplayer import db, model
+
+
+def cmd_init(args):
+    try:
+        db.Database.init_db(args.db_dir)
+    except db.DatabaseError, e:
+        sys.exit(str(e))
+
+
+def cmd_list(args):
+    try:
+        d = db.Database(args.db_dir)
+
+        # TODO: list something more interesting than db IDs
+        
+        for db_id in d.iterdiscs_db_ids():
+            sys.stdout.write('{0}\n'.format(db_id))
+            
+    except db.DatabaseError, e:
+        sys.exit(str(e))
+
+#
+# Set up the command argument parsing
+#
+
+parser = argparse.ArgumentParser(description = 'codplayer database administration')
+
+subparsers = parser.add_subparsers(help = 'command')
+
+parser_init = subparsers.add_parser(
+    'init', help = 'initialise a database in an existing, empty directory')
+parser_init.add_argument('db_dir')
+parser_init.set_defaults(func = cmd_init)
+
+parser_list = subparsers.add_parser(
+    'list', help = 'list the contents of a database')
+parser_list.add_argument('db_dir')
+parser_list.set_defaults(func = cmd_list)
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    args.func(args)
+    
