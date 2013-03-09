@@ -117,6 +117,11 @@ class Database(object):
         return cls.VALID_DB_ID_RE.match(db_id) is not None
 
 
+    @classmethod
+    def bucket_for_db_id(cls, db_id):
+        return db_id[0]
+
+
     #
     # Database operations
     #
@@ -216,12 +221,28 @@ class Database(object):
             raise DatabaseError(self.db_dir, exc = e)
 
 
-    def iter_disc_ids(self):
-        """@return an iterator listing the IDs of all discs in the
-        database.
+    def iterdiscs_db_ids(self):
+        """@return an iterator listing the datbase IDs of all discs in
+        the database.
+
+        This method only looks at the directories, and may return IDs
+        for discs that can't be opened (e.g. because it is in the
+        progress of being ripped.)
         """
 
-        # TODO: implement this
-        return
-        yield
+        disc_top_dir = os.path.join(self.db_dir, self.DISC_DIR)
 
+        for b in self.DISC_BUCKETS:
+            d = os.path.join(disc_top_dir, b)
+
+            try:
+                for f in os.listdir(d):
+                    if self.is_valid_db_id(f) and self.bucket_for_db_id(f) == b:
+                        yield f
+
+            # translate into a DatabaseError
+            except OSError, e:
+                raise DatabaseError(self.db_dir, exc = e, entry = b)
+
+
+                

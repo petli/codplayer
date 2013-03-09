@@ -154,7 +154,7 @@ class TestInitDir(TestDir, unittest.TestCase):
         d = db.Database(self.test_dir)
         
         # The database should be empty
-        disc_ids = list(d.iter_disc_ids())
+        disc_ids = list(d.iterdiscs_db_ids())
         self.assertEqual(len(disc_ids), 0)
 
         

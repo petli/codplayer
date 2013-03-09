@@ -24,7 +24,7 @@ class TestDiscFromToc(unittest.TestCase):
 CD_DA
 '''
         with self.assertRaises(model.DiscInfoError):
-            model.Disc.from_toc(toc)
+            model.Disc.from_toc(toc, 'testId')
 
 
     def test_catalog_and_basic_track(self):
@@ -41,7 +41,9 @@ TRACK AUDIO
 TWO_CHANNEL_AUDIO
 FILE "data.cdr" 0 02:54:53
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
+
+        self.assertEqual(d.disc_id, 'testId')
 
         self.assertEqual(d.catalog, "0123456789012")
         self.assertEqual(d.data_file_name, "data.cdr")
@@ -79,7 +81,7 @@ NO PRE_EMPHASIS
 TWO_CHANNEL_AUDIO
 FILE "data.cdr" 06:24:43 03:36:67
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
 
         self.assertEqual(d.catalog, None)
         self.assertEqual(d.data_file_name, "data.cdr")
@@ -118,7 +120,7 @@ FILE "data.cdr" 0 02:54:53 // foo bar
   // TWO_CHANNEL_AUDIO
 // FILE "data.cdr" 02:54:53 03:29:65
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
 
         self.assertIsNone(d.catalog)
 
@@ -141,7 +143,7 @@ SILENCE 03:48:35
 FILE "data.cdr" 0 03:27:10
 START 03:48:35
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
 
         self.assertEqual(len(d.tracks), 1)
 
@@ -162,7 +164,7 @@ START 00:01:22
 INDEX 00:03:11
 INDEX 00:05:00
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
 
         self.assertEqual(len(d.tracks), 1)
 
@@ -199,7 +201,7 @@ CD_TEXT {
 }
 '''
         with self.assertRaises(model.DiscInfoError):
-            model.Disc.from_toc(toc)
+            model.Disc.from_toc(toc, 'testId')
 
 
     def test_track_isrc(self):
@@ -209,7 +211,7 @@ TWO_CHANNEL_AUDIO
 ISRC "GBAYE0000351"
 FILE "data.cdr" 0 03:27:10
 '''
-        d = model.Disc.from_toc(toc)
+        d = model.Disc.from_toc(toc, 'testId')
 
         self.assertEqual(len(d.tracks), 1)
 
@@ -224,6 +226,9 @@ FILE "data.cdr" 0 03:27:10
 class MusicbrainzDiscDummy(object):
     def __init__(self, *tracks):
         self.tracks = tracks
+
+    def getId(self):
+        return 'testId'
 
     def getTracks(self):
         return self.tracks
@@ -244,6 +249,8 @@ class TestDiscFromMusicbrainz(unittest.TestCase):
             (72250, 9037))
 
         d = model.Disc.from_musicbrainz_disc(mb_d, 'test.cdr')
+
+        self.assertEqual(d.disc_id, 'testId')
 
         self.assertEqual(d.catalog, None)
         self.assertEqual(d.data_file_name, "test.cdr")
