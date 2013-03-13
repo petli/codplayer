@@ -18,7 +18,7 @@ def main(args):
 
         if args.debug:
             log_file = sys.stderr
-            control_file = sys.stdin
+            control_fd = sys.stdin.fileno()
         else:
             sys.exit('non-debug mode not implemented yet')
 
@@ -35,7 +35,7 @@ def main(args):
 
     # TODO: fork off if not in debug mode
         
-    p = player.Player(cfg, database, log_file, control_file)
+    p = player.Player(cfg, database, log_file, control_fd)
     p.run()
             
     

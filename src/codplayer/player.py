@@ -10,6 +10,7 @@ Classes implementing the player core and it's state.
 The unit of time in all objects is one sample.
 """
 
+import os
 import select
 
 
@@ -53,12 +54,12 @@ class State(object):
 
 class Player(object):
 
-    def __init__(self, cfg, database, log_file, control_file):
+    def __init__(self, cfg, database, log_file, control_fd):
         self.cfg = cfg
         self.db = database
         self.log_file = log_file
         self.log_debug = True
-        self.control = CommandReader(control_file)
+        self.control = CommandReader(control_fd)
         self.state = State()
 
         self.poll = select.poll()
@@ -102,13 +103,13 @@ class CommandReader(object):
     when complete.
     """
 
-    def __init__(self, control_file):
-        self.file = control_file
+    def __init__(self, fd):
+        self.fd = fd
         self.buffer = ''
 
     def fileno(self):
         """For compatibility with poll()"""
-        return self.file.fileno()
+        return self.fd
 
     def handle_data(self):
         """Call when poll() says there's data to read on the control file.
@@ -118,11 +119,7 @@ class CommandReader(object):
         argv style list.
         """
         
-        d = self.file.read(500)
-        if not d:
-            raise PlayerError('unexpected close of control file')
-
-        self.buffer += d
+        self.buffer += self.read_data()
 
         # Not a complete line yet
         if '\n' not in self.buffer:
@@ -147,4 +144,14 @@ class CommandReader(object):
                 if cmd_args:
                     yield cmd_args
 
+    def read_data(self):
+        """This function mainly exists to support the test cases for
+        the class, allowing them to override the system call.
+        """
+        
+        d = os.read(self.fd, 500)
+        if not d:
+            raise PlayerError('unexpected close of control file')
+
+        return d
         

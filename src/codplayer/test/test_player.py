@@ -8,26 +8,26 @@ import unittest
 
 from .. import player
 
-class FakeCommandFile(object):
+class CommandReaderWrapper(player.CommandReader):
     def __init__(self, *read_strings):
+        super(CommandReaderWrapper, self).__init__(0)
         self.read_strings = list(read_strings)
 
-    def read(self, bytes):
+    def read_data(self):
         d = self.read_strings[0]
         del self.read_strings[0]
         return d
         
+
 class TestCommandReader(unittest.TestCase):
     def test_(self):
-        cf = FakeCommandFile(
+        cr = CommandReaderWrapper(
             'foo\n',		# single self-contained command
-            ' cmd  2 ',		# no newline, so no command read
-            '\n',		# newline trigger command
-            'cmd 3\ncmd 4\nc',  # two commands and start of next
-            'md 5\n',		# terminate the last command
-            )
-
-        cr = player.CommandReader(cf)
+             ' cmd  2 ',	# no newline, so no command read
+             '\n',		# newline trigger command
+             'cmd 3\ncmd 4\nc', # two commands and start of next
+             'md 5\n',		# terminate the last command
+             )
 
         # Get foo
         cmds = list(cr.handle_data())
