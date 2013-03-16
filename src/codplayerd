@@ -13,8 +13,8 @@ from codplayer import db, player, config
 
 def main(args):
     try:
-        cfg = None # config.Config(args.config)
-        database = None # db.Database(cfg.database)
+        cfg = config.Config(args.config)
+        database = db.Database(cfg.database)
 
         if args.debug:
             log_file = sys.stderr

@@ -26,6 +26,8 @@ class Config:
         ('database', types.StringType),
         ('log_file', types.StringType),
         ('control_fifo', types.StringType),
+        ('cdrom_device', types.StringType),
+        ('cdrdao_command', types.StringType),
         )
 
     def __init__(self, config_file = None):

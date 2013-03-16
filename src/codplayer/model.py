@@ -68,6 +68,10 @@ class Disc(object):
         self.catalog = None
         
 
+    def __str__(self):
+        return self.disc_id
+
+
     def add_track(self, track):
         self.tracks.append(track)
         track.number = len(self.tracks)

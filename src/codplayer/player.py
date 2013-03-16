@@ -12,6 +12,11 @@ The unit of time in all objects is one sample.
 
 import os
 import select
+import subprocess
+
+from musicbrainz2 import disc as mb2_disc
+
+from . import db, model
 
 
 class PlayerError(Exception):
@@ -22,26 +27,29 @@ class State(object):
     """
 
     class NO_DISC:
-        valid_commands = 'disc'
+        valid_commands = ('quit', 'disc')
 
     class PLAY:
-        valid_commands = ('pause', 'next', 'prev', 'stop', 'eject')
+        valid_commands = ('quit', 'pause', 'play_pause',
+                          'next', 'prev', 'stop', 'eject')
 
     class PAUSE:
-        valid_commands = ('play', 'next', 'prev', 'stop', 'eject')
+        valid_commands = ('quit', 'play', 'play_pause',
+                          'next', 'prev', 'stop', 'eject')
 
     class STOP:
-        valid_commands = ('play', 'eject')
+        valid_commands = ('quit', 'play', 'play_pause', 'eject')
+
 
     def __init__(self):
         self.state = self.NO_DISC
-        self.ripping = False
         self.db_id = None
         self.track_num = 0
         self.no_tracks = 0
         self.index = 0
         self.position = 0
         self.format = None
+
 
     @classmethod
     def from_string(cls, json):
@@ -50,6 +58,8 @@ class State(object):
     def to_string(self):
         pass
     
+    def __str__(self):
+        return self.state.__name__
 
 
 class Player(object):
@@ -59,29 +69,128 @@ class Player(object):
         self.db = database
         self.log_file = log_file
         self.log_debug = True
+
+        self.rip_process = None
+
         self.control = CommandReader(control_fd)
         self.state = State()
 
         self.poll = select.poll()
         self.poll.register(self.control, select.POLLIN)
 
+
     def run(self):
         while True:
+            # TODO: add general exception handling here
             self.run_once(1000)
             
 
     def run_once(self, ms_timeout):
         fds = self.poll.poll(ms_timeout)
 
+        # Process input
         for fd, event in fds:
             if fd == self.control.fileno():
                 for cmd_args in self.control.handle_data():
                     self.handle_command(cmd_args)
 
+        # Check if any current ripping process is finished
+        if self.rip_process is not None:
+            rc = self.rip_process.poll()
+            if rc is not None:
+                self.debug('ripping process finished with status {0}', rc)
+                self.rip_process = None
+            
                     
     def handle_command(self, cmd_args):
         self.debug('got command: {0}', cmd_args)
 
+        cmd = cmd_args[0]
+        args = cmd_args[1:]
+
+        if cmd in self.state.state.valid_commands:
+            getattr(self, 'cmd_' + cmd)(args)
+        else:
+            self.log('invalid command in state {0}: {1}',
+                     self.state, cmd)
+
+
+    def cmd_disc(self, args):
+        if self.rip_process:
+            self.log("already ripping disc, can't rip another one yet")
+            return
+
+        self.debug('disc inserted, reading ID')
+
+        # Use Musicbrainz code to get the disc signature
+        try:
+            mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
+        except mb2_disc.DiscError, e:
+            self.log('error reading disc in {0}: {1}',
+                     self.cfg.cdrom_device, e)
+            return
+
+        # Is this already ripped?
+
+        disc = self.db.get_disc_by_disc_id(mbd.getId())
+
+        if disc is None:
+            # Nope, turn it into a temporary Disc object good enough
+            # for playing and start the ripping process
+            disc = model.Disc.from_musicbrainz_disc(mbd)
+            rip_started = self.rip_disc(disc)
+            if not rip_started:
+                return
+
+        self.play_disc(disc)
+
+
+    def rip_disc(self, disc):
+        """Set up the process of ripping a disc that's not in the
+        database.
+        """
+        
+        self.log('ripping new disk: {0}', disc)
+
+        paths = self.db.create_disc_dir(disc.disc_id)
+
+        # Build the command line
+        args = [self.cfg.cdrdao_command,
+                'read-cd',
+                '--device', self.cfg.cdrom_device,
+                '--datafile', paths['audio_file'],
+                paths['toc_file']
+                ]
+
+        try:
+            log_file = open(paths['log_path'], 'wt')
+        except IOError, e:
+            self.log("error ripping disc: can't open log file {0}: {1}",
+                     paths['log_path'], e)
+            return False
+
+        self.debug('executing command in {0}: {1!r}', paths['disc_path'], args)
+                
+        try:
+            self.rip_process = subprocess.Popen(
+                args,
+                cwd = paths['disc_path'],
+                close_fds = True,
+                stdout = log_file,
+                stderr = subprocess.STDOUT)
+        except OSError, e:
+            self.log("error executing command {0!r}: {1}:", args, e)
+            return False
+
+        return True
+
+
+    def play_disc(self, disc):
+        """Start playing disc from the database"""
+
+        self.log('playing disk: {0}', disc)
+        # TODO: do this...
+        
 
     def log(self, msg, *args, **kwargs):
         self.log_file.write(msg.format(*args, **kwargs))

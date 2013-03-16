@@ -13,6 +13,8 @@ import string
 import base64
 import re
 
+from . import model
+
 
 class DatabaseError(Exception):
     def __init__(self, dir, msg = None, entry = None, exc = None):
@@ -72,6 +74,9 @@ class Database(object):
     DISC_DIR/b8ffac79.cod (optional)
       If present, the cooked disc TOC with album information and track
       edits.
+
+    DISC_DIR/b8ffac79.riplog (optional)
+      The log from the ripping process (may be discarded once complete).
     """
 
     VERSION = 1
@@ -85,7 +90,7 @@ class Database(object):
     AUDIO_SUFFIX = '.cdr'
     ORIG_TOC_SUFFIX = '.toc'
     COOKED_TOC_SUFFIX = '.cod'
-
+    RIP_LOG_SUFFIX = '.riplog'
 
     #
     # Helper class methods
@@ -120,6 +125,11 @@ class Database(object):
     @classmethod
     def bucket_for_db_id(cls, db_id):
         return db_id[0]
+
+
+    @classmethod
+    def filename_base(cls, db_id):
+        return db_id[:8]
 
 
     #
@@ -221,6 +231,15 @@ class Database(object):
             raise DatabaseError(self.db_dir, exc = e)
 
 
+    def get_disc_dir(self, db_id):
+        """@return the path to the directory for a disc, identified by
+        the db_id."""
+        
+        return os.path.join(self.db_dir,
+                            self.DISC_DIR,
+                            self.bucket_for_db_id(db_id),
+                            db_id)
+
     def iterdiscs_db_ids(self):
         """@return an iterator listing the datbase IDs of all discs in
         the database.
@@ -245,4 +264,92 @@ class Database(object):
                 raise DatabaseError(self.db_dir, exc = e, entry = b)
 
 
-                
+    def get_disc_by_disc_id(self, disc_id):
+        """@return a Disc basted on a MusicBrainz disc ID, or None if
+        not found in database.
+        """
+        
+        return self.get_disc_by_db_id(self.disc_to_db_id(disc_id))
+
+
+    def get_disc_by_db_id(self, db_id):
+        """@return a Disc basted on a database ID, or None if not
+        found in database.
+        """
+
+        if not self.is_valid_db_id(db_id):
+            raise ValueError('invalid DB ID: {0!r}'.format(db_id))
+
+        path = self.get_disc_dir(db_id)
+        fbase = self.filename_base(db_id)
+
+
+        # TODO: check cooked TOC before original
+
+        audio_file = os.path.join(path, fbase + self.AUDIO_SUFFIX)
+        orig_toc_file = os.path.join(path, fbase + self.ORIG_TOC_SUFFIX)
+
+        # Check that mandatory files are there
+        if not (os.path.exists(audio_file) and
+                os.path.exists(orig_toc_file)):
+            return None
+        
+        try:
+            f = open(orig_toc_file, 'rt')
+            toc_data = f.read(50000) # keep it sane
+            f.close()
+        except IOError, e:
+            raise DatabaseError('error reading {0}: {1}'.format(
+                    orig_toc_file, e))
+        
+        return model.Disc.from_toc(toc_data, self.db_to_disc_id(db_id))
+
+
+    def create_disc_dir(self, disc_id):
+        """Create a directory for a new disc to be ripped into the
+        database, identified by disc_id.
+
+        @return a mapping of the paths to use when ripping the disc:
+
+        - disc_path: path of disc directory
+        - audio_file: file containing audio data
+        - toc_file: raw TOC file
+        - log_path: full path to log file for the ripping process
+        """
+
+        db_id = self.disc_to_db_id(disc_id)
+        path = self.get_disc_dir(db_id)
+            
+        # Be forgiving if the dir already exists, to allow aborted
+        # rips to be restarted easily
+
+        if not os.path.isdir(path):
+            try:
+                os.mkdir(path)
+            except OSError, e:
+                raise DatabaseError('error creating disc dir {0}: {1}'.format(
+                        path, e))
+
+
+        fbase = self.filename_base(db_id)
+
+        # Write the disc ID
+        try:
+            disc_id_path = os.path.join(path, fbase + self.DISC_ID_SUFFIX)
+            f = open(disc_id_path, 'wt')
+            f.write(disc_id + '\n')
+            f.close()
+        except IOError, e:
+            raise DatabaseError('error writing disc ID to {0}: {1}'.format(
+                    disc_id_path, e))
+
+        return {
+            'disc_path': path,
+            'audio_file': fbase + self.AUDIO_SUFFIX,
+            'toc_file': fbase + self.ORIG_TOC_SUFFIX,
+
+            'log_path': os.path.join(path,
+                                     fbase + self.RIP_LOG_SUFFIX)
+            }
+
+    
