@@ -1,0 +1,80 @@
+codplayer - a complicated disc player
+=====================================
+
+This is a music player for old farts who insist on listening to albums
+and like staring at a shelf full of discs to select the right music,
+but still would like to have all the music on a file server.
+
+Therefore, the main user interface is the CD itself.  Insert a disc
+and it will be simultaneously ripped to a file server and played.  The
+second time the same disc is inserted, it will be played directly from
+the ripped files.
+
+Apart from providing backup of your music, having a soft copy of the
+discs allows them to be edited.  Some use cases for this include:
+
+* Add artist, title and track information
+* Cut out annoying intros and boring extra tracks
+* Shuffle the tracks of compilation albums
+* Link multi-disc albums so all the discs are played in sequence
+
+
+License
+=======
+
+Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+
+codplayer is licensed under an MIT license, please see the file
+LICENSE.
+
+
+Architecture
+============
+
+At the heart of codplayer is the disc database and the player daemon.
+Supplementing these are various control interfaces and database
+administration UIs.
+
+The target system setup is to run the player deamon on a fanless,
+discless small computer hooked up to the hifi in the living room,
+which is connected over the LAN to a file server which holds the disc
+database.  The player computer would provide the control interface,
+while the disc server would host the database administration web GUI.
+
+
+The disc database
+-----------------
+
+Each CD is stored in a directory of its own, with the raw PCM data and
+the table of contents stored in files.  The format of the database is
+described in the documentation for the class codplayer.db.Database.
+The disc database must be accessible in the file system of the player.
+
+
+The player daemon
+-----------------
+
+codplayerd links the CD reader and the sound output device with the
+disc database, ripping and playing disc.  It is controlled over a FIFO
+in the file system, and continously updates a file with the player
+state.  All the different interfaces uses the FIFO and the state file
+to control and output the state of the player daemon.
+
+
+Player interfaces
+-----------------
+
+codplayer is intended to support different platforms and control
+interfaces.  E.g.:
+
+* codctl - command line interface
+* Web interface (none implemented yet)
+* Control apps (none implemented yet)
+* Physical button and LED display interfaces (also not implemented)
+
+
+Database administration
+-----------------------
+
+A web GUI will eventually be provided to manage the discs in the
+database and allow the editing envisioned in the introduction.
