@@ -74,9 +74,6 @@ class Database(object):
     DISC_DIR/b8ffac79.cod (optional)
       If present, the cooked disc TOC with album information and track
       edits.
-
-    DISC_DIR/b8ffac79.riplog (optional)
-      The log from the ripping process (may be discarded once complete).
     """
 
     VERSION = 1
@@ -90,7 +87,6 @@ class Database(object):
     AUDIO_SUFFIX = '.cdr'
     ORIG_TOC_SUFFIX = '.toc'
     COOKED_TOC_SUFFIX = '.cod'
-    RIP_LOG_SUFFIX = '.riplog'
 
     #
     # Helper class methods
@@ -240,6 +236,31 @@ class Database(object):
                             self.bucket_for_db_id(db_id),
                             db_id)
 
+    def get_id_file(self, db_id):
+        return self.filename_base(db_id) + self.DISC_ID_SUFFIX
+
+
+    def get_audio_file(self, db_id):
+        return self.filename_base(db_id) + self.AUDIO_SUFFIX
+
+    def get_orig_toc_file(self, db_id):
+        return self.filename_base(db_id) + self.ORIG_TOC_SUFFIX
+
+
+    def get_id_path(self, db_id):
+        return os.path.join(self.get_disc_dir(db_id),
+                            self.get_id_file(db_id))
+
+
+    def get_audio_path(self, db_id):
+        return os.path.join(self.get_disc_dir(db_id),
+                            self.get_audio_file(db_id))
+
+    def get_orig_toc_path(self, db_id):
+        return os.path.join(self.get_disc_dir(db_id),
+                            self.get_orig_toc_file(db_id))
+        
+
     def iterdiscs_db_ids(self):
         """@return an iterator listing the datbase IDs of all discs in
         the database.
@@ -305,19 +326,13 @@ class Database(object):
         return model.Disc.from_toc(toc_data, self.db_to_disc_id(db_id))
 
 
-    def create_disc_dir(self, disc_id):
+    def create_disc_dir(self, db_id):
         """Create a directory for a new disc to be ripped into the
-        database, identified by disc_id.
+        database, identified by db_id.
 
-        @return a mapping of the paths to use when ripping the disc:
-
-        - disc_path: path of disc directory
-        - audio_file: file containing audio data
-        - toc_file: raw TOC file
-        - log_path: full path to log file for the ripping process
+        @return the path to the disc directory
         """
 
-        db_id = self.disc_to_db_id(disc_id)
         path = self.get_disc_dir(db_id)
             
         # Be forgiving if the dir already exists, to allow aborted
@@ -335,21 +350,14 @@ class Database(object):
 
         # Write the disc ID
         try:
-            disc_id_path = os.path.join(path, fbase + self.DISC_ID_SUFFIX)
+            disc_id_path = self.get_id_path(db_id)
             f = open(disc_id_path, 'wt')
-            f.write(disc_id + '\n')
+            f.write(self.db_to_disc_id(db_id) + '\n')
             f.close()
         except IOError, e:
             raise DatabaseError('error writing disc ID to {0}: {1}'.format(
                     disc_id_path, e))
 
-        return {
-            'disc_path': path,
-            'audio_file': fbase + self.AUDIO_SUFFIX,
-            'toc_file': fbase + self.ORIG_TOC_SUFFIX,
-
-            'log_path': os.path.join(path,
-                                     fbase + self.RIP_LOG_SUFFIX)
-            }
+        return path
 
     

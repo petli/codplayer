@@ -91,7 +91,7 @@ class TestDir(object):
                      db.Database.AUDIO_SUFFIX,
                      db.Database.ORIG_TOC_SUFFIX,
                      db.Database.COOKED_TOC_SUFFIX,
-                     db.Database.RIP_LOG_SUFFIX
+                     '.log',
                      ):
                 os.remove(os.path.join(d, f))
             else:
@@ -173,35 +173,20 @@ class TestDiscAccess(TestDir, unittest.TestCase):
         self.db = db.Database(self.test_dir)
         
     def test_create_disc_dir(self):
-        paths = self.db.create_disc_dir(self.DISC_ID)
+        path = self.db.create_disc_dir(self.DB_ID)
 
-        db_path = self.db.get_disc_dir(self.DB_ID)
+        self.assertEqual(path, self.db.get_disc_dir(self.DB_ID))
 
-        self.assertEqual(paths['disc_path'], db_path)
-
-        self.assertEqual(paths['audio_file'],
-                         self.DB_ID[:8] + self.db.AUDIO_SUFFIX)
-
-        self.assertEqual(paths['toc_file'],
-                         self.DB_ID[:8] + self.db.ORIG_TOC_SUFFIX)
-
-        self.assertEqual(paths['log_path'],
-                         os.path.join(db_path,
-                                      self.DB_ID[:8] + self.db.RIP_LOG_SUFFIX))
-
-        audio_file = os.path.join(db_path, paths['audio_file'])
-        toc_file = os.path.join(db_path, paths['toc_file'])
+        audio_file = self.db.get_audio_path(self.DB_ID)
+        toc_file = self.db.get_orig_toc_path(self.DB_ID)
 
         # Dir should now exist and not contain those files 
-        self.assertTrue(os.path.isdir(db_path))
+        self.assertTrue(os.path.isdir(path))
         self.assertFalse(os.path.exists(audio_file))
         self.assertFalse(os.path.exists(toc_file))
-        self.assertFalse(os.path.exists(paths['log_path']))
 
         # But should have the disc ID file
-        self.assertTrue(os.path.isfile(
-                         os.path.join(db_path,
-                                      self.DB_ID[:8] + self.db.DISC_ID_SUFFIX)))
+        self.assertTrue(os.path.isfile(self.db.get_id_path(self.DB_ID)))
 
         # Getting the disc should not return anything, since the files
         # are missing

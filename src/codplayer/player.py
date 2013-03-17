@@ -152,29 +152,31 @@ class Player(object):
         
         self.log('ripping new disk: {0}', disc)
 
-        paths = self.db.create_disc_dir(disc.disc_id)
+        db_id = self.db.disc_to_db_id(disc.disc_id)
+        path = self.db.create_disc_dir(db_id)
 
         # Build the command line
         args = [self.cfg.cdrdao_command,
                 'read-cd',
                 '--device', self.cfg.cdrom_device,
-                '--datafile', paths['audio_file'],
-                paths['toc_file']
+                '--datafile', self.db.get_audio_file(db_id),
+                self.db.get_orig_toc_file(db_id),
                 ]
 
         try:
-            log_file = open(paths['log_path'], 'wt')
+            log_path = os.path.join(path, 'cdrdao.log')
+            log_file = open(log_path, 'wt')
         except IOError, e:
             self.log("error ripping disc: can't open log file {0}: {1}",
-                     paths['log_path'], e)
+                     log_path, e)
             return False
 
-        self.debug('executing command in {0}: {1!r}', paths['disc_path'], args)
+        self.debug('executing command in {0}: {1!r}', path, args)
                 
         try:
             self.rip_process = subprocess.Popen(
                 args,
-                cwd = paths['disc_path'],
+                cwd = path,
                 close_fds = True,
                 stdout = log_file,
                 stderr = subprocess.STDOUT)
