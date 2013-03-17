@@ -302,17 +302,13 @@ class Database(object):
             raise ValueError('invalid DB ID: {0!r}'.format(db_id))
 
         path = self.get_disc_dir(db_id)
-        fbase = self.filename_base(db_id)
-
 
         # TODO: check cooked TOC before original
 
-        audio_file = os.path.join(path, fbase + self.AUDIO_SUFFIX)
-        orig_toc_file = os.path.join(path, fbase + self.ORIG_TOC_SUFFIX)
+        orig_toc_file = self.get_orig_toc_path(db_id)
 
-        # Check that mandatory files are there
-        if not (os.path.exists(audio_file) and
-                os.path.exists(orig_toc_file)):
+        # If no TOC, then no Disc
+        if not os.path.exists(orig_toc_file):
             return None
         
         try:

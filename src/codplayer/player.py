@@ -13,6 +13,9 @@ The unit of time in all objects is one sample.
 import os
 import select
 import subprocess
+import time
+import threading
+import Queue
 
 from musicbrainz2 import disc as mb2_disc
 
@@ -44,11 +47,11 @@ class State(object):
     def __init__(self):
         self.state = self.NO_DISC
         self.db_id = None
-        self.track_num = 0
+        self.track_number = 0
         self.no_tracks = 0
         self.index = 0
         self.position = 0
-        self.format = None
+        self.sample_format = None
 
 
     @classmethod
@@ -71,6 +74,10 @@ class Player(object):
         self.log_debug = True
 
         self.rip_process = None
+
+        self.streamer = None
+        self.current_disc = None
+        self.current_packet = None
 
         self.control = CommandReader(control_fd)
         self.state = State()
@@ -131,29 +138,54 @@ class Player(object):
             return
 
         # Is this already ripped?
-
         disc = self.db.get_disc_by_disc_id(mbd.getId())
 
         if disc is None:
-            # Nope, turn it into a temporary Disc object good enough
-            # for playing and start the ripping process
-            disc = model.Disc.from_musicbrainz_disc(mbd)
-            rip_started = self.rip_disc(disc)
-            if not rip_started:
+            # No, rip it and get a Disc object good enough for playing 
+            disc = self.rip_disc(mbd)
+            if not disc:
                 return
 
         self.play_disc(disc)
 
 
-    def rip_disc(self, disc):
+    def cmd_stop(self, args):
+        if self.streamer:
+            self.streamer.shutdown()
+            self.streamer = None
+
+        # Set state to stopped 
+        self.state.state = State.STOP
+        self.state.track_number = 0
+        self.state.index = 0
+        self.state.position = 0
+
+        self.write_state()
+
+
+    def cmd_play(self, args):
+        if self.state.state == State.STOP:
+            # Just restart playing
+            assert self.current_disc is not None
+            self.play_disc(self.current_disc)
+
+        else:
+            raise PlayerError('unexpected state for cmd_play: {0}', self.state)
+
+
+    def rip_disc(self, mbd):
         """Set up the process of ripping a disc that's not in the
-        database.
+        database, based on the Musicbrainz Disc object
         """
         
-        self.log('ripping new disk: {0}', disc)
-
-        db_id = self.db.disc_to_db_id(disc.disc_id)
+        # Turn Musicbrainz disc into our Disc object
+        db_id = self.db.disc_to_db_id(mbd.getId())
         path = self.db.create_disc_dir(db_id)
+
+        disc = model.Disc.from_musicbrainz_disc(
+            mbd, filename = self.db.get_audio_path(db_id))
+        
+        self.log('ripping new disk: {0}', disc)
 
         # Build the command line
         args = [self.cfg.cdrdao_command,
@@ -182,21 +214,45 @@ class Player(object):
                 stderr = subprocess.STDOUT)
         except OSError, e:
             self.log("error executing command {0!r}: {1}:", args, e)
-            return False
+            return None
 
-        return True
+        return disc
 
 
     def play_disc(self, disc):
         """Start playing disc from the database"""
 
         self.log('playing disk: {0}', disc)
-        # TODO: do this...
+
+        # There shouldn't be a streamer, but if there is stop it
+        if self.streamer:
+            self.streamer.shutdown()
+            self.streamer = None
+
+        # Set up streaming from position 0
+        self.streamer = AudioStreamer(self, disc, 0)
+        self.current_disc = disc
+
+        # Initialise state to new disc
+        self.state.state = self.state.PLAY
+        self.state.db_id = self.db.disc_to_db_id(disc.disc_id)
+        self.state.track_number = 1 # not counting from 0 here
+        self.state.no_tracks = len(disc.tracks)
+        self.state.index = 1 # first pregap/intro is skipped
+        self.state.position = 0
+        self.state.sample_format = disc.sample_format
         
+        self.write_state()
+
+
+    def write_state(self):
+        # TODO: write to file
+        self.debug('state: {0}', self.state.__dict__)
+
 
     def log(self, msg, *args, **kwargs):
-        self.log_file.write(msg.format(*args, **kwargs))
-        self.log_file.write('\n')
+        m = time.strftime('%Y-%m-%d %H:%M:%S ') + msg.format(*args, **kwargs) + '\n'
+        self.log_file.write(m)
         self.log_file.flush()
 
         
@@ -205,7 +261,171 @@ class Player(object):
             self.log(msg, *args, **kwargs)
 
     
+
+class AudioPacket(object):
+    """A packet of audio data coming from a single track and index.
+
+    It has the following attributes (all positions and lengths count
+    samples, as usual):
+    
+    track: a model.Track object 
+
+    index: the track index counting from 0
+
+    abs_pos: the track position from the start of index 0
+
+    rel_pos: the track position from the start of index 1
+
+    file_pos: the file position for the first track, or None if the
+    packet should be silence
+
+    length: number of samples in the packet
+
+    data: sample data
+    """
+
+    def __init__(self, track, abs_pos, length):
+        self.track = track
+
+        assert abs_pos + length <= track.length
+
+        if abs_pos < track.pregap_offset:
+            self.index = 0
+        else:
+            self.index = 1
+
+            for index_pos in track.index:
+                if abs_pos < index_pos:
+                    break
+                self.index += 1
+
+        self.abs_pos = abs_pos
+        self.rel_pos = abs_pos - track.pregap_offset
+        self.length = length
+
+        if abs_pos < track.pregap_silence:
+            # In silent part of pregap that's not in the audio file
+            assert abs_pos + length <= track.pregap_silence
+            self.file_pos = None
+        else:
+            self.file_pos = track.file_offset + abs_pos - track.pregap_silence
+
+        self.data = None
+
+
+class AudioPacketizer(object):
+    """Utility class for splitting an audio file into packets.
+
+    This call will ensure that no packets cross an index or track
+    boundary, and will also obey any edits to the disc.
+
+    It will not, however, read any samples from disc, just tell the
+    calling code what to read.
+    """
+
+    def __init__(self, disc, track_number, packets_per_second):
+        """Set up packetizing DISC, starting at TRACK_NUMBER index 1.
+
+        The maximum size of the packets returned are controlled by
+        packets_per_second.
+        """
+        assert track_number < len(disc.tracks)
+
+        self.disc = disc
+        self.track_number = track_number
+
+        # Mock up a packet that ends at the start of index 1
+        self.prev_packet = AudioPacket(
+            track, track.pregap_offset, 0)
+
+
+    def get_next_packet(self):
+        """Return the next packet, or None if the end of the disc has
+        been reached.
+        """
+
+        return None
+
+
+
                                 
+class AudioStreamer(object):
+    """Streamer for audio samples.  Encapsulates a thread reading from
+    the file (to handle any IO waits) and a queue for passing samples
+    with meta data to the player.  The player can ask the thread to
+    stop, typically used when stopping playing or skipping forward or
+    backward.
+    """
+    
+    # Perhaps make this configurable sometime
+    MAX_BUFFER_SECS = 20
+    PACKETS_PER_SECOND = 5
+
+    def __init__(self, player, disc, track_number):
+        """Set up an audio stream from DISC, starting at track_number.
+        """
+
+        self.player = player
+
+        self.disc = disc
+        self.track_number = 0
+        self.track_index = 1 # skip any pregap/index
+        
+        self.packet_sample_size = (
+            disc.sample_format.rate / self.PACKETS_PER_SECOND)
+        self.packet_byte_size = (
+            self.packet_sample_size * disc.sample_format.sample_bytes)
+
+        self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
+        self.underflow_logged = False
+        
+        self.keep_running = True
+
+        self.thread = threading.Thread(target = self.run_thread)
+        self.thread.daemon = True
+        self.thread.start()
+
+
+    def get_packet(self):
+        """Return the next queued audio packet, or None if the queue is empty.
+        """
+        try:
+            packet = self.queue.get_nowait()
+            self.underflow_logged = False
+            return packet
+        except Queue.Empty:
+            if not self.underflow_logged:
+                self.underflow_logged = True
+                self.debug('underflow getting audio from thread {0}', self.thread.name)
+            return None
+        
+
+    def shutdown(self):
+        """Shut down the streamer thread, discarding any queued packets.
+        """
+
+        # Assume the global interpreter lock allows us to flip this flag safely
+        self.keep_running = False
+
+        # Empty queue to ensure that the thread sees the flag
+        try:
+            while True:
+                self.queue.get_nowait()
+        except Queue.Empty:
+            pass
+                
+
+    def run_thread(self):
+        self.player.debug('streamer thread {2} started for {0} track {1}',
+                          self.disc, self.track_index, self.thread.name)
+
+        while self.keep_running:
+            time.sleep(1)
+
+        self.player.debug('streamer thread {0} shutting down', self.thread.name)
+        self.player = None
+
+        
             
 class CommandReader(object):
     """Wrapper around the file object for the command channel.

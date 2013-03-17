@@ -149,7 +149,7 @@ class Disc(object):
 
                     if filename.endswith(RAW_CD.file_suffix):
                         disc.data_file_format = RAW_CD
-                        disc.data_sample_format = PCM
+                        disc.sample_format = PCM
                     else:
                         raise DiscInfoError('unknown file format: "%s"'
                                             % filename)
@@ -177,9 +177,12 @@ class Disc(object):
                         raise DiscInfoError('bad offset for file: %s' % line)
                     
                 try:
-                    track.length = PCM.msf_to_samples(length)
+                    track.file_length = PCM.msf_to_samples(length)
                 except ValueError:
                     raise DiscInfoError('bad length for file: %s' % line)
+
+                # Add in any silence before the track to the total length
+                track.length = track.file_length + track.pregap_silence
 
 
             elif line.startswith('SILENCE '):
@@ -245,7 +248,7 @@ class Disc(object):
 
             if filename.endswith(RAW_CD.file_suffix):
                 disc.data_file_format = RAW_CD
-                disc.data_sample_format = PCM
+                disc.sample_format = PCM
             else:
                 raise DiscInfoError('unknown file format: "%s"'
                                     % filename)
@@ -259,6 +262,7 @@ class Disc(object):
             track = Track()
             track.file_offset = (start - first_frame) * PCM.samples_per_frame
             track.length = length * PCM.samples_per_frame
+            track.file_length = track.length
             disc.add_track(track)
 
         return disc
@@ -303,6 +307,7 @@ class Track(object):
 
         self.file_offset = 0
         self.length = 0
+        self.file_length = 0
 
         # Where index switch from 0 to 1
         self.pregap_offset = 0
