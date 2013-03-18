@@ -108,6 +108,8 @@ class Player(object):
                 self.debug('ripping process finished with status {0}', rc)
                 self.rip_process = None
             
+        self.handle_audio()
+
                     
     def handle_command(self, cmd_args):
         self.debug('got command: {0}', cmd_args)
@@ -120,6 +122,30 @@ class Player(object):
         else:
             self.log('invalid command in state {0}: {1}',
                      self.state, cmd)
+
+
+    def handle_audio(self):
+        # TODO: check what can be put into sound device, but for now
+        # just get the data and store in a temp file
+
+        while self.streamer is not None:
+            p = self.streamer.get_packet()
+
+            if p is None:
+                return
+            
+            elif p == self.streamer.END_OF_STREAM:
+                self.debug('end of audio stream')
+                self.streamer = None
+                self.stopped()
+
+            elif p == self.streamer.STREAM_ERROR:
+                self.debug('error in audio stream')
+                self.streamer = None
+                self.stopped()
+
+            else:
+                open('test.cdr', 'ab').write(p.data)
 
 
     def cmd_disc(self, args):
@@ -154,13 +180,8 @@ class Player(object):
             self.streamer.shutdown()
             self.streamer = None
 
-        # Set state to stopped 
-        self.state.state = State.STOP
-        self.state.track_number = 0
-        self.state.index = 0
-        self.state.position = 0
-
-        self.write_state()
+        self.stopped()
+        
 
 
     def cmd_play(self, args):
@@ -245,6 +266,16 @@ class Player(object):
         self.write_state()
 
 
+    def stopped(self):
+        # Set state to stopped 
+        self.state.state = State.STOP
+        self.state.track_number = 0
+        self.state.index = 0
+        self.state.position = 0
+
+        self.write_state()
+
+
     def write_state(self):
         # TODO: write to file
         self.debug('state: {0}', self.state.__dict__)
@@ -312,41 +343,62 @@ class AudioPacket(object):
 
         self.data = None
 
+    @classmethod
+    def iterate(cls, disc, track_number, packets_per_second):
+        """Iterate over DISC, splitting it into packets starting at
+        TRACK_NUMBER index 1.
 
-class AudioPacketizer(object):
-    """Utility class for splitting an audio file into packets.
+        The maximum size of the packets returned is controlled by
+        PACKETS_PER_SECOND.
 
-    This call will ensure that no packets cross an index or track
-    boundary, and will also obey any edits to the disc.
+        This call will ensure that no packets cross a track or pregap
+        boundary, and will also obey any edits to the disc.
 
-    It will not, however, read any samples from disc, just tell the
-    calling code what to read.
-    """
-
-    def __init__(self, disc, track_number, packets_per_second):
-        """Set up packetizing DISC, starting at TRACK_NUMBER index 1.
-
-        The maximum size of the packets returned are controlled by
-        packets_per_second.
-        """
-        assert track_number < len(disc.tracks)
-
-        self.disc = disc
-        self.track_number = track_number
-
-        # Mock up a packet that ends at the start of index 1
-        self.prev_packet = AudioPacket(
-            track, track.pregap_offset, 0)
-
-
-    def get_next_packet(self):
-        """Return the next packet, or None if the end of the disc has
-        been reached.
+        It will not, however, read any samples from disc, just tell the
+        calling code what to read.
         """
 
-        return None
+        assert track_number >= 0 and track_number < len(disc.tracks)
 
+        track = disc.tracks[track_number]
 
+        packet_sample_size = (
+            disc.sample_format.rate / packets_per_second)
+
+        # Mock up a packet that ends at the start of index 1, so the
+        # first packet generated starts at that position
+        p = cls(track, track.pregap_offset, 0)
+
+        while True:
+            # Calculate offsets of next packet
+            abs_pos = p.abs_pos + p.length
+
+            if abs_pos < track.pregap_offset:
+                length = min(track.pregap_offset - abs_pos, packet_sample_size)
+            else:
+                length = min(track.length - abs_pos, packet_sample_size)
+
+            assert length >= 0
+
+            if length == 0:
+                # Reached end of track, switch to next.  Simplify this
+                # code by generating a dummy packet for the next
+                # iteration to work on (but don't yield it!)
+
+                track_number += 1
+
+                try:
+                    track = disc.tracks[track_number]
+                except IndexError:
+                    # That was the last track, no more packets
+                    return
+
+                p = cls(track, 0, 0)                
+
+            else:
+                # Generate next packet
+                p = cls(track, abs_pos, length)
+                yield p
 
                                 
 class AudioStreamer(object):
@@ -357,6 +409,10 @@ class AudioStreamer(object):
     backward.
     """
     
+    # Special objects to signal the end of the stream
+    class STREAM_ERROR: pass
+    class END_OF_STREAM: pass
+
     # Perhaps make this configurable sometime
     MAX_BUFFER_SECS = 20
     PACKETS_PER_SECOND = 5
@@ -368,13 +424,7 @@ class AudioStreamer(object):
         self.player = player
 
         self.disc = disc
-        self.track_number = 0
-        self.track_index = 1 # skip any pregap/index
-        
-        self.packet_sample_size = (
-            disc.sample_format.rate / self.PACKETS_PER_SECOND)
-        self.packet_byte_size = (
-            self.packet_sample_size * disc.sample_format.sample_bytes)
+        self.first_track_number = track_number
 
         self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
         self.underflow_logged = False
@@ -396,7 +446,8 @@ class AudioStreamer(object):
         except Queue.Empty:
             if not self.underflow_logged:
                 self.underflow_logged = True
-                self.debug('underflow getting audio from thread {0}', self.thread.name)
+                self.player.debug('underflow getting audio from thread {0}',
+                                  self.thread.name)
             return None
         
 
@@ -416,14 +467,69 @@ class AudioStreamer(object):
                 
 
     def run_thread(self):
-        self.player.debug('streamer thread {2} started for {0} track {1}',
-                          self.disc, self.track_index, self.thread.name)
+        end_of_stream = self.STREAM_ERROR
+        try:
+            self.player.debug('streamer {0} started for {1} track {2}',
+                              self.thread.name, self.disc, self.first_track_number)
 
-        while self.keep_running:
-            time.sleep(1)
 
-        self.player.debug('streamer thread {0} shutting down', self.thread.name)
-        self.player = None
+            # Construct full path to data file and open it
+
+            db_id = self.player.db.disc_to_db_id(self.disc.disc_id)
+            path = os.path.join(
+                self.player.db.get_disc_dir(db_id),
+                self.disc.data_file_name)
+                    
+            self.player.debug('{0}: opening file {1}',
+                              self.thread.name, path)
+                    
+            try:
+                audio_file = open(path, 'rb')
+            except IOError, e:
+                self.player.log('{0}: error opening file {1}: {2}',
+                                self.thread.name, path, e)
+                return
+
+
+            # Iterate over all packets, reading data into them
+
+            for p in AudioPacket.iterate(self.disc,
+                                         self.first_track_number,
+                                         self.PACKETS_PER_SECOND):
+
+                # Very simple thread signalling...
+                if not self.keep_running:
+                    return
+
+                # Read from file
+                try:
+                    length = p.length * self.disc.sample_format.sample_bytes
+                    p.data = audio_file.read(length)
+                except IOError, e:
+                    self.player.log('{0}: error reading file {1}: {2}',
+                             self.thread.name, path, e)
+                    return
+                    
+                if len(p.data) < length:
+                    # TODO: handle reaching the end of a file currently being ripped
+
+                    self.player.log('{0}: unexpected end of file {1}: {2}',
+                             self.thread.name, path, e)
+                    return
+
+                # Finally send out packet to consumer
+                self.queue.put(p)
+
+            # end of loop, handle next packet
+
+            # If we got here, then all streamed fine
+            end_of_stream = self.END_OF_STREAM
+
+        finally:
+            self.queue.put(end_of_stream)
+            self.player.debug('streamer {0} shutting down on {1}',
+                              self.thread.name, end_of_stream.__name__)
+            self.player = None
 
         
             
