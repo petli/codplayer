@@ -28,6 +28,14 @@ class Config:
         ('control_fifo', types.StringType),
         ('cdrom_device', types.StringType),
         ('cdrdao_command', types.StringType),
+        ('audio_device_type', types.StringType),
+
+        # File device options
+        ('file_play_speed', types.IntType),
+
+        # Alsa device options
+        ('alsa_card', types.StringType),
+
         )
 
     def __init__(self, config_file = None):

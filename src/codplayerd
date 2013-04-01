@@ -9,12 +9,18 @@
 import sys
 import argparse
 
-from codplayer import db, player, config
+from codplayer import db, player, config, audio
 
 def main(args):
     try:
+        # As a general principle, parse as much config and open as
+        # many resources as possible before forking off a deamon
+        # process.
+
         cfg = config.Config(args.config)
         database = db.Database(cfg.database)
+
+        dev_class = get_audio_device_class(cfg)
 
         if args.debug:
             log_file = sys.stderr
@@ -27,18 +33,35 @@ def main(args):
             #unlink(cfg.control_fifo)
             # TODO: create fifo
 
+        # All set, create the player object
+        p = player.Player(cfg, database, log_file, control_fd, dev_class)
+
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
     except db.DatabaseError, e:
         sys.exit('error opening database:\n{0}'.format(e))
 
+    except audio.DeviceError, e:
+        sys.exit('error opening {0} device: {1}'.format(
+                cfg.audio_device_type, e))
+
     # TODO: fork off if not in debug mode
         
-    p = player.Player(cfg, database, log_file, control_fd)
     p.run()
             
     
+def get_audio_device_class(cfg):
+    if cfg.audio_device_type == 'alsa':
+        from codplayer import audio_alsa
+        return audio_alsa.AlsaDevice
+        
+    elif cfg.audio_device_type == 'file':
+        from codplayer import audio_file
+        return audio_file.FileDevice
+
+    else:
+        sys.exit('invalid audio device type: {0}'.format(cfg.audio_device_type))
 
 #
 # Set up the command argument parsing

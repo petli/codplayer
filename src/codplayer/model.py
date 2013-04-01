@@ -10,6 +10,10 @@ Classes representing discs and tracks.
 The unit of time in all objects is one sample.
 """
 
+#
+# So... most of the sound format terms in here are probably misused.
+# Bear with me, please.
+#
 
 # Basic data formats
 
