@@ -66,7 +66,8 @@ class State(object):
         pass
     
     def __str__(self):
-        return self.state.__name__
+        return ('{state.__name__} disc: {disc_id} track: {track_number}/{no_tracks} '
+                'index: {index} position: {position}'.format(**self.__dict__))
 
 
 class Player(object):
@@ -84,15 +85,21 @@ class Player(object):
         self.streamer = None
         self.current_disc = None
 
-        self.control = CommandReader(control_fd)
         self.state = State()
+        self.write_state()
 
+        self.keep_running = True
+
+        self.control = CommandReader(control_fd)
         self.poll = select.poll()
         self.poll.register(self.control, select.POLLIN)
 
-
+        
     def run(self):
-        while True:
+        # Main loop, executing until a quit command is received.
+        # However, don't stop if a rip process is currently running.
+
+        while self.keep_running or self.rip_process is not None:
             # TODO: add general exception handling here
             self.run_once(500)
             
@@ -119,10 +126,25 @@ class Player(object):
 
                 if self.streamer:
                     self.streamer.rip_finished()
+
+                    # Special case: if the rip process failed, we
+                    # didn't get any packets from the streamer and
+                    # never got out of the working state.  Handle that
+                    # here by telling that process to stop and
+                    # manually go back to NO_DISC.
+
+                    if self.state.state == State.WORKING:
+                        self.streamer.shutdown()
+                        self.state.state = State.NO_DISC
+                        self.write_state()
             
         self.update_state()
 
                     
+    #
+    # Command processing
+    #
+        
     def handle_command(self, cmd_args):
         self.debug('got command: {0}', cmd_args)
 
@@ -168,6 +190,15 @@ class Player(object):
             self.streamer.shutdown()
             self.streamer = None
 
+        # Must resume playing is paused, as device threads may be
+        # hanging not notice that the stream stopped.  This may result
+        # in a brief snipped of sound as data cached in the hardware
+        # buffer is played.  If doing a proper ALSA device, we can
+        # change this to drop the buffered data.
+        if self.state.state == State.PAUSE:
+            self.device.resume()
+            self.state.state = State.PLAY
+
 
     def cmd_play(self, args):
         if self.state.state == State.STOP:
@@ -175,8 +206,65 @@ class Player(object):
             assert self.current_disc is not None
             self.play_disc(self.current_disc)
 
+        elif self.state.state == State.PAUSE:
+            self.log('resuming audio')
+            self.device.resume()
+
+            self.state.state = State.PLAY
+            self.write_state()
+
         else:
             raise PlayerError('unexpected state for cmd_play: {0}', self.state)
+
+
+    def cmd_pause(self, args):
+        if self.state.state == State.PLAY:
+            self.log('pausing audio')
+            self.device.pause()
+
+            self.state.state = State.PAUSE
+            self.write_state()
+
+        else:
+            raise PlayerError('unexpected state for cmd_pause: {0}', self.state)
+
+
+    def cmd_play_pause(self, args):
+        if self.state.state == State.STOP:
+            # Just restart playing
+            assert self.current_disc is not None
+            self.play_disc(self.current_disc)
+
+        elif self.state.state == State.PAUSE:
+            self.log('resuming audio')
+            self.device.resume()
+
+            self.state.state = State.PLAY
+            self.write_state()
+
+        elif self.state.state == State.PLAY:
+            self.log('pausing audio')
+            self.device.pause()
+
+            self.state.state = State.PAUSE
+            self.write_state()
+
+        else:
+            raise PlayerError('unexpected state for cmd_play_pause: {0}', self.state)
+
+
+    def cmd_quit(self, args):
+        self.log('quitting on command')
+        if self.rip_process is not None:
+            self.log('but letting currently running cdrdao process finish first')
+            
+        self.keep_running = False
+
+        if self.streamer:
+            self.streamer.shutdown()
+            self.streamer = None
+
+
 
 
     def rip_disc(self, mbd):
@@ -250,7 +338,6 @@ class Player(object):
         self.state.sample_format = disc.sample_format
         
         self.write_state()
-        self.log_state()
 
         # Finally tell device to start playing packets from this stream
         self.device.play_stream(self.streamer.iter_packets())
@@ -263,29 +350,27 @@ class Player(object):
 
         p = self.device.get_current_packet()
             
-        # Waiting for the first packet.  There's a race condition here
-        # if the stream is broken so nithing is played, but let's
-        # solve that another day.
+        # Waiting for the first packet.  The case when that packet
+        # never arrives is handled above in run_once().
         if self.state.state == State.WORKING:
             if p is not None:
                 self.state.state = State.PLAY
                 self.state.track_number = p.track.number
                 self.state.index = p.index
                 self.state.position = p.rel_pos
-
                 self.write_state()
-                self.log_state()
 
-        elif self.state.state == State.PLAY:
+        # React to updates from the device in both PLAY and PAUSE,
+        # since it may lag a bit
+
+        elif self.state.state in (State.PLAY, State.PAUSE):
             # Stream stopped
             if p is None:
                 self.state.state = State.STOP
                 self.state.track_number = 0
                 self.state.index = 0
                 self.state.position = 0
-
                 self.write_state()
-                self.log_state()
 
             # New track or index
             elif (self.state.track_number != p.track.number or
@@ -293,24 +378,20 @@ class Player(object):
                 self.state.track_number = p.track.number
                 self.state.index = p.index
                 self.state.position = p.rel_pos
-                
                 self.write_state()
-                self.log_state()
 
             # Moved a second (not worth logging)
             elif (abs(self.state.position - p.rel_pos)
                   >= self.state.sample_format.rate):
                 self.state.position = p.rel_pos
-                self.write_state()
+                self.write_state(False)
 
 
-    def write_state(self):
+    def write_state(self, log_state = True):
         # TODO: write to file
-        pass
 
-    def log_state(self):
-        # FIXME: log properly
-        self.debug('state: {0}', self.state.__dict__)
+        if log_state:
+            self.debug('state: {0}', self.state)
 
 
     def log(self, msg, *args, **kwargs):
@@ -441,6 +522,12 @@ class AudioStreamer(object):
             # and might not have had time to create it yet
 
             while self.audio_file is None:
+                # Obey commands to stop - typically this could only
+                # happen if the ripping process dies without managing
+                # to read anything
+                if self.stop_streamer.is_set():
+                    return
+
                 try:
                     self.audio_file = open(path, 'rb')
                 except IOError, e:

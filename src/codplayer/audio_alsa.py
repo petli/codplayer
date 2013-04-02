@@ -88,6 +88,13 @@ class AlsaDevice(audio.ThreadDevice):
             raise audio.DeviceError(e)
 
 
+    def pause(self):
+        self.alsa_pcm.pause(1)
+
+    def resume(self):
+        self.alsa_pcm.pause(0)
+
+
     def thread_play_stream(self, stream):
         # Collect audio packets into chunks matching the ALSA period
         # size.  This code is a prime candidate for becoming more

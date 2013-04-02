@@ -13,20 +13,35 @@ class FileDevice(audio.ThreadDevice):
     """
     
     def __init__(self, player, config):
+        self.file_play_speed = config.file_play_speed
+        self.file_paused = False
+        
         super(FileDevice, self).__init__(player, config)
 
-        self.file_play_speed = config.file_play_speed
+
+    def pause(self):
+        self.file_paused = True
+
+        
+    def resume(self):
+        self.file_paused = False
+
 
     def thread_play_stream(self, stream):
         f = open('stream_{0}.cdr'.format(time.time()), 'wb')
 
         for p in stream:
+            # Simulate pausing
+            while self.file_paused:
+                time.sleep(1)
+                
             self.set_current_packet(p)
             f.write(p.data)
 
             if self.file_play_speed > 0:
                 # Simulate real playing by sleeping 
                 time.sleep(float(p.length) / (p.disc.sample_format.rate
-                                              * self.file_play_speed)
+                                              * self.file_play_speed))
 
         f.close()
+
