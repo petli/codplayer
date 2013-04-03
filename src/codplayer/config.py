@@ -25,6 +25,7 @@ class Config:
     CONFIG_PARAMS = (
         ('database', types.StringType),
         ('log_file', types.StringType),
+        ('state_file', types.StringType),
         ('control_fifo', types.StringType),
         ('cdrom_device', types.StringType),
         ('cdrdao_command', types.StringType),

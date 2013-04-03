@@ -20,7 +20,7 @@ import Queue
 
 from musicbrainz2 import disc as mb2_disc
 
-from . import db, model, audio
+from . import db, model, audio, serialize
 
 
 class PlayerError(Exception):
@@ -38,7 +38,7 @@ class State(object):
 
     disc_id: The Musicbrainz disc ID of the currently loaded disc, or None
 
-    track_number: Current track being played, counting from 1. 0 if
+    track: Current track being played, counting from 1. 0 if
                   stopped or no disc is loaded.
 
     no_tracks: Number of tracks on the disc to be played. 0 if no disc is loaded.
@@ -74,22 +74,15 @@ class State(object):
     def __init__(self):
         self.state = self.NO_DISC
         self.disc_id = None
-        self.track_number = 0
+        self.track = 0
         self.no_tracks = 0
         self.index = 0
         self.position = 0
         self.ripping = False
 
 
-    @classmethod
-    def from_string(cls, json):
-        pass
-
-    def to_string(self):
-        pass
-    
     def __str__(self):
-        return ('{state.__name__} disc: {disc_id} track: {track_number}/{no_tracks} '
+        return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
                 'index: {index} position: {position} ripping: {ripping}'
                 .format(**self.__dict__))
 
@@ -127,6 +120,10 @@ class Player(object):
             # TODO: add general exception handling here
             self.run_once(500)
             
+        # Reset state to leave less mess behind
+        self.state = State()
+        self.write_state()
+        
 
     #
     # Internal methods
@@ -289,7 +286,8 @@ class Player(object):
 
         # Stop any current streamer
         if self.streamer:
-            self.streamer.shutdown(True)
+            # state.track counts from 1, not 0: set skipped if there will be more tracks
+            self.streamer.shutdown(self.state.track < len(self.current_disc.tracks))
             self.streamer = None
 
         # If the player is paused, it must be resumed.  This will
@@ -307,14 +305,14 @@ class Player(object):
             # player will stop thanks to the stream stopping above and
             # the state updating when the current packet goes to None.
 
-            # state.track_number counts from 1, not 0
-            if self.state.track_number < len(self.current_disc.tracks):
-                assert self.state.track_number >= 1
+            # state.track counts from 1, not 0
+            if self.state.track < len(self.current_disc.tracks):
+                assert self.state.track >= 1
                 
                 # Start playing the next track (now counting from 0,
-                # not 1, so track_number does not have to be incremented...)
+                # not 1, so track does not have to be incremented...)
                 self.streamer = AudioStreamer(self, self.current_disc,
-                                              self.state.track_number,
+                                              self.state.track,
                                               self.rip_process is not None)
                 self.device.play_stream(self.streamer.iter_packets())
 
@@ -332,9 +330,22 @@ class Player(object):
             self.play_disc(self.current_disc, len(self.current_disc.tracks) - 1)
             return
 
-        # Stop any current streamer
+        # Calcualte which track is next (first track is 1)
+        assert self.state.track >= 1
+            
+        # If the track position is within the first two seconds or
+        # the pregap, skip to the previous track.  Otherwise replay
+        # this track from the start
+
+        if self.state.position < 2:
+            tn = self.state.track - 1
+        else:
+            tn = self.state.track
+
+        # Stop any current streamer, setting skipped flag if this will
+        # not stop playback.
         if self.streamer:
-            self.streamer.shutdown(True)
+            self.streamer.shutdown(tn != 0)
             self.streamer = None
 
         # If the player is paused, it must be resumed.  This will
@@ -348,24 +359,12 @@ class Player(object):
             self.write_state()
 
         if self.state.state == State.PLAY:
-            assert self.state.track_number >= 1
-            
-            # If the track position is within the first two seconds or
-            # the pregap, skip to the previous track.  Otherwise replay
-            # this track from the start
 
-            if self.state.position < 2:
-                tn = self.state.track_number - 1
-
-                # If this reaches the start of the disc, just stop.
-                # Nothing has to be done for that, as update_state()
-                # below will react to the stop of the stream.
-                if tn == 0:
-                    return
-                
-            else:
-                tn = self.state.track_number
-
+            # If this reaches the start of the disc, just stop.
+            # Nothing has to be done for that, as update_state()
+            # below will react to the stop of the stream.
+            if tn == 0:
+                return
 
             # Start playing the selected track (now counting from 0,
             # not 1...)
@@ -476,7 +475,7 @@ class Player(object):
         # for the device to tell us it's started playing
         self.state.state = State.WORKING
         self.state.disc_id = disc.disc_id
-        self.state.track_number = 0
+        self.state.track = 0
         self.state.no_tracks = len(disc.tracks)
         self.state.index = 0
         self.state.position = 0
@@ -511,7 +510,7 @@ class Player(object):
         if self.state.state == State.WORKING:
             if p is not None:
                 self.state.state = State.PLAY
-                self.state.track_number = p.track_number + 1
+                self.state.track = p.track_number + 1
                 self.state.index = p.index
                 self.state.position = pos
                 self.write_state()
@@ -523,15 +522,15 @@ class Player(object):
             # Stream stopped
             if p is None:
                 self.state.state = State.STOP
-                self.state.track_number = 0
+                self.state.track = 0
                 self.state.index = 0
                 self.state.position = 0
                 self.write_state()
 
             # New track or index
-            elif (self.state.track_number != p.track.number or
+            elif (self.state.track != p.track.number or
                   self.state.index != p.index):
-                self.state.track_number = p.track_number + 1
+                self.state.track = p.track_number + 1
                 self.state.index = p.index
                 self.state.position = pos
                 self.write_state()
@@ -548,7 +547,7 @@ class Player(object):
 
 
     def write_state(self, log_state = True):
-        # TODO: write to file
+        serialize.save_json(self.state, self.cfg.state_file)
 
         if log_state:
             self.debug('state: {0}', self.state)
