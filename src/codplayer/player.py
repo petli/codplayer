@@ -393,6 +393,23 @@ class Player(object):
 
 
 
+    def cmd_eject(self, args):
+        # Shut down any streaming sound
+        if self.streamer:
+            self.streamer.shutdown()
+            self.streamer = None
+
+        # As for cmd_stop() above, must resume the device if paused.
+        if self.state.state == State.PAUSE:
+            self.device.resume()
+
+        # Don't wait for state update, reset state directly
+        self.state = State()
+        self.write_state()
+
+        # TODO: actually eject the disc physically.
+        
+
 
     def rip_disc(self, mbd):
         """Set up the process of ripping a disc that's not in the
