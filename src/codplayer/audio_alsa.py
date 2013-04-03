@@ -89,7 +89,7 @@ class AlsaDevice(audio.ThreadDevice):
 
 
     def pause(self):
-        self.alsa_pcm.pause(1)
+         self.alsa_pcm.pause(1)
 
     def resume(self):
         self.alsa_pcm.pause(0)
@@ -103,7 +103,16 @@ class AlsaDevice(audio.ThreadDevice):
         data = ''
         period_bytes = self.alsa_period_size * model.PCM.sample_bytes
         
+        first_packet = True
         for p in stream:
+
+            # When starting playing, set the packet directly as
+            # the buffer is likely empty
+            if first_packet:
+                self.set_current_packet(p)
+                first_packet = False
+
+            
             if self.alsa_swap_bytes:
                 # More heavy-handed assumptions about data formats etc
                 a = array.array('h', p.data)

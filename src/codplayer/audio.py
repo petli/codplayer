@@ -9,6 +9,23 @@ import Queue
 
 class DeviceError(Exception): pass
 
+class StreamAbort(Exception):
+    """Base class for cases where the streaming is aborted before
+    reaching the end of the disc.  If possible, the audio device
+    should drop any audio buffered in the device when this is raised
+    by the stream iterator.
+    """
+    pass
+
+class StreamSkipAbort(StreamAbort):
+    """Raised by the stream iterator when the playback was aborted due
+    to skipping among tracks.  In this case the audio device should
+    not let get_current_packet() return return None but the last
+    packet played before being aborted.
+    """
+    pass
+
+
 class Device(object):
     """Abstract sound device base class."""
     
@@ -76,10 +93,16 @@ class ThreadDevice(Device):
                 stream = self.stream_queue.get()
 
                 self.debug('{0}: playing new stream', self.thread.name)
-                self.thread_play_stream(stream)
 
-                self.debug('{0}: stream stopped', self.thread.name)
-                self.set_current_packet(None)
+                try:
+                    self.thread_play_stream(stream)
+                except StreamSkipAbort:
+                    self.debug('{0}: stream aborted due to skipping tracks', self.thread.name)
+                except StreamAbort, e:
+                    self.debug('{0}: stream aborted: {1} ', self.thread.name, e)
+                    self.set_current_packet(None)
+                else:
+                    self.set_current_packet(None)
 
         finally:
             self.debug('{0}: audio device thread stopped (likely on error)',
@@ -114,6 +137,10 @@ class AudioPacket(object):
 
     track: a model.Track object 
 
+    track_number: the number of the track in the play order, counting
+    from 0 (and not always equal to track.number - 1, e.g. when randomising
+    play order)
+    
     index: the track index counting from 0
 
     abs_pos: the track position from the start of index 0
@@ -128,9 +155,10 @@ class AudioPacket(object):
     data: sample data
     """
 
-    def __init__(self, disc, track, abs_pos, length):
+    def __init__(self, disc, track, track_number, abs_pos, length):
         self.disc = disc
         self.track = track
+        self.track_number = track_number
 
         assert abs_pos + length <= track.length
 
@@ -181,7 +209,7 @@ class AudioPacket(object):
 
         # Mock up a packet that ends at the start of index 1, so the
         # first packet generated starts at that position
-        p = cls(disc, track, track.pregap_offset, 0)
+        p = cls(disc, track, track_number, track.pregap_offset, 0)
 
         while True:
             # Calculate offsets of next packet
@@ -207,11 +235,11 @@ class AudioPacket(object):
                     # That was the last track, no more packets
                     return
 
-                p = cls(disc, track, 0, 0)                
+                p = cls(disc, track, track_number, 0, 0)                
 
             else:
                 # Generate next packet
-                p = cls(disc, track, abs_pos, length)
+                p = cls(disc, track, track_number, abs_pos, length)
                 yield p
 
     

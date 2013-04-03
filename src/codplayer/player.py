@@ -27,7 +27,29 @@ class PlayerError(Exception):
     pass
 
 class State(object):
-    """Player state as visible to external users.
+    """Player state as visible to external users.  Attributes:
+
+    state: One of the state identifiers:
+      NO_DISC: No disc is loaded in the player
+      WORKING: Disc has been loaded, waiting for streaming to start
+      PLAY:    Playing disc normally
+      PAUSE:   Disc is currently paused
+      STOP:    Playing finished, but disc is still loaded
+
+    disc_id: The Musicbrainz disc ID of the currently loaded disc, or None
+
+    track_number: Current track being played, counting from 1. 0 if
+                  stopped or no disc is loaded.
+
+    no_tracks: Number of tracks on the disc to be played. 0 if no disc is loaded.
+
+    index: Track index currently played. 0 for pre_gap, 1+ for main sections.
+
+    position: Current position in track in whole seconds, counting
+    from index 1 in whole samples (so the pregap is negative).
+
+    ripping: True if disc is being ripped while playing, False if
+    played off previously ripped copy.
     """
 
     class NO_DISC:
@@ -45,7 +67,8 @@ class State(object):
                           'next', 'prev', 'stop', 'eject')
 
     class STOP:
-        valid_commands = ('quit', 'play', 'play_pause', 'eject')
+        valid_commands = ('quit', 'play', 'play_pause',
+                          'next', 'prev', 'eject')
 
 
     def __init__(self):
@@ -55,7 +78,7 @@ class State(object):
         self.no_tracks = 0
         self.index = 0
         self.position = 0
-        self.sample_format = None
+        self.ripping = False
 
 
     @classmethod
@@ -67,7 +90,8 @@ class State(object):
     
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track_number}/{no_tracks} '
-                'index: {index} position: {position}'.format(**self.__dict__))
+                'index: {index} position: {position} ripping: {ripping}'
+                .format(**self.__dict__))
 
 
 class Player(object):
@@ -124,6 +148,9 @@ class Player(object):
                 self.debug('ripping process finished with status {0}', rc)
                 self.rip_process = None
 
+                self.state.ripping = False
+                self.write_state()
+                
                 if self.streamer:
                     self.streamer.rip_finished()
 
@@ -253,6 +280,106 @@ class Player(object):
             raise PlayerError('unexpected state for cmd_play_pause: {0}', self.state)
 
 
+    def cmd_next(self, args):
+        if self.state.state == State.STOP:
+            # simply start playing from the first track
+            assert self.current_disc is not None
+            self.play_disc(self.current_disc)
+            return
+
+        # Stop any current streamer
+        if self.streamer:
+            self.streamer.shutdown(True)
+            self.streamer = None
+
+        # If the player is paused, it must be resumed.  This will
+        # result in the glitch that whatever is queued up in the
+        # hardware buffer will be played, followed by the next track
+        # (see cmd_stop() above).
+
+        if self.state.state == State.PAUSE:
+            self.device.resume()
+            self.state.state = State.PLAY
+            self.write_state()
+
+        if self.state.state == State.PLAY:
+            # Play the next track, if there is one.  If not, the
+            # player will stop thanks to the stream stopping above and
+            # the state updating when the current packet goes to None.
+
+            # state.track_number counts from 1, not 0
+            if self.state.track_number < len(self.current_disc.tracks):
+                assert self.state.track_number >= 1
+                
+                # Start playing the next track (now counting from 0,
+                # not 1, so track_number does not have to be incremented...)
+                self.streamer = AudioStreamer(self, self.current_disc,
+                                              self.state.track_number,
+                                              self.rip_process is not None)
+                self.device.play_stream(self.streamer.iter_packets())
+
+                # Don't update state here, wait for the packet update
+                # to do it
+
+        else:
+            raise PlayerError('unexpected state for cmd_next: {0}', self.state)
+
+
+    def cmd_prev(self, args):
+        if self.state.state == State.STOP:
+            # Start playing the last track
+            assert self.current_disc is not None
+            self.play_disc(self.current_disc, len(self.current_disc.tracks) - 1)
+            return
+
+        # Stop any current streamer
+        if self.streamer:
+            self.streamer.shutdown(True)
+            self.streamer = None
+
+        # If the player is paused, it must be resumed.  This will
+        # result in the glitch that whatever is queued up in the
+        # hardware buffer will be played, followed by the previous
+        # track (see cmd_stop() above).
+
+        if self.state.state == State.PAUSE:
+            self.device.resume()
+            self.state.state = State.PLAY
+            self.write_state()
+
+        if self.state.state == State.PLAY:
+            assert self.state.track_number >= 1
+            
+            # If the track position is within the first two seconds or
+            # the pregap, skip to the previous track.  Otherwise replay
+            # this track from the start
+
+            if self.state.position < 2:
+                tn = self.state.track_number - 1
+
+                # If this reaches the start of the disc, just stop.
+                # Nothing has to be done for that, as update_state()
+                # below will react to the stop of the stream.
+                if tn == 0:
+                    return
+                
+            else:
+                tn = self.state.track_number
+
+
+            # Start playing the selected track (now counting from 0,
+            # not 1...)
+            self.streamer = AudioStreamer(self, self.current_disc, tn - 1,
+                                          self.rip_process is not None)
+            self.device.play_stream(self.streamer.iter_packets())
+
+            # Don't update state here, wait for the packet update
+            # to do it
+
+        else:
+            raise PlayerError('unexpected state for cmd_prev: {0}', self.state)
+
+
     def cmd_quit(self, args):
         self.log('quitting on command')
         if self.rip_process is not None:
@@ -313,7 +440,7 @@ class Player(object):
         return disc
 
 
-    def play_disc(self, disc):
+    def play_disc(self, disc, track_number = 0):
         """Start playing disc from the database"""
 
         self.log('playing disc: {0}', disc)
@@ -323,8 +450,9 @@ class Player(object):
             self.streamer.shutdown()
             self.streamer = None
 
-        # Set up streaming from position 0
-        self.streamer = AudioStreamer(self, disc, 0, self.rip_process is not None)
+        # Set up streaming from the start of the selected track
+        self.streamer = AudioStreamer(self, disc, track_number,
+                                      self.rip_process is not None)
         self.current_disc = disc
 
         # Initialise state to new disc and WORKING, i.e. we're waiting
@@ -335,7 +463,7 @@ class Player(object):
         self.state.no_tracks = len(disc.tracks)
         self.state.index = 0
         self.state.position = 0
-        self.state.sample_format = disc.sample_format
+        self.state.ripping = self.rip_process is not None
         
         self.write_state()
 
@@ -348,16 +476,27 @@ class Player(object):
         according to that.
         """
 
+        # This really needs improvement, as we need to be able to tell
+        # the difference between a stream that stopped due to reaching
+        # the normal end of the disc, or being aborted.
+
         p = self.device.get_current_packet()
             
+        if p is None:
+            pos = 0
+        else:
+            # Round down
+            pos = int(p.rel_pos / self.current_disc.sample_format.rate)
+
+
         # Waiting for the first packet.  The case when that packet
         # never arrives is handled above in run_once().
         if self.state.state == State.WORKING:
             if p is not None:
                 self.state.state = State.PLAY
-                self.state.track_number = p.track.number
+                self.state.track_number = p.track_number + 1
                 self.state.index = p.index
-                self.state.position = p.rel_pos
+                self.state.position = pos
                 self.write_state()
 
         # React to updates from the device in both PLAY and PAUSE,
@@ -375,15 +514,19 @@ class Player(object):
             # New track or index
             elif (self.state.track_number != p.track.number or
                   self.state.index != p.index):
-                self.state.track_number = p.track.number
+                self.state.track_number = p.track_number + 1
                 self.state.index = p.index
-                self.state.position = p.rel_pos
+                self.state.position = pos
                 self.write_state()
 
+            # Moved backward in track
+            elif pos < self.state.position:
+                self.state.position = pos
+                self.write_state()
+                
             # Moved a second (not worth logging)
-            elif (abs(self.state.position - p.rel_pos)
-                  >= self.state.sample_format.rate):
-                self.state.position = p.rel_pos
+            elif pos != self.state.position:
+                self.state.position = pos
                 self.write_state(False)
 
 
@@ -438,6 +581,7 @@ class AudioStreamer(object):
             self.is_ripping.set()
             
         self.stop_streamer = threading.Event()
+        self.stop_on_skip = threading.Event()
 
         self.disc = disc
         self.first_track_number = track_number
@@ -465,8 +609,12 @@ class AudioStreamer(object):
                 except Queue.Empty:
                     pass
 
-                # Stop iterator
-                return
+                # Inform audio device about the unexpected stop
+                if self.stop_on_skip.is_set():
+                    raise audio.StreamSkipAbort('skipping tracks')
+                else:
+                    raise audio.StreamAbort('streamer shutdown by player')
+
 
             # Normal case: wait for a packet and output it
             p = self.queue.get()
@@ -478,17 +626,23 @@ class AudioStreamer(object):
             
             elif p == self.STREAM_ERROR:
                 self.debug('error in audio stream')
-                return
+                raise audio.StreamAbort('error in audio stream')
 
             else:
                 yield p
             
 
 
-    def shutdown(self):
+    def shutdown(self, skipping = False):
         """Shut down the streamer thread.
+
+        If SKIPPING is true, the stream is shut down due to skpping
+        among tracks.
         """
 
+        if skipping:
+            self.stop_on_skip.set()
+            
         self.stop_streamer.set()
 
 
