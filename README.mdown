@@ -36,10 +36,10 @@ Supplementing these are various control interfaces and database
 administration UIs.
 
 The target system setup is to run the player deamon on a fanless,
-discless small computer hooked up to the hifi in the living room,
+diskless small computer hooked up to the hifi in the living room,
 which is connected over the LAN to a file server which holds the disc
 database.  The player computer would provide the control interface,
-while the disc server would host the database administration web GUI.
+while the file server would host the database administration web GUI.
 
 
 The disc database
