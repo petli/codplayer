@@ -113,11 +113,12 @@ class Player(object):
 
         
     def run(self):
+        self.device.start()
+
         # Main loop, executing until a quit command is received.
         # However, don't stop if a rip process is currently running.
 
         while self.keep_running or self.rip_process is not None:
-            # TODO: add general exception handling here
             self.run_once(500)
             
         # Reset state to leave less mess behind

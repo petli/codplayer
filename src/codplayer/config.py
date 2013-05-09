@@ -24,6 +24,7 @@ class Config:
 
     CONFIG_PARAMS = (
         ('database', types.StringType),
+        ('pid_file', types.StringType),
         ('log_file', types.StringType),
         ('state_file', types.StringType),
         ('control_fifo', types.StringType),

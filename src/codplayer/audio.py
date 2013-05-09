@@ -38,6 +38,10 @@ class Device(object):
         self.log = player.log
         self.debug = player.debug
 
+    def start(self):
+        """Do anything necessary to start the device (e.g. starting a thread)."""
+        pass
+
     def play_stream(self, stream):
         """Play a new audio stream.  STREAM is an iterator that will
         produce AudioPacket objects.
@@ -60,6 +64,11 @@ class Device(object):
         raise NotImplementedError()
 
 
+    def get_fds(self):
+        """Return a list of all file descriptors open for the device."""
+        return []
+
+
 class ThreadDevice(Device):
     """Common base for audio devices that implement the sound playing
     in a separate thread (most likely all of them).
@@ -72,13 +81,16 @@ class ThreadDevice(Device):
 
         self.thread = threading.Thread(target = self.run_thread)
         self.thread.daemon = True
-        self.thread.start()
         
         # Keep track of the last packet played by the audio device.
         # Given Python's Big Interpreter Lock we might not really need
         # the lock, but let's play nicely.
         self.current_packet_lock = threading.Lock()
         self.current_packet = None
+
+
+    def start(self):
+        self.thread.start()
 
 
     def play_stream(self, stream):

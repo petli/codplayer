@@ -7,7 +7,13 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 import sys
+import os
 import argparse
+
+
+# http://www.python.org/dev/peps/pep-3143/
+import daemon
+import lockfile
 
 from codplayer import db, player, config, audio
 
@@ -15,7 +21,9 @@ def main(args):
     try:
         # As a general principle, parse as much config and open as
         # many resources as possible before forking off a deamon
-        # process.
+        # process.  The flipside of that is that we must keep track of
+        # the files that should be kept open across the daemonization
+        preserve_files = []
 
         cfg = config.Config(args.config)
         database = db.Database(cfg.database)
@@ -26,12 +34,36 @@ def main(args):
             log_file = sys.stderr
             control_fd = sys.stdin.fileno()
         else:
-            sys.exit('non-debug mode not implemented yet')
+            try:
+                log_file = open(cfg.log_file, 'at')
+            except IOError, e:
+                sys.exit('error opening {0}: {1}'.format(cfg.log_file, e))
 
-            #log_file = open(cfg.log_file, 'at')
+            preserve_files.append(log_file)
 
-            #unlink(cfg.control_fifo)
-            # TODO: create fifo
+            # Always recreate the fifo, to avoid any problems with
+            # lingering processes or malcreated fifos
+
+            try:
+                os.unlink(cfg.control_fifo)
+            except OSError:
+                pass
+
+            try:
+                os.mkfifo(cfg.control_fifo)
+                control_fd = os.open(cfg.control_fifo, os.O_RDONLY | os.O_NONBLOCK)
+
+                preserve_files.append(control_fd)
+
+                # To avoid getting an EOF in the reader code when the
+                # processes sending commands closes the fifo, open the
+                # fifo for writing too to ensure that there's always a
+                # writer process.
+                fd = os.open(cfg.control_fifo, os.O_WRONLY)
+                preserve_files.append(fd)
+                
+            except OSError, e:
+                sys.exit('error creating and opening fifo {0}: {1}'.format(cfg.control_fifo, e))
 
         # All set, create the player object
         p = player.Player(cfg, database, log_file, control_fd, dev_class)
@@ -46,10 +78,25 @@ def main(args):
         sys.exit('error opening {0} device: {1}'.format(
                 cfg.audio_device_type, e))
 
-    # TODO: fork off if not in debug mode
-        
-    p.run()
-            
+    if args.debug:
+        # Just run directly without forking off
+        p.run()
+    else:
+
+        # Keep audio device open, if relevant
+        preserve_files += p.device.get_fds()
+
+        context = daemon.DaemonContext(
+            files_preserve = preserve_files,
+            pidfile = lockfile.FileLock(cfg.pid_file),
+            stdout = log_file,
+            stderr = log_file,
+            )
+
+        # Run in daemon context, forking off and all that
+        with context:
+            p.run()
+
     
 def get_audio_device_class(cfg):
     if cfg.audio_device_type == 'alsa':

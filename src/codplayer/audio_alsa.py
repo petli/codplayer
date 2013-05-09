@@ -135,3 +135,8 @@ class AlsaDevice(audio.ThreadDevice):
             data += '\0' * (period_bytes - len(data))
             assert len(data) == period_bytes
             self.alsa_pcm.write(data)
+
+
+    def get_fds(self):
+        return [fd for fd, mask in self.alsa_pcm.polldescriptors()]
+    

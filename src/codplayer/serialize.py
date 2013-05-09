@@ -85,7 +85,12 @@ def save_json(obj, path):
             json.dump(obj.__dict__, f, indent = 2, sort_keys = True, cls = CodEncoder)
 
         os.chmod(temp_path, SAVE_PERMISSIONS)
-        os.unlink(path)
+
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        
         os.rename(temp_path, path)
 
     except (IOError, OSError), e:
