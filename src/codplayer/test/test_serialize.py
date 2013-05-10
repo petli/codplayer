@@ -12,13 +12,22 @@ from .. import serialize
 class DummyObject(object):
     pass
 
+
+
+class FOO(object):
+    pass
+
+class BAR(object):
+    pass
+
+
 class TestPopulateObject(unittest.TestCase):
     def test_missing_attr(self):
         with self.assertRaises(serialize.LoadError):
             serialize.populate_object(
                 { 'foo': 'bar' },
                 DummyObject(),
-                [('gazonk', types.IntType)]
+                [('gazonk', int)]
                 )
         
     def test_incorrect_type(self):
@@ -26,7 +35,7 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'foo': 'bar' },
                 DummyObject(),
-                [('foo', types.IntType)]
+                [('foo', int)]
                 )
         
     def test_populate(self):
@@ -39,13 +48,35 @@ class TestPopulateObject(unittest.TestCase):
               'ignored': None,
               },
             obj,
-            [('gazonk', types.IntType),
-             ('foo', types.StringType),
-             ('flag', types.BooleanType)]
+            [('gazonk', int),
+             ('foo', str),
+             ('flag', bool)]
             )
 
         self.assertEqual(obj.foo, 'bar')
         self.assertEqual(obj.gazonk, 17)
         self.assertIs(obj.flag, True)
         
+        
+    def test_bad_enum(self):
+        with self.assertRaises(serialize.LoadError):
+            serialize.populate_object(
+                { 'foo': 'GAZONK' },
+                DummyObject(),
+                [('foo', serialize.ClassEnumType(FOO, BAR))]
+                )
+
+    def test_enum(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'foo': 'FOO',
+              'bar': 'BAR' },
+            obj,
+            [('foo', serialize.ClassEnumType(FOO, BAR)),
+             ('bar', serialize.ClassEnumType(FOO, BAR))]
+            )
+
+        self.assertIs(obj.foo, FOO)
+        self.assertIs(obj.bar, BAR)
         

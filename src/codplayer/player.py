@@ -87,6 +87,24 @@ class State(object):
                 .format(**self.__dict__))
 
 
+    # Deserialisation methods
+    STATE_PARAMS = (
+        ('state', serialize.ClassEnumType(
+                NO_DISC, WORKING, PLAY, PAUSE, STOP)),
+        ('disc_id', unicode),
+        ('track', int),
+        ('no_tracks', int),
+        ('index', int),
+        ('position', int),
+        ('ripping', bool),
+        )
+
+    @classmethod
+    def from_file(cls, path):
+        """Create a State object from the JSON stored in the file PATH."""
+        return serialize.load_json(cls(), path, cls.STATE_PARAMS)
+        
+
 class Player(object):
 
     def __init__(self, cfg, database, log_file, control_fd, dev_class):

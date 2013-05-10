@@ -6,7 +6,7 @@
 
 """
 Wrappers around basic json serialization and deserialization.
-"""
+n"""
 
 import json
 import types
@@ -27,6 +27,13 @@ class SaveError(Exception):
     pass
 
 
+class ClassEnumType(object):
+    """Used to list valid classes used as enums when deserializing.
+    """
+    def __init__(self, *classes):
+        self.classes = classes
+    
+
 def populate_object(src, dest, mapping):
     """Populate the object DEST by copying values from the dictionary SRC.
 
@@ -42,11 +49,24 @@ def populate_object(src, dest, mapping):
         except KeyError:
             raise LoadError('missing attribute: {0}'.format(attr))
 
-        if type(value) != desttype:
-            raise LoadError('expected type {0} for attribute {1}, got {2!r}'
-                            .format(desttype.__name__, attr, value))
+        if value is None:
+            setattr(dest, attr, value)
+            
+        elif isinstance(desttype, ClassEnumType):
+            for cls in desttype.classes:
+                if value == cls.__name__:
+                    setattr(dest, attr, cls)
+                    break
+            else:
+                raise LoadError('invalid class enum for attribute {0}, got {1}'
+                                .format(attr, value))
+                    
+        else:
+            if not isinstance(value, desttype):
+                raise LoadError('expected type {0} for attribute {1}, got {2!r}'
+                                .format(desttype.__name__, attr, value))
 
-        setattr(dest, attr, value)
+            setattr(dest, attr, value)
             
 
 class CodEncoder(json.JSONEncoder):
@@ -97,3 +117,18 @@ def save_json(obj, path):
         raise SaveError('error saving to {0}: {1}'.format(path, e))
     
     
+def load_json(obj, path, mapping):
+    """Load JSON into OBJ from PATH, using MAPPING to populate the object.
+
+    Returns the object.
+    """
+    
+    try:
+        with open(path, 'rt') as f:
+            raw = json.load(f)
+    except IOError, e:
+        raise LoadError('error reading JSON from {0}: {1}'.format(path, e))
+
+    populate_object(raw, obj, mapping)
+    return obj
+        

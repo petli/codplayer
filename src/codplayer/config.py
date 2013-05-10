@@ -8,8 +8,6 @@
 Classes for loading configuration files.
 """
 
-import types
-
 from . import serialize
 
 
@@ -23,20 +21,20 @@ class Config:
     DEFAULT_FILE = '/etc/codplayer.conf'
 
     CONFIG_PARAMS = (
-        ('database', types.StringType),
-        ('pid_file', types.StringType),
-        ('log_file', types.StringType),
-        ('state_file', types.StringType),
-        ('control_fifo', types.StringType),
-        ('cdrom_device', types.StringType),
-        ('cdrdao_command', types.StringType),
-        ('audio_device_type', types.StringType),
+        ('database', str),
+        ('pid_file', str),
+        ('log_file', str),
+        ('state_file', str),
+        ('control_fifo', str),
+        ('cdrom_device', str),
+        ('cdrdao_command', str),
+        ('audio_device_type', str),
 
         # File device options
-        ('file_play_speed', types.IntType),
+        ('file_play_speed', int),
 
         # Alsa device options
-        ('alsa_card', types.StringType),
+        ('alsa_card', str),
 
         )
 

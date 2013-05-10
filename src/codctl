@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+#
+# Hey Emacs, this is -*-python-*-
+#
+# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+#
+# Distributed under an MIT license, please see LICENSE in the top dir.
+
+import sys
+import os
+import errno
+import argparse
+
+from codplayer import player, config, serialize
+
+def main(args):
+    try:
+        cfg = config.Config(args.config)
+    except config.ConfigError, e:
+        sys.exit('invalid configuration:\n{0}'.format(e))
+
+    # Try to read player state for outputting state and to provide
+    # better error handling to caller.
+
+    try:
+        state = player.State.from_file(cfg.state_file)
+    except serialize.LoadError, e:
+        sys.stderr.write('error reading state: {0}\n'.format(e))
+        state = None
+
+    if args.command == 'state':
+        print state
+
+    # All other commands get sent to the daemon
+    else:
+        if state is not None:
+            if args.command not in state.state.valid_commands:
+                sys.stderr.write(
+                    'warning: invalid command in state {1}: {0}\n'.format(
+                        args.command, state.state.__name__))
+
+        try:
+            fd = os.open(cfg.control_fifo, os.O_WRONLY | os.O_NONBLOCK)
+            os.write(fd, args.command + '\n')
+            os.close(fd)
+        except OSError, e:
+            if e.errno == errno.ENXIO:
+                sys.exit('error sending command to {0}: no deamon listening'
+                         .format(cfg.control_fifo))
+            elif e.errno == errno.ENOENT:
+                sys.exit('error sending command to {0}: no such fifo'
+                         .format(cfg.control_fifo))
+            else:
+                sys.exit('error sending command to fifo: {0}'.format(e))
+
+
+#
+# Set up the command argument parsing
+#
+
+parser = argparse.ArgumentParser(description = 'codplayer daemon')
+parser.add_argument('-c', '--config', help = 'alternative configuration file')
+
+subparsers = parser.add_subparsers(help = 'command', dest = 'command')
+
+parser_disc = subparsers.add_parser(
+    'state', help = 'output current player state')
+
+parser_disc = subparsers.add_parser(
+    'disc', help = 'notify player that a new disc has been inserted')
+
+parser_play = subparsers.add_parser(
+    'play', help = 'play stopped disc from start or resume paused disc')
+
+parser_pause = subparsers.add_parser(
+    'pause', help = 'pause playing disc')
+
+parser_play_pause = subparsers.add_parser(
+    'play_pause', help = 'toggle playing or pausing the disc')
+
+parser_next = subparsers.add_parser(
+    'next', help = 'go to the next track')
+
+parser_prev = subparsers.add_parser(
+    'prev', help = 'go to start of the track or the previous track')
+
+parser_stop = subparsers.add_parser(
+    'stop', help = 'stop playing the disc')
+
+parser_eject = subparsers.add_parser(
+    'eject', help = 'stop any playing disc and eject it')
+
+parser_quit = subparsers.add_parser(
+    'quit', help = 'tell player process to quit nicely')
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    main(args)
