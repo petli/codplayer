@@ -101,7 +101,7 @@ class AlsaDevice(audio.ThreadDevice):
         # efficient.
 
         data = ''
-        period_bytes = self.alsa_period_size * model.PCM.sample_bytes
+        period_bytes = self.alsa_period_size * model.PCM.bytes_per_frame
         
         first_packet = True
         for p in stream:

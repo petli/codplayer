@@ -7,13 +7,12 @@
 """
 Classes representing discs and tracks.
 
-The unit of time in all objects is one sample.
-"""
+The unit of time in all objects is one audio frame, i.e. one sample
+for each channel.
 
-#
-# So... most of the sound format terms in here are probably misused.
-# Bear with me, please.
-#
+Confusingly, the CD format has it's own definition of frame.  There
+are 75 CD frames per second, each consisting of 588 audio frames.
+"""
 
 # Basic data formats
 
@@ -22,15 +21,16 @@ class BIG_ENDIAN: pass
 
 class PCM:
     channels = 2
-    sample_bytes = 4
+    bytes_per_sample = 2
+    bytes_per_frame = 4
     rate = 44100
     byte_order = BIG_ENDIAN
 
-    samples_per_frame = 588
+    audio_frames_per_cd_frame = 588
 
     @classmethod
-    def msf_to_samples(cls, msf):
-        """Translate an MM:SS:FF to number of PCM samples."""
+    def msf_to_frames(cls, msf):
+        """Translate an MM:SS:FF to number of PCM audio frames."""
 
         d = msf.split(':')
         if len(d) != 3:
@@ -40,7 +40,7 @@ class PCM:
         s = int(d[1], 10)
         f = int(d[2], 10)
 
-        return (((m * 60) + s) * 75 + f) * cls.samples_per_frame
+        return (((m * 60) + s) * 75 + f) * cls.audio_frames_per_cd_frame
 
 
 
@@ -63,7 +63,7 @@ class Disc(object):
     def __init__(self):
         self.data_file_name = None
         self.data_file_format = None
-        self.sample_format = None
+        self.audio_format = None
 
         self.disc_id = None
         
@@ -153,7 +153,7 @@ class Disc(object):
 
                     if filename.endswith(RAW_CD.file_suffix):
                         disc.data_file_format = RAW_CD
-                        disc.sample_format = PCM
+                        disc.audio_format = PCM
                     else:
                         raise DiscInfoError('unknown file format: "%s"'
                                             % filename)
@@ -176,12 +176,12 @@ class Disc(object):
                     track.file_offset = 0
                 else:
                     try:
-                        track.file_offset = PCM.msf_to_samples(offset)
+                        track.file_offset = PCM.msf_to_frames(offset)
                     except ValueError:
                         raise DiscInfoError('bad offset for file: %s' % line)
                     
                 try:
-                    track.file_length = PCM.msf_to_samples(length)
+                    track.file_length = PCM.msf_to_frames(length)
                 except ValueError:
                     raise DiscInfoError('bad length for file: %s' % line)
 
@@ -252,20 +252,20 @@ class Disc(object):
 
             if filename.endswith(RAW_CD.file_suffix):
                 disc.data_file_format = RAW_CD
-                disc.sample_format = PCM
+                disc.audio_format = PCM
             else:
                 raise DiscInfoError('unknown file format: "%s"'
                                     % filename)
 
 
-        # Translate from frames into samples relative to the data file
+        # Translate from CD frames into audio frames relative to the data file
         # that cdrdao will generate
         first_frame = tracks[0][0]
 
         for start, length in tracks:
             track = Track()
-            track.file_offset = (start - first_frame) * PCM.samples_per_frame
-            track.length = length * PCM.samples_per_frame
+            track.file_offset = (start - first_frame) * PCM.audio_frames_per_cd_frame
+            track.length = length * PCM.audio_frames_per_cd_frame
             track.file_length = track.length
             disc.add_track(track)
 
@@ -296,7 +296,7 @@ class Disc(object):
                 'expected a single MSF argument in line: %s' % line)
 
         try:
-            return PCM.msf_to_samples(p[1])
+            return PCM.msf_to_frames(p[1])
         except ValueError:
             raise DiscInfoError('bad MSF in line: %s' % line)
 

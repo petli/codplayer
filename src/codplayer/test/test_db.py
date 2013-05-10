@@ -217,6 +217,6 @@ FILE "{0}.cdr" 0 02:54:53
         t = disc.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
         
         

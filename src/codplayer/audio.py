@@ -143,7 +143,7 @@ class AudioPacket(object):
     """A packet of audio data coming from a single track and index.
 
     It has the following attributes (all positions and lengths count
-    samples, as usual):
+    audio frames, as usual):
     
     disc: a model.Disc object 
 
@@ -162,7 +162,7 @@ class AudioPacket(object):
     file_pos: the file position for the first track, or None if the
     packet should be silence
 
-    length: number of samples in the packet
+    length: number of frames in the packet
 
     data: sample data
     """
@@ -216,8 +216,8 @@ class AudioPacket(object):
 
         track = disc.tracks[track_number]
 
-        packet_sample_size = (
-            disc.sample_format.rate / packets_per_second)
+        packet_frame_size = (
+            disc.audio_format.rate / packets_per_second)
 
         # Mock up a packet that ends at the start of index 1, so the
         # first packet generated starts at that position
@@ -228,9 +228,9 @@ class AudioPacket(object):
             abs_pos = p.abs_pos + p.length
 
             if abs_pos < track.pregap_offset:
-                length = min(track.pregap_offset - abs_pos, packet_sample_size)
+                length = min(track.pregap_offset - abs_pos, packet_frame_size)
             else:
-                length = min(track.length - abs_pos, packet_sample_size)
+                length = min(track.length - abs_pos, packet_frame_size)
 
             assert length >= 0
 

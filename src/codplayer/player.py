@@ -7,7 +7,7 @@
 """
 Classes implementing the player core and it's state.
 
-The unit of time in all objects is one sample.
+The unit of time in all objects is one audio frame.
 """
 
 import os
@@ -46,7 +46,7 @@ class State(object):
     index: Track index currently played. 0 for pre_gap, 1+ for main sections.
 
     position: Current position in track in whole seconds, counting
-    from index 1 in whole samples (so the pregap is negative).
+    from index 1 in whole audio frames (so the pregap is negative).
 
     ripping: True if disc is being ripped while playing, False if
     played off previously ripped copy.
@@ -503,7 +503,7 @@ class Player(object):
             pos = 0
         else:
             # Round down
-            pos = int(p.rel_pos / self.current_disc.sample_format.rate)
+            pos = int(p.rel_pos / self.current_disc.audio_format.rate)
 
 
         # Waiting for the first packet.  The case when that packet
@@ -751,14 +751,14 @@ class AudioStreamer(object):
     def read_data_into_packet(self, p):
         """Thread helper method for populating data into packet P."""
 
-        length = p.length * self.disc.sample_format.sample_bytes
+        length = p.length * self.disc.audio_format.bytes_per_frame
 
         if p.file_pos is None:
             # Silence, so send on null bytes to player
             p.data = '\0' * length
 
         else:
-            file_pos = p.file_pos * self.disc.sample_format.sample_bytes
+            file_pos = p.file_pos * self.disc.audio_format.bytes_per_frame
             
             self.audio_file.seek(file_pos)
 

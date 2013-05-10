@@ -10,11 +10,11 @@ from .. import model
 
 class TestMSF(unittest.TestCase):
     def test_1s(self):
-        s = model.PCM.msf_to_samples('00:01:00')
+        s = model.PCM.msf_to_frames('00:01:00')
         self.assertEquals(s, model.PCM.rate)
 
     def test_full(self):
-        s = model.PCM.msf_to_samples('08:17:74')
+        s = model.PCM.msf_to_frames('08:17:74')
         self.assertEquals(s, (8 * 60 + 17) * model.PCM.rate + 74 * 588)
 
 
@@ -48,7 +48,7 @@ FILE "data.cdr" 0 02:54:53
         self.assertEqual(d.catalog, "0123456789012")
         self.assertEqual(d.data_file_name, "data.cdr")
         self.assertEqual(d.data_file_format, model.RAW_CD)
-        self.assertEqual(d.sample_format, model.PCM)
+        self.assertEqual(d.audio_format, model.PCM)
 
 
         self.assertEqual(len(d.tracks), 1)
@@ -56,7 +56,7 @@ FILE "data.cdr" 0 02:54:53
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
         
 
@@ -87,7 +87,7 @@ FILE "data.cdr" 06:24:43 03:36:67
         self.assertEqual(d.catalog, None)
         self.assertEqual(d.data_file_name, "data.cdr")
         self.assertEqual(d.data_file_format, model.RAW_CD)
-        self.assertEqual(d.sample_format, model.PCM)
+        self.assertEqual(d.audio_format, model.PCM)
 
 
         self.assertEqual(len(d.tracks), 3)
@@ -95,19 +95,19 @@ FILE "data.cdr" 06:24:43 03:36:67
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[1]
         self.assertEqual(t.number, 2)
-        self.assertEqual(t.file_offset, model.PCM.msf_to_samples('02:54:53'))
-        self.assertEqual(t.length, model.PCM.msf_to_samples('03:29:65'))
+        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('03:29:65'))
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[2]
         self.assertEqual(t.number, 3)
-        self.assertEqual(t.file_offset, model.PCM.msf_to_samples('06:24:43'))
-        self.assertEqual(t.length, model.PCM.msf_to_samples('03:36:67'))
+        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('06:24:43'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('03:36:67'))
         self.assertEqual(t.length, t.file_length)
         
 
@@ -133,7 +133,7 @@ FILE "data.cdr" 0 02:54:53 // foo bar
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
         
 
@@ -156,11 +156,11 @@ START 03:48:35
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
         self.assertEqual(t.length,
-                         model.PCM.msf_to_samples('03:27:10') +
-                         model.PCM.msf_to_samples('03:48:35'))
-        self.assertEqual(t.file_length, model.PCM.msf_to_samples('03:27:10'))
-        self.assertEqual(t.pregap_offset, model.PCM.msf_to_samples('03:48:35'))
-        self.assertEqual(t.pregap_silence, model.PCM.msf_to_samples('03:48:35'))
+                         model.PCM.msf_to_frames('03:27:10') +
+                         model.PCM.msf_to_frames('03:48:35'))
+        self.assertEqual(t.file_length, model.PCM.msf_to_frames('03:27:10'))
+        self.assertEqual(t.pregap_offset, model.PCM.msf_to_frames('03:48:35'))
+        self.assertEqual(t.pregap_silence, model.PCM.msf_to_frames('03:48:35'))
 
 
     def test_start_index(self):
@@ -179,16 +179,16 @@ INDEX 00:05:00
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('02:54:53'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
-        self.assertEqual(t.pregap_offset, model.PCM.msf_to_samples('00:01:22'))
+        self.assertEqual(t.pregap_offset, model.PCM.msf_to_frames('00:01:22'))
 
         # Indexes will have been translated from relative to pregap to
         # relative to track start
 
         self.assertEqual(len(t.index), 2)
-        self.assertEqual(t.index[0], model.PCM.msf_to_samples('00:04:33'))
-        self.assertEqual(t.index[1], model.PCM.msf_to_samples('00:06:22'))
+        self.assertEqual(t.index[0], model.PCM.msf_to_frames('00:04:33'))
+        self.assertEqual(t.index[1], model.PCM.msf_to_frames('00:06:22'))
 
 
 
@@ -227,7 +227,7 @@ FILE "data.cdr" 0 03:27:10
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_samples('03:27:10'))
+        self.assertEqual(t.length, model.PCM.msf_to_frames('03:27:10'))
         self.assertEqual(t.length, t.file_length)
         self.assertEqual(t.isrc, "GBAYE0000351")
             
@@ -265,7 +265,7 @@ class TestDiscFromMusicbrainz(unittest.TestCase):
         self.assertEqual(d.catalog, None)
         self.assertEqual(d.data_file_name, "test.cdr")
         self.assertEqual(d.data_file_format, model.RAW_CD)
-        self.assertEqual(d.sample_format, model.PCM)
+        self.assertEqual(d.audio_format, model.PCM)
 
         self.assertEqual(len(d.tracks), 3)
 
@@ -275,21 +275,21 @@ class TestDiscFromMusicbrainz(unittest.TestCase):
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
         self.assertEqual(t.length,
-                         34630 * model.PCM.samples_per_frame)
+                         34630 * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[1]
         self.assertEqual(t.number, 2)
         self.assertEqual(t.file_offset,
-                         (34780 - 150) * model.PCM.samples_per_frame)
+                         (34780 - 150) * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length,
-                         37470 * model.PCM.samples_per_frame)
+                         37470 * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[2]
         self.assertEqual(t.number, 3)
         self.assertEqual(t.file_offset,
-                         (72250 - 150) * model.PCM.samples_per_frame)
+                         (72250 - 150) * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length,
-                         9037 * model.PCM.samples_per_frame)
+                         9037 * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length, t.file_length)

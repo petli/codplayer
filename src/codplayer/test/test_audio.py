@@ -130,7 +130,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         # packet, to make the test case reasonably easy to write
         splitter = audio.AudioPacket.iterate(disc, 0, 3)
         
-        def ftos(frames): return frames * model.PCM.samples_per_frame
+        def ftos(frames): return frames * model.PCM.audio_frames_per_cd_frame
 
 
         # First track will result in three audio packets (1 second of

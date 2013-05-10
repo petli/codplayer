@@ -40,7 +40,7 @@ class FileDevice(audio.ThreadDevice):
 
             if self.file_play_speed > 0:
                 # Simulate real playing by sleeping 
-                time.sleep(float(p.length) / (p.disc.sample_format.rate
+                time.sleep(float(p.length) / (p.disc.audio_format.rate
                                               * self.file_play_speed))
 
         f.close()
