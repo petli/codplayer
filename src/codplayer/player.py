@@ -46,7 +46,7 @@ class State(object):
     index: Track index currently played. 0 for pre_gap, 1+ for main sections.
 
     position: Current position in track in whole seconds, counting
-    from index 1 in whole audio frames (so the pregap is negative).
+    from index 1 (so the pregap is negative).
 
     ripping: True if disc is being ripped while playing, False if
     played off previously ripped copy.
