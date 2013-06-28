@@ -96,6 +96,7 @@ class Database(object):
     BASE64_TO_DISC_ID = string.maketrans('+/=', '._-')
 
     VALID_DB_ID_RE = re.compile('^[0-9a-fA-F]{40}$')
+    VALID_DISC_ID_RE = re.compile('^[-._0-9a-zA-Z]{28}$')
 
     @classmethod
     def disc_to_db_id(cls, disc_id):
@@ -116,6 +117,10 @@ class Database(object):
     @classmethod
     def is_valid_db_id(cls, db_id):
         return cls.VALID_DB_ID_RE.match(db_id) is not None
+
+    @classmethod
+    def is_valid_disc_id(cls, disc_id):
+        return cls.VALID_DISC_ID_RE.match(disc_id) is not None
 
 
     @classmethod

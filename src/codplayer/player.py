@@ -206,26 +206,41 @@ class Player(object):
             self.log("already ripping disc, can't rip another one yet")
             return
 
-        self.debug('disc inserted, reading ID')
+        if args:
+            # Play disc in database by its ID
+            did = args[0]
 
-        # Use Musicbrainz code to get the disc signature
-        try:
-            mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
-        except mb2_disc.DiscError, e:
-            self.log('error reading disc in {0}: {1}',
-                     self.cfg.cdrom_device, e)
-            return
-
-        # Is this already ripped?
-        disc = self.db.get_disc_by_disc_id(mbd.getId())
-
-        if disc is None:
-            # No, rip it and get a Disc object good enough for playing 
-            disc = self.rip_disc(mbd)
-            if not disc:
+            if db.Database.is_valid_disc_id(did):
+                disc = self.db.get_disc_by_disc_id(did)
+            elif db.Database.is_valid_db_id(did):
+                disc = self.db.get_disc_by_db_id(did)
+            else:
+                self.log('invalid disc or database ID: {0}', did)
                 return
 
-        self.play_disc(disc)
+            self.play_disc(disc)
+        else:
+            # Play inserted physical disc
+            self.debug('disc inserted, reading ID')
+
+            # Use Musicbrainz code to get the disc signature
+            try:
+                mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
+            except mb2_disc.DiscError, e:
+                self.log('error reading disc in {0}: {1}',
+                         self.cfg.cdrom_device, e)
+                return
+
+            # Is this already ripped?
+            disc = self.db.get_disc_by_disc_id(mbd.getId())
+
+            if disc is None:
+                # No, rip it and get a Disc object good enough for playing 
+                disc = self.rip_disc(mbd)
+                if not disc:
+                    return
+
+            self.play_disc(disc)
 
 
     def cmd_stop(self, args):
