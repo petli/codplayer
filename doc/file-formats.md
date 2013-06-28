@@ -42,11 +42,11 @@ Example file:
 Attributes:
 
 * `state`: One of the state identifiers:
-** `NO_DISC`: No disc is loaded in the player
-** `WORKING`: Disc has been loaded, waiting for streaming to start
-** `PLAY`:    Playing disc normally
-** `PAUSE`:   Disc is currently paused
-** `STOP`:    Playing finished, but disc is still loaded
+  * `NO_DISC`: No disc is loaded in the player
+  * `WORKING`: Disc has been loaded, waiting for streaming to start
+  * `PLAY`:    Playing disc normally
+  * `PAUSE`:   Disc is currently paused
+  * `STOP`:    Playing finished, but disc is still loaded
 
 * `disc_id`: The Musicbrainz disc ID of the currently loaded disc,
   or `null` if no disc is loaded.
