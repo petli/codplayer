@@ -70,11 +70,6 @@ class Device(object):
         return None
         
 
-    def get_fds(self):
-        """Return a list of all file descriptors open for the device."""
-        return []
-
-
 class ThreadDevice(Device):
     """Common base for audio devices that implement the sound playing
     in a separate thread (most likely all of them).

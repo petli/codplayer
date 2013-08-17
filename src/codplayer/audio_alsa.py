@@ -167,10 +167,6 @@ class AlsaDevice(audio.ThreadDevice):
             self.alsa_pcm.write(data)
 
 
-    def get_fds(self):
-        return [fd for fd, mask in self.alsa_pcm.polldescriptors()]
-    
-
     def try_reopen(self):
         # Try to re-open device
         try:
