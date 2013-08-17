@@ -7,34 +7,28 @@
 import array
 
 import time
-import alsaaudio
 
 from . import audio, model
 
-class AlsaDevice(audio.ThreadDevice):
-    """ALSA sound playback device.
-
-    For now it uses pyalsaaudio which might run into all sorts of
-    trouble with Python threading.  When that turns into a problem,
-    this should migrate to a custom C module that handles the ALSA
-    thread.
-    """
-
+class PythonAlsaDevice(object):
     # Run on approx 10 Hz.  pyalsaaudio will hardcode the hardware buffer to
     # four periods.
     PERIOD_SIZE = 4096
     
-    def __init__(self, player, config):
-        super(AlsaDevice, self).__init__(player, config)
-
-        self.alsa_card = config.alsa_card
+    def __init__(self, parent, card_name, start_without_device):
+        self.log = parent.log
+        self.debug = parent.debug
+        self.set_device_error = parent.set_device_error
+        self.set_current_packet = parent.set_current_packet
+        self.alsa_card = card_name
+        self.start_without_device = start_without_device
 
         # This should adapt to different formats, but shortcut for now
         # to standard CD PCM.
         self.alsa_period_size = self.PERIOD_SIZE
 
         self.alsa_pcm = None
-        
+
         # Open device
         try:
             self.debug('alsa: opening device for card: {0}', self.alsa_card)
@@ -42,7 +36,7 @@ class AlsaDevice(audio.ThreadDevice):
                                           mode = alsaaudio.PCM_NORMAL,
                                           card = self.alsa_card)
         except alsaaudio.ALSAAudioError, e:
-            if self.config.start_without_device:
+            if self.start_without_device:
                 self.log('alsa: error opening card {0}: {1}',
                          self.alsa_card, e)
                 self.log('alsa: proceeding since start_without_device = True')
@@ -52,6 +46,7 @@ class AlsaDevice(audio.ThreadDevice):
         
         if self.alsa_pcm:
             self.set_device_format()
+
 
     def set_device_format(self):
         # Set format to big endian 44100 Hz to match CDR format,
@@ -100,17 +95,18 @@ class AlsaDevice(audio.ThreadDevice):
         except alsaaudio.ALSAAudioError, e:
             raise audio.DeviceError(e)
 
-
+    
     def pause(self):
         if self.alsa_pcm:
             self.alsa_pcm.pause(1)
+
 
     def resume(self):
         if self.alsa_pcm:
             self.alsa_pcm.pause(0)
 
 
-    def thread_play_stream(self, stream):
+    def play_stream(self, stream):
         # Collect audio packets into chunks matching the ALSA period
         # size.  This code is a prime candidate for becoming more
         # efficient.
@@ -193,3 +189,35 @@ class AlsaDevice(audio.ThreadDevice):
 
         self.log('alsa: successfully reopened card {0}', self.alsa_card)
         self.set_device_error(None)
+
+
+
+import alsaaudio
+AlsaDeviceImpl = PythonAlsaDevice
+
+
+class AlsaDevice(audio.ThreadDevice):
+    """ALSA sound playback device.
+
+    This will use a C module when available, otherwise fall back on
+    the PythonAlsaDevice class that uses pyalsadevice.
+    """
+
+    def __init__(self, player, config):
+        super(AlsaDevice, self).__init__(player, config)
+
+        self.alsa_pcm = AlsaDeviceImpl(
+            self,
+            self.config.alsa_card,
+            self.config.start_without_device)
+        
+
+    def pause(self):
+        self.alsa_pcm.pause()
+
+    def resume(self):
+        self.alsa_pcm.resume()
+
+    def thread_play_stream(self, stream):
+        self.alsa_pcm.play_stream(stream)
+        
