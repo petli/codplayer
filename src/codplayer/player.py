@@ -50,6 +50,8 @@ class State(object):
 
     ripping: True if disc is being ripped while playing, False if
     played off previously ripped copy.
+
+    audio_device_error: A string giving the error state of the audio device, if any.
     """
 
     class NO_DISC:
@@ -79,11 +81,13 @@ class State(object):
         self.index = 0
         self.position = 0
         self.ripping = False
+        self.audio_device_error = None
 
 
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
-                'index: {index} position: {position} ripping: {ripping}'
+                'index: {index} position: {position} ripping: {ripping} '
+                'audio_device_error: {audio_device_error}'
                 .format(**self.__dict__))
 
 
@@ -97,6 +101,7 @@ class State(object):
         ('index', int),
         ('position', int),
         ('ripping', bool),
+        ('audio_device_error', str),
         )
 
     @classmethod
@@ -121,7 +126,6 @@ class Player(object):
         self.current_disc = None
 
         self.state = State()
-        self.write_state()
 
         self.keep_running = True
 
@@ -132,7 +136,9 @@ class Player(object):
         
     def run(self):
         self.device.start()
-
+        self.state.audio_device_error = self.device.get_device_error()
+        self.write_state()
+        
         # Main loop, executing until a quit command is received.
         # However, don't stop if a rip process is currently running.
 
@@ -531,7 +537,10 @@ class Player(object):
         # the normal end of the disc, or being aborted.
 
         p = self.device.get_current_packet()
-            
+
+        old_error = self.state.audio_device_error
+        self.state.audio_device_error = self.device.get_device_error()
+        
         if p is None:
             pos = 0
         else:
@@ -548,6 +557,7 @@ class Player(object):
                 self.state.index = p.index
                 self.state.position = pos
                 self.write_state()
+                return
 
         # React to updates from the device in both PLAY and PAUSE,
         # since it may lag a bit
@@ -560,6 +570,7 @@ class Player(object):
                 self.state.index = 0
                 self.state.position = 0
                 self.write_state()
+                return
 
             # New track or index
             elif (self.state.track != p.track.number or
@@ -568,16 +579,23 @@ class Player(object):
                 self.state.index = p.index
                 self.state.position = pos
                 self.write_state()
+                return
 
             # Moved backward in track
             elif pos < self.state.position:
                 self.state.position = pos
                 self.write_state()
+                return
                 
             # Moved a second (not worth logging)
             elif pos != self.state.position:
                 self.state.position = pos
                 self.write_state(False)
+                return
+
+        if old_error != self.state.audio_device_error:
+            self.write_state(False)
+            return
 
 
     def write_state(self, log_state = True):

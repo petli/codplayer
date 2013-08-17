@@ -35,6 +35,7 @@ class Device(object):
         """
         
         self.player = player
+        self.config = config
         self.log = player.log
         self.debug = player.debug
 
@@ -64,6 +65,11 @@ class Device(object):
         raise NotImplementedError()
 
 
+    def get_device_error(self):
+        """Return any device error, or None if all is fine."""
+        return None
+        
+
     def get_fds(self):
         """Return a list of all file descriptors open for the device."""
         return []
@@ -85,8 +91,11 @@ class ThreadDevice(Device):
         # Keep track of the last packet played by the audio device.
         # Given Python's Big Interpreter Lock we might not really need
         # the lock, but let's play nicely.
-        self.current_packet_lock = threading.Lock()
+        self.state_lock = threading.Lock()
         self.current_packet = None
+
+        # Also keep track of device state
+        self.device_error = None
 
 
     def start(self):
@@ -122,8 +131,12 @@ class ThreadDevice(Device):
         
 
     def get_current_packet(self):
-        with self.current_packet_lock:
+        with self.state_lock:
             return self.current_packet
+
+    def get_device_error(self):
+        with self.state_lock:
+            return self.device_error
 
     #
     # Methods for sub-classes
@@ -135,8 +148,13 @@ class ThreadDevice(Device):
 
 
     def set_current_packet(self, packet):
-        with self.current_packet_lock:
+        with self.state_lock:
             self.current_packet = packet
+
+
+    def set_device_error(self, error):
+        with self.state_lock:
+            self.device_error = error
 
 
 class AudioPacket(object):

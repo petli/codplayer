@@ -6,6 +6,7 @@
 
 import array
 
+import time
 import alsaaudio
 
 from . import audio, model
@@ -32,6 +33,8 @@ class AlsaDevice(audio.ThreadDevice):
         # to standard CD PCM.
         self.alsa_period_size = self.PERIOD_SIZE
 
+        self.alsa_pcm = None
+        
         # Open device
         try:
             self.debug('alsa: opening device for card: {0}', self.alsa_card)
@@ -39,8 +42,18 @@ class AlsaDevice(audio.ThreadDevice):
                                           mode = alsaaudio.PCM_NORMAL,
                                           card = self.alsa_card)
         except alsaaudio.ALSAAudioError, e:
-            raise audio.DeviceError(e)
+            if self.config.start_without_device:
+                self.log('alsa: error opening card {0}: {1}',
+                         self.alsa_card, e)
+                self.log('alsa: proceeding since start_without_device = True')
+                self.set_device_error(str(e))
+            else:
+                raise audio.DeviceError(e)
         
+        if self.alsa_pcm:
+            self.set_device_format()
+
+    def set_device_format(self):
         # Set format to big endian 44100 Hz to match CDR format,
         # fallbacking to little endian if necessary.
 
@@ -89,10 +102,12 @@ class AlsaDevice(audio.ThreadDevice):
 
 
     def pause(self):
-         self.alsa_pcm.pause(1)
+        if self.alsa_pcm:
+            self.alsa_pcm.pause(1)
 
     def resume(self):
-        self.alsa_pcm.pause(0)
+        if self.alsa_pcm:
+            self.alsa_pcm.pause(0)
 
 
     def thread_play_stream(self, stream):
@@ -113,6 +128,15 @@ class AlsaDevice(audio.ThreadDevice):
                 first_packet = False
 
             
+            # Do we have an audio device?
+            if self.alsa_pcm is None:
+                self.try_reopen()
+
+            if self.alsa_pcm is None:
+                # Reopen failed.  Sacrifice this packet and sleep a while
+                time.sleep(3)
+                continue
+
             if self.alsa_swap_bytes:
                 # More heavy-handed assumptions about data formats etc
                 a = array.array('h', p.data)
@@ -123,8 +147,14 @@ class AlsaDevice(audio.ThreadDevice):
                 data += p.data
 
             while len(data) >= period_bytes:
-                self.alsa_pcm.write(buffer(data, 0, period_bytes))
-                data = data[period_bytes:]
+                try:
+                    self.alsa_pcm.write(buffer(data, 0, period_bytes))
+                    data = data[period_bytes:]
+                except alsaaudio.ALSAAudioError, e:
+                    self.log('alsa: error writing to device: {0}', e)
+                    self.set_device_error(str(e))
+                    self.alsa_pcm = None
+                    data = ''
                                     
             # When all that went into the device buffer, it's close
             # enough to this packet position to update the state
@@ -140,3 +170,30 @@ class AlsaDevice(audio.ThreadDevice):
     def get_fds(self):
         return [fd for fd, mask in self.alsa_pcm.polldescriptors()]
     
+
+    def try_reopen(self):
+        # Try to re-open device
+        try:
+            self.debug('alsa: retrying opening device for card: {0}',
+                       self.alsa_card)
+
+            self.alsa_pcm = alsaaudio.PCM(
+                type = alsaaudio.PCM_PLAYBACK,
+                mode = alsaaudio.PCM_NORMAL,
+                card = self.alsa_card)
+
+        except alsaaudio.ALSAAudioError, e:
+            self.debug('alsa: error reopening card {0}: {1}',
+                         self.alsa_card, e)
+            self.set_device_error(str(e))
+            return
+
+        try:
+            self.set_device_format()
+        except alsa.DeviceError, e:
+            self.log('alsa: failed setting format: {0}', self.alsa_card)
+            self.alsa_pcm = None
+            return
+
+        self.log('alsa: successfully reopened card {0}', self.alsa_card)
+        self.set_device_error(None)

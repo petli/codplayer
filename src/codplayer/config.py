@@ -29,6 +29,7 @@ class Config:
         ('cdrom_device', str),
         ('cdrdao_command', str),
         ('audio_device_type', str),
+        ('start_without_device', bool),
 
         # File device options
         ('file_play_speed', int),
