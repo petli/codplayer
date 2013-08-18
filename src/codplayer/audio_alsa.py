@@ -7,6 +7,7 @@
 import array
 
 import time
+import sys
 
 from . import audio, model
 
@@ -15,14 +16,16 @@ class PythonAlsaDevice(object):
     # four periods.
     PERIOD_SIZE = 4096
     
-    def __init__(self, parent, card_name, start_without_device):
+    def __init__(self, parent, card, start_without_device):
         self.log = parent.log
         self.debug = parent.debug
         self.set_device_error = parent.set_device_error
         self.set_current_packet = parent.set_current_packet
-        self.alsa_card = card_name
+        self.alsa_card = card
         self.start_without_device = start_without_device
 
+        self.log("using PythonAlsaDevice - you might get glitchy sound");
+        
         # This should adapt to different formats, but shortcut for now
         # to standard CD PCM.
         self.alsa_period_size = self.PERIOD_SIZE
@@ -191,9 +194,14 @@ class PythonAlsaDevice(object):
         self.set_device_error(None)
 
 
+try:
+    from . import cod_alsa_device
+    AlsaDeviceImpl = cod_alsa_device.PCM
 
-import alsaaudio
-AlsaDeviceImpl = PythonAlsaDevice
+except ImportError, e:
+    sys.stderr.write("failed importing cod_alsa_device: {0}\n".format(e))
+    import alsaaudio
+    AlsaDeviceImpl = PythonAlsaDevice
 
 
 class AlsaDevice(audio.ThreadDevice):
@@ -206,18 +214,17 @@ class AlsaDevice(audio.ThreadDevice):
     def __init__(self, player, config):
         super(AlsaDevice, self).__init__(player, config)
 
-        self.alsa_pcm = AlsaDeviceImpl(
+        self.alsa_impl = AlsaDeviceImpl(
             self,
             self.config.alsa_card,
             self.config.start_without_device)
         
 
     def pause(self):
-        self.alsa_pcm.pause()
+        self.alsa_impl.pause()
 
     def resume(self):
-        self.alsa_pcm.resume()
+        self.alsa_impl.resume()
 
     def thread_play_stream(self, stream):
-        self.alsa_pcm.play_stream(stream)
-        
+        self.alsa_impl.play_stream(stream)

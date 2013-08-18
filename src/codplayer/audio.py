@@ -178,6 +178,8 @@ class AudioPacket(object):
     length: number of frames in the packet
 
     data: sample data
+
+    format: the sample format, typically model.PCM
     """
 
     def __init__(self, disc, track, track_number, abs_pos, length):
@@ -185,6 +187,8 @@ class AudioPacket(object):
         self.track = track
         self.track_number = track_number
 
+        self.format = disc.audio_format
+        
         assert abs_pos + length <= track.length
 
         if abs_pos < track.pregap_offset:

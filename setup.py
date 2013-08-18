@@ -18,4 +18,9 @@ setup(
     packages = [ 'codplayer',
                  'codplayer.test',
                  ],
+
+    ext_modules = [
+        Extension('codplayer.cod_alsa_device',
+                  ['src/codplayer/cod_alsa_device.c'],
+                  libraries = ['asound'])],
     )

@@ -16,15 +16,13 @@ are 75 CD frames per second, each consisting of 588 audio frames.
 
 # Basic data formats
 
-class LITTLE_ENDIAN: pass
-class BIG_ENDIAN: pass
 
 class PCM:
     channels = 2
     bytes_per_sample = 2
     bytes_per_frame = 4
     rate = 44100
-    byte_order = BIG_ENDIAN
+    big_endian = True
 
     audio_frames_per_cd_frame = 588
 
