@@ -246,7 +246,8 @@ alsapcm_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	}
 	else
 	{
-	    PyErr_SetString(ALSAAudioError, snd_strerror(res));
+	    PyErr_Format(ALSAAudioError, "can't open %s: %s (%d)",
+                         self->cardname, snd_strerror(res), res);
 	    return NULL;
 	}
     }
@@ -435,10 +436,6 @@ static int set_format(alsapcm_t *self, PyObject *packet)
             return 0;
         }
 
-        /* Set everything without bothering with checking the return
-         * codes, as we check that the device actually uses our settings
-         * below.
-         */
         snd_pcm_hw_params_set_access(self->handle, hwparams, 
                                      SND_PCM_ACCESS_RW_INTERLEAVED);
         snd_pcm_hw_params_set_format(self->handle, hwparams, sample_format);
@@ -460,8 +457,7 @@ static int set_format(alsapcm_t *self, PyObject *packet)
         }
 
         
-        /* Query current settings. These may differ from the requested values,
-           which should therefore be sync'ed with actual values */
+        /* Check if the card accepted our settings */
         res = snd_pcm_hw_params_current(self->handle, hwparams);
         if (res < 0)
         {
@@ -550,12 +546,6 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
         return NULL;
     }
 
-    if (!self->handle) 
-    {
-        PyErr_SetString(ALSAAudioError, "PCM device is closed");
-        return NULL;
-    }
-
     while ((packet = PyIter_Next(stream)) != NULL)
     {
 	int res;
@@ -575,9 +565,38 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 
         if (!self->handle)
         {
-            // TODO: reopen device
-            PyErr_Format(ALSAAudioError, "device not open");
-            goto loop_error;
+            int res;
+                
+            /* Try reopening the device */
+            alsa_debug2(self, "retrying opening card", self->cardname);
+    
+            Py_BEGIN_ALLOW_THREADS;
+            res = snd_pcm_open(&(self->handle), self->cardname, self->pcmtype,
+                               self->pcmmode);
+            Py_END_ALLOW_THREADS;
+    
+            if (res < 0) 
+            {
+                struct timespec ts;
+                
+                alsa_debug2(self, "error reopening card", snd_strerror(res));
+                self->handle = 0;
+                set_device_error(self, snd_strerror(res));
+
+                /* Sacrifice this audio packet and retry in a couple of seconds */
+                ts.tv_sec = 3;
+                ts.tv_nsec = 0;
+                while (nanosleep(&ts, &ts) < 0 && errno == EINTR)
+                {
+                }
+
+                continue;
+            }
+            else
+            {
+                alsa_log2(self, "successfully reopened card", self->cardname);
+                set_device_error(self, NULL);
+            }
         }
 
 	if (!set_format(self, packet))
@@ -679,6 +698,8 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 
         Py_END_ALLOW_THREADS;
         
+        Py_DECREF(data_object);
+        
         /* When all that went into the device buffer, it's close
          * enough to this packet position to update the state.
          */
@@ -689,11 +710,15 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 
 	if (res < 0) 
 	{
-	    // TODO: Set device error and prepare for retry
-	    PyErr_Format(ALSAAudioError, "error writing %d bytes to device: %s (%d)",
-                         period_bytes, snd_strerror(res), res);
-            goto loop_error;
-	}  
+            alsa_log2(self, "error writing to card", snd_strerror(res));
+            set_device_error(self, snd_strerror(res));
+
+            /* Close device and drop format to prepare for reopen attempt */
+            snd_pcm_close(self->handle);
+            self->handle = 0;
+            Py_XDECREF(self->format);
+            self->format = NULL;
+	}
     }
 
     if (PyErr_Occurred())
@@ -732,11 +757,15 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 
 	if (res < 0) 
 	{
-	    // TODO: Set device error and prepare for retry
-	    PyErr_Format(ALSAAudioError, "error writing %d bytes to device: %s (%d)",
-                         period_bytes, snd_strerror(res), res);
-            goto loop_error;
-	}  
+            alsa_log2(self, "error writing to card", snd_strerror(res));
+            set_device_error(self, snd_strerror(res));
+
+            /* Close device and drop format to prepare for reopen attempt */
+            snd_pcm_close(self->handle);
+            self->handle = 0;
+            Py_XDECREF(self->format);
+            self->format = NULL;
+	}
     }
 
     if (samples) {
