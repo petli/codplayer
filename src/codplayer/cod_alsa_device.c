@@ -20,8 +20,11 @@
 #include "stringobject.h"
 #define PyUnicode_FromString PyString_FromString
 #endif
+
 #include <alsa/asoundlib.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <sched.h>
 
 
 typedef struct {
@@ -111,6 +114,19 @@ static int alsa_log2(alsapcm_t *self, const char *msg, const char *value)
 {
     PyObject *res = PyObject_CallFunction(
 	self->log, "sss", "cod_alsa_device: {0}: {1}", msg, value);
+
+    if (res == NULL)
+	return 0;
+
+    Py_DECREF(res);
+    return 1;
+}
+
+
+static int alsa_logi(alsapcm_t *self, const char *msg, int value)
+{
+    PyObject *res = PyObject_CallFunction(
+	self->log, "ssi", "cod_alsa_device: {0}: {1}", msg, value);
 
     if (res == NULL)
 	return 0;
@@ -277,6 +293,59 @@ static void alsapcm_dealloc(alsapcm_t *self)
     PyObject_Del(self);
 }
 
+
+static PyObject *
+alsapcm_init_thread(alsapcm_t *self, PyObject *args) 
+{
+    int res;
+    pthread_t this_thread;
+    struct sched_param params;
+
+    if (!PyArg_ParseTuple(args,":init_thread")) 
+        return NULL;
+
+
+    this_thread = pthread_self();
+
+    /* Use a minimum priority round-robin RT thread - should be good
+     * enough to get past everything else on a dedicated CD player
+     * server.
+     */
+    params.sched_priority = sched_get_priority_min(SCHED_RR);
+
+    res = pthread_setschedparam(this_thread, SCHED_RR, &params);
+    if (res == 0)
+    {
+        /* Verify the change in thread priority */
+        int policy = 0;
+        res = pthread_getschedparam(this_thread, &policy, &params);
+        if (res == 0)
+        {
+            if (policy == SCHED_RR)
+            {
+                alsa_logi(self, "realtime thread running at priority",
+                          params.sched_priority);
+            }
+            else
+            {
+                alsa_logi(self, "thread not using expected scheduler, but this:",
+                          policy);
+            }
+        }
+        else
+        {
+            alsa_log1(self, "couldn't check if thread got realtime prio");
+        }
+    }
+    else
+    {
+        alsa_log1(self, "error setting realtime scheduler, running at normal prio");
+    }
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+    
 
 static PyObject *
 alsapcm_dumpinfo(alsapcm_t *self, PyObject *args) 
@@ -844,6 +913,7 @@ static PyObject *alsapcm_resume(alsapcm_t *self, PyObject *args)
 /* ALSA PCM Object Bureaucracy */
 
 static PyMethodDef alsapcm_methods[] = {
+    { "init_thread", (PyCFunction)alsapcm_init_thread, METH_VARARGS },
     { "dumpinfo", (PyCFunction)alsapcm_dumpinfo, METH_VARARGS },
     { "pause", (PyCFunction)alsapcm_pause, METH_VARARGS },
     { "resume", (PyCFunction)alsapcm_resume, METH_VARARGS },

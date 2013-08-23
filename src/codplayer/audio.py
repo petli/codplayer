@@ -82,6 +82,8 @@ class ThreadDevice(Device):
 
         self.thread = threading.Thread(target = self.run_thread)
         self.thread.daemon = True
+
+        self.thread_ready = threading.Event()
         
         # Keep track of the last packet played by the audio device.
         # Given Python's Big Interpreter Lock we might not really need
@@ -94,8 +96,11 @@ class ThreadDevice(Device):
 
 
     def start(self):
+        # Kick off thread and wait for it to finish any initialisation.
+        # This ensures that e.g. dropping privs isn't done until thread
+        # has done what it needs to.
         self.thread.start()
-
+        self.thread_ready.wait()
 
     def play_stream(self, stream):
         self.stream_queue.put(stream)
@@ -104,6 +109,9 @@ class ThreadDevice(Device):
     def run_thread(self):
         self.debug('{0}: audio device thread started', self.thread.name)
 
+        self.init_thread()
+        self.thread_ready.set()
+        
         try:
             while True:
                 stream = self.stream_queue.get()
@@ -137,6 +145,10 @@ class ThreadDevice(Device):
     # Methods for sub-classes
     #
             
+    def init_thread(self):
+        """Do any initialisation inside the new thread."""
+        pass
+    
     def thread_play_stream(self, stream):
         """Play a new stream in the thread."""
         raise NotImplementedError()

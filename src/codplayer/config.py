@@ -22,6 +22,8 @@ class Config:
 
     CONFIG_PARAMS = (
         ('database', str),
+        ('user', str),
+        ('group', str),
         ('pid_file', str),
         ('log_file', str),
         ('state_file', str),

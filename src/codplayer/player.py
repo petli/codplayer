@@ -11,6 +11,8 @@ The unit of time in all objects is one audio frame.
 """
 
 import os
+import pwd
+import grp
 import errno
 import select
 import subprocess
@@ -133,21 +135,61 @@ class Player(object):
         self.poll = select.poll()
         self.poll.register(self.control, select.POLLIN)
 
+        # Figure out which IDs to run as, if any
+        self.uid = None
+        self.gid = None
+
+        if self.cfg.user:
+            try:
+                pw = pwd.getpwnam(self.cfg.user)
+                self.uid = pw.pw_uid
+                self.gid = pw.pw_gid
+            except KeyError:
+                raise PlayerError('unknown user: {0}'.format(self.cfg.user))
+
+        if self.cfg.group:
+            if not self.cfg.user:
+                raise PlayerError("can't set group without user in config")
+            
+            try:
+                gr = grp.getgrnam(self.cfg.group)
+                self.gid = gr.gr_gid
+            except KeyError:
+                raise PlayerError('unknown group: {0}'.format(self.cfg.user))
+
         
     def run(self):
-        self.device.start()
-        self.state.audio_device_error = self.device.get_device_error()
-        self.write_state()
-        
-        # Main loop, executing until a quit command is received.
-        # However, don't stop if a rip process is currently running.
+        try:
+            self.device.start()
 
-        while self.keep_running or self.rip_process is not None:
-            self.run_once(500)
-            
-        # Reset state to leave less mess behind
-        self.state = State()
-        self.write_state()
+            # Now that device is running, drop any privs to get ready
+            # for full operation
+            if self.uid and self.gid:
+                if os.geteuid() == 0:
+                    try:
+                        self.log('dropping privs to uid {0} gid {1}',
+                                 self.uid, self.gid)
+
+                        os.setgid(self.gid)
+                        os.setuid(self.uid)
+                    except OSError, e:
+                        raise PlayerError("can't set UID or GID: {0}".format(e))
+                else:
+                    self.log('not root, not changing uid or gid')
+                    
+            self.state.audio_device_error = self.device.get_device_error()
+            self.write_state()
+        
+            # Main loop, executing until a quit command is received.
+            # However, don't stop if a rip process is currently running.
+
+            while self.keep_running or self.rip_process is not None:
+                self.run_once(500)
+
+        finally:
+            # Reset state to leave less mess behind
+            self.state = State()
+            self.write_state()
         
 
     #

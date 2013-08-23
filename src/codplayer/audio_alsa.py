@@ -51,6 +51,9 @@ class PythonAlsaDevice(object):
             self.set_device_format()
 
 
+    def init_thread(self):
+        pass
+
     def set_device_format(self):
         # Set format to big endian 44100 Hz to match CDR format,
         # fallbacking to little endian if necessary.
@@ -219,6 +222,9 @@ class AlsaDevice(audio.ThreadDevice):
             self.config.alsa_card,
             self.config.start_without_device)
         
+
+    def init_thread(self):
+        self.alsa_impl.init_thread()
 
     def pause(self):
         self.alsa_impl.pause()
