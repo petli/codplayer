@@ -120,11 +120,8 @@ class PythonAlsaThread(object):
             raise audio.DeviceError('only supports 16-bit samples')
         
         self.bytes_per_sample = bytes_per_sample
-
-        if big_endian:
-            self.format = alsaaudio.PCM_FORMAT_S16_BE
-        else:
-            self.format = alsaaudio.PCM_FORMAT_S16_LE
+        self.big_endian = big_endian
+        
 
         # This should adapt to different formats, but shortcut for now
         # to standard CD PCM.
@@ -327,11 +324,16 @@ class PythonAlsaThread(object):
     
 
     def _set_device_format(self, pcm):
+        if self.big_endian:
+            format = alsaaudio.PCM_FORMAT_S16_BE
+        else:
+            format = alsaaudio.PCM_FORMAT_S16_LE
+
         try:
-            v = pcm.setformat(self.format)
+            v = pcm.setformat(format)
 
             # Card accepts CD byte order
-            if v == self.format:
+            if v == format:
                 self.alsa_swap_bytes = False
 
             # Try byte swapped order instead
@@ -339,13 +341,13 @@ class PythonAlsaThread(object):
                 self.debug('alsa: swapping bytes')
                 self.alsa_swap_bytes = True
 
-                if self.format == alsaaudio.PCM_FORMAT_S16_BE:
-                    self.format = alsaaudio.PCM_FORMAT_S16_LE
+                if format == alsaaudio.PCM_FORMAT_S16_BE:
+                    format = alsaaudio.PCM_FORMAT_S16_LE
                 else:
-                    self.format = alsaaudio.PCM_FORMAT_S16_BE
+                    format = alsaaudio.PCM_FORMAT_S16_BE
 
-                v = pcm.setformat(self.format)
-                if v != self.format:
+                v = pcm.setformat(format)
+                if v != format:
                     raise audio.DeviceError(
                         "alsa: can't set S16_BE/S16_LE format, card stuck on {0}"
                         .format(v))
@@ -405,6 +407,7 @@ class PythonAlsaThread(object):
                     (pos, data) = self.data_buffer[0]
 
             if data:
+                assert len(data) == self.period_bytes
                 # Play the data without holding the lock
                 error = self._play_period(data)
                 
@@ -417,6 +420,8 @@ class PythonAlsaThread(object):
                             del self.data_buffer[0]
                             self.play_pos = pos
                     else:
+                        self.alsa_pcm.close()
+                        self.alsa_pcm = None
                         self.device_error = error
 
                     self.cond.notifyAll()
@@ -425,7 +430,7 @@ class PythonAlsaThread(object):
     def _play_period(self, data):
         if self.alsa_swap_bytes:
             # Heavy-handed assumptions about data formats etc
-            a = array.array('h', data)
+            a = array.array('h', str(data))
             assert a.itemsize == 2
             a.byteswap()
             data = a.tostring()
@@ -442,9 +447,6 @@ class PythonAlsaThread(object):
         # Try to re-open device
         error = None
         try:
-            self.debug('alsa: retrying opening device for card: {0}',
-                       self.alsa_card)
-
             pcm = alsaaudio.PCM(
                 type = alsaaudio.PCM_PLAYBACK,
                 mode = alsaaudio.PCM_NORMAL,
@@ -452,14 +454,16 @@ class PythonAlsaThread(object):
 
             self._set_device_format(pcm)
 
-        except alsa.DeviceError, e:
-            self.log('alsa: failed setting format: {0}', self.alsa_card)
+        except audio.DeviceError, e:
             error = str(e)
+            self.log('alsa: failed setting format: {0}', self.alsa_card)
 
         except alsaaudio.ALSAAudioError, e:
-            self.debug('alsa: error reopening card {0}: {1}',
-                         self.alsa_card, e)
+            # only log if different to last error
             error = str(e)
+            if self.device_error != error:
+                self.debug('alsa: error reopening card {0}: {1}',
+                           self.alsa_card, error)
             
         with self.cond:
             if error is None:
