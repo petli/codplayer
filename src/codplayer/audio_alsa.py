@@ -63,8 +63,6 @@ class AlsaDevice(audio.ThreadDevice):
                     stored, play_pos, device_error = self.alsa_thread.playing(buf)
                     self.set_device_error(device_error)
 
-                    self.log('{0}', play_pos)
-
                     if stored > 0:
                         # move forward in data buffer
                         buf = buffer(buf, stored)
