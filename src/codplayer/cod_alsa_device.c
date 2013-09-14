@@ -1,5 +1,5 @@
-/* cod_alsa_device - ALSA device implementation, based on pyalsaaudio
- * but heavily modified.
+/* cod_alsa_device - ALSA thread implementation, based on pyalsaaudio
+ * but now heavily modified.
  *
  * Original module info:
  *
@@ -15,7 +15,9 @@
  *
  */
 
+#define PY_SSIZE_T_CLEAN
 #include "Python.h"
+
 #if PY_MAJOR_VERSION < 3 && PY_MINOR_VERSION < 6
 #include "stringobject.h"
 #define PyUnicode_FromString PyString_FromString
@@ -27,25 +29,72 @@
 #include <sched.h>
 
 
+/* Will run on approx 10Hz for PCM */
+#define PERIOD_FRAMES 4096
+
 typedef struct {
     PyObject_HEAD;
+
     int pcmtype;
     int pcmmode;
     char *cardname;
   
-    snd_pcm_t *handle;
-
     /* Parent device object methods */
     PyObject *log;
     PyObject *debug;
-    PyObject *set_device_error;
-    PyObject *set_current_packet;
 
-    PyObject *format;
-    int bytes_per_frame;
-    int period_size;
+    /* Sound format */
+    int channels;
+    int rate;
+    int big_endian;
+
+    /* Parameters for what HW does */
+    int period_frames;
     int swap_bytes;
-} alsapcm_t;
+
+    pthread_t thread;
+    
+    /* Buffer between playing thread and Python env */
+
+    /* The rest of this structure is protected by
+       a mutex, and data exchanged with cond signalling.
+    */
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+
+    snd_pcm_t *handle;         /* NULL if closed */
+    const char *device_error;  /* Current error, or NULL */
+
+    /* Allow simple logging by passing static strings from the thread
+       to the Python environment. Reset when logged.  There's a small
+       chance that messages are lost, but that's fine.
+    */
+    const char *log_message;
+    const char *log_param;
+
+    /* All buffer parameters are in bytes, not frames or periods */
+    int period_size;
+    int buffer_size;
+    int play_pos;
+    int play_size;
+    int data_end;
+    int data_size;
+
+    unsigned char *buffer;
+
+    /* End of thread buffer structure */
+    
+} alsa_thread_t;
+
+
+#define BEGIN_LOCK(self) pthread_mutex_lock(&(self)->mutex)
+#define END_LOCK(self) pthread_mutex_unlock(&(self)->mutex)
+#define NOTIFY(self) pthread_cond_broadcast(&(self)->cond)
+
+
+static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle);
+static void* thread_main(void *arg);
+static void thread_loop(alsa_thread_t *self);
 
 
 /* Translate a card id to a ALSA cardname 
@@ -71,12 +120,8 @@ static char *translate_cardname(char *name)
 }
 
 
-/******************************************/
-/* PCM object wrapper                   */
-/******************************************/
-
-static PyTypeObject ALSAPCMType;
-static PyObject *ALSAAudioError;
+static PyTypeObject AlsaThreadType;
+static PyObject *AlsaThreadError;
 
 static PyObject* get_parent_func(PyObject *parent, const char *attr)
 {
@@ -89,7 +134,7 @@ static PyObject* get_parent_func(PyObject *parent, const char *attr)
     if (!PyCallable_Check(func))
     {
 	Py_DECREF(func);
-        return PyErr_Format(ALSAAudioError,
+        return PyErr_Format(AlsaThreadError,
 			    "parent.%s is not a callable function",
 			    attr);
     }
@@ -98,7 +143,10 @@ static PyObject* get_parent_func(PyObject *parent, const char *attr)
 }
 
 
-static int alsa_log1(alsapcm_t *self, const char *msg)
+/* Log and debug methods are not useable in the playing thread, since
+ * they pass messages into Python.
+ */
+static int alsa_log1(alsa_thread_t *self, const char *msg)
 {
     PyObject *res = PyObject_CallFunction(
 	self->log, "ss", "cod_alsa_device: {0}", msg);
@@ -110,7 +158,7 @@ static int alsa_log1(alsapcm_t *self, const char *msg)
     return 1;
 }
 
-static int alsa_log2(alsapcm_t *self, const char *msg, const char *value)
+static int alsa_log2(alsa_thread_t *self, const char *msg, const char *value)
 {
     PyObject *res = PyObject_CallFunction(
 	self->log, "sss", "cod_alsa_device: {0}: {1}", msg, value);
@@ -123,7 +171,7 @@ static int alsa_log2(alsapcm_t *self, const char *msg, const char *value)
 }
 
 
-static int alsa_logi(alsapcm_t *self, const char *msg, int value)
+static int alsa_logi(alsa_thread_t *self, const char *msg, int value)
 {
     PyObject *res = PyObject_CallFunction(
 	self->log, "ssi", "cod_alsa_device: {0}: {1}", msg, value);
@@ -136,7 +184,7 @@ static int alsa_logi(alsapcm_t *self, const char *msg, int value)
 }
 
 
-static int alsa_debug1(alsapcm_t *self, const char *msg)
+static int alsa_debug1(alsa_thread_t *self, const char *msg)
 {
     PyObject *res = PyObject_CallFunction(
 	self->debug, "ss", "cod_alsa_device: {0}", msg);
@@ -148,7 +196,7 @@ static int alsa_debug1(alsapcm_t *self, const char *msg)
     return 1;
 }
 
-static int alsa_debug2(alsapcm_t *self, const char *msg, const char *value)
+static int alsa_debug2(alsa_thread_t *self, const char *msg, const char *value)
 {
     PyObject *res = PyObject_CallFunction(
 	self->debug, "sss", "cod_alsa_device: {0}: {1}", msg, value);
@@ -160,7 +208,7 @@ static int alsa_debug2(alsapcm_t *self, const char *msg, const char *value)
     return 1;
 }
 
-static int alsa_debugi(alsapcm_t *self, const char *msg, int value)
+static int alsa_debugi(alsa_thread_t *self, const char *msg, int value)
 {
     PyObject *res = PyObject_CallFunction(
 	self->debug, "ssi", "cod_alsa_device: {0}: {1}", msg, value);
@@ -173,56 +221,72 @@ static int alsa_debugi(alsapcm_t *self, const char *msg, int value)
 }
 
 
+/*
+ * Functions for passing messages out of the playing thread
+ */
 
-static int set_current_packet(alsapcm_t *self, PyObject *packet)
+static void set_device_error(alsa_thread_t *self, const char *error)
 {
-    PyObject *res = PyObject_CallFunction(
-	self->set_current_packet, "O", packet);
+    {/* LOCK SCOPE */
+        BEGIN_LOCK(self);
 
-    if (res == NULL)
-	return 0;
+        self->device_error = error;
+        NOTIFY(self);
 
-    Py_DECREF(res);
-    return 1;
+        END_LOCK(self);
+    }
+}
+
+static void set_log_message(alsa_thread_t *self, const char *message, const char *param)
+{
+    {/* LOCK SCOPE */
+        BEGIN_LOCK(self);
+
+        self->log_message = message;
+        self->log_param = param;
+        NOTIFY(self);
+
+        END_LOCK(self);
+    }
 }
 
 
-static int set_device_error(alsapcm_t *self, const char *error)
-{
-    PyObject *res = PyObject_CallFunction(
-	self->set_device_error, "s", error);
-
-    if (res == NULL)
-	return 0;
-
-    Py_DECREF(res);
-    return 1;
-}
-
-
-
+/*
+ * Object constructor
+ */
 static PyObject *
-alsapcm_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
+alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds) 
 {
     int res;
-    alsapcm_t *self;
+    alsa_thread_t *self;
     PyObject *parent = NULL;
     char *cardname = NULL;
     int start_without_device = 0;
+    int channels = 0;
+    int bytes_per_sample = 0;
+    int rate = 0;
+    int big_endian = 0;
+    snd_pcm_t *handle = NULL;
     
-    if (!PyArg_ParseTuple(args, "Osi:PCM", 
-                          &parent, &cardname, &start_without_device)) 
+    if (!PyArg_ParseTuple(args, "Osiiiii:AlsaThread", 
+                          &parent, &cardname, &start_without_device,
+                          &channels, &bytes_per_sample, &rate, &big_endian)) 
         return NULL;
     
-    if (!(self = (alsapcm_t *)PyObject_New(alsapcm_t, &ALSAPCMType))) 
+    if (bytes_per_sample != 2)
+        return PyErr_Format(AlsaThreadError,
+			    "only supports 2 bytes per sample, got %d",
+			    bytes_per_sample);
+    
+
+    if (!(self = (alsa_thread_t *)PyObject_New(alsa_thread_t, &AlsaThreadType))) 
         return NULL;
     
-    self->handle = 0;
     self->pcmtype = SND_PCM_STREAM_PLAYBACK;
     self->pcmmode = 0;
     self->cardname = translate_cardname(cardname);
 
-    /* Get the parent methods we need to do anything */
+    /* Get the parent methods we need for logging and reporting back */
     self->log = get_parent_func(parent, "log");
     if (self->log == NULL)
         return NULL;    
@@ -231,24 +295,40 @@ alsapcm_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (self->debug == NULL)
         return NULL;    
 
-    self->set_current_packet = get_parent_func(parent, "set_current_packet");
-    if (self->set_current_packet == NULL)
-        return NULL;    
+    self->channels = channels;
+    self->rate = rate;
+    self->big_endian = big_endian;
 
-    self->set_device_error = get_parent_func(parent, "set_device_error");
-    if (self->set_device_error == NULL)
-        return NULL;    
-
-    self->format = NULL;
-    self->bytes_per_frame = 0;
-    self->period_size = 0;
+    /* These two get filled in when we set the format and
+     * get to know what period really is.
+     */
+    self->period_frames = 0;
     self->swap_bytes = 0;
     
+    self->thread = 0;
+    
+    pthread_mutex_init(&(self->mutex), NULL);
+    pthread_cond_init(&(self->cond), NULL);
+
+    self->handle = 0;
+    self->device_error = NULL;
+    self->log_message = NULL;
+    self->log_param = NULL;
+
+    /* Buffer is set up when we know the format */
+    self->buffer_size = 0;
+    self->play_pos = 0;
+    self->play_size = 0;
+    self->data_end = 0;
+    self->data_size = 0;
+    self->buffer = NULL;
+
+    /* Try to open card straight away */
+
     alsa_debug2(self, "opening card", self->cardname);
 	
     Py_BEGIN_ALLOW_THREADS
-    res = snd_pcm_open(&(self->handle), self->cardname, self->pcmtype,
-                       self->pcmmode);
+    res = snd_pcm_open(&handle, self->cardname, self->pcmtype, self->pcmmode);
     Py_END_ALLOW_THREADS
     
     if (res < 0) 
@@ -262,21 +342,55 @@ alsapcm_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	}
 	else
 	{
-	    PyErr_Format(ALSAAudioError, "can't open %s: %s (%d)",
+	    PyErr_Format(AlsaThreadError, "can't open %s: %s (%d)",
                          self->cardname, snd_strerror(res), res);
 	    return NULL;
 	}
     }
     else
     {
-        set_device_error(self, NULL);
+        if (thread_set_format(self, handle))
+        {
+            self->handle = handle;
+            set_device_error(self, NULL);
+        }
+    }
+
+    /* Propagate device error right away while we're in a Python context */
+    if (self->device_error)
+    {
+        PyObject *set_device_error = get_parent_func(parent, "set_device_error");
+        if (set_device_error == NULL)
+            return NULL;    
+
+        PyObject *res = PyObject_CallFunction(set_device_error, "s", self->device_error);
+
+        Py_DECREF(set_device_error);
+
+        if (res == NULL)
+            return NULL;
+
+        Py_DECREF(res);
+    }
+
+    /* Ready to kick off thread */
+    // TODO: set scheduling
+    if (pthread_create(&self->thread, NULL, thread_main, self) != 0)
+    {
+        PyErr_Format(AlsaThreadError, "couldn't start thread: %s",
+                     strerror(errno));
+        return NULL;
     }
 
     return (PyObject *)self;
 }
 
-static void alsapcm_dealloc(alsapcm_t *self) 
+
+static void alsa_thread_dealloc(alsa_thread_t *self) 
 {
+    // TODO: figure out how to do this safely with the thread running
+
+    /*
     if (self->handle) {
         snd_pcm_drain(self->handle);
         snd_pcm_close(self->handle);
@@ -285,353 +399,453 @@ static void alsapcm_dealloc(alsapcm_t *self)
 
     Py_XDECREF(self->log);
     Py_XDECREF(self->debug);
-    Py_XDECREF(self->set_current_packet);
-    Py_XDECREF(self->set_device_error);
-
-    Py_XDECREF(self->format);
 
     PyObject_Del(self);
+    */
 }
 
 
 static PyObject *
-alsapcm_init_thread(alsapcm_t *self, PyObject *args) 
+alsa_thread_get_buffer_end(alsa_thread_t *self, PyObject *args) 
 {
-    int res;
-    pthread_t this_thread;
-    struct sched_param params;
+    int buffer_end = 0;
 
-    if (!PyArg_ParseTuple(args,":init_thread")) 
+    if (!PyArg_ParseTuple(args,":get_buffer_end")) 
         return NULL;
 
-
-    this_thread = pthread_self();
-
-    /* Use a minimum priority round-robin RT thread - should be good
-     * enough to get past everything else on a dedicated CD player
-     * server.
-     */
-    params.sched_priority = sched_get_priority_min(SCHED_RR);
-
-    res = pthread_setschedparam(this_thread, SCHED_RR, &params);
-    if (res == 0)
     {
-        /* Verify the change in thread priority */
-        int policy = 0;
-        res = pthread_getschedparam(this_thread, &policy, &params);
-        if (res == 0)
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        buffer_end = self->data_end;
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
+    }
+
+    return PyInt_FromLong(buffer_end);
+}
+    
+
+static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args) 
+{
+    const char *data = NULL;
+    Py_ssize_t data_size = 0;
+    int stored = 0;
+    int play_pos = 0;
+    const char *device_error = NULL;
+    const char *log_message = NULL;
+    const char *log_param = NULL;
+    
+    /* Accept None too */
+    if (!PyArg_ParseTuple(args, "z#:playing", &data, &data_size))
+        return NULL;
+
+    {/* LOCK SCOPE */
+        struct timeval now;
+        struct timespec timeout;
+
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        /* We don't touch any python objects until the end of this
+         * lock scope, so allow other threads to run throughout
+         * the interaction with the play thread.
+         */
+
+
+        /* Never wait for more than one second, to avoid locking up
+         * the calling thread (it controls skipping streams)
+         */
+        gettimeofday(&now, NULL);
+        timeout.tv_sec = now.tv_sec + 1;
+        timeout.tv_nsec = now.tv_usec * 1000;
+
+
+        if (self->buffer_size <= 0)
         {
-            if (policy == SCHED_RR)
+            /* Wait for thread to open the device */
+            pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
+        }
+            
+        if (self->buffer_size > 0)
+        {
+            if (data != NULL)
             {
-                alsa_logi(self, "realtime thread running at priority",
-                          params.sched_priority);
+                if (self->data_size >= self->buffer_size)
+                {
+                    /* Wait for more room in buffer */
+                    pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
+                }
+
+                if (self->data_size < self->buffer_size)
+                {
+                    /* Can fit more data */
+
+                    int buffer_free = self->buffer_size - self->data_size;
+                    int buffer_end = self->data_end % self->buffer_size;
+                    
+                    stored = data_size;
+                    if (stored > buffer_free)
+                        stored = buffer_free;
+
+                    /* But don't wrap the end of the buffer */
+                    if (buffer_end + stored > self->buffer_size)
+                        stored = self->buffer_size - buffer_end;
+
+                    memcpy(self->buffer + buffer_end, data, stored);
+                    self->data_end += stored;
+                    self->data_size += stored;
+                    
+
+                    /* Tell playing thread about the new data */
+                    NOTIFY(self);
+                }
             }
             else
             {
-                alsa_logi(self, "thread not using expected scheduler, but this:",
-                          policy);
+                /* Reached the end of the stream.  Pad out to a whole
+                 * period, if necessary.  We know this will fit, since
+                 * the play thread always reads in whole periods.
+                 */
+                int partial = self->data_end % self->period_size;
+
+                if (partial > 0)
+                {
+                    memset(self->buffer + (self->data_end % self->buffer_size), 0,
+                           self->period_size - partial);
+                    self->data_end += self->period_size - partial;
+                    self->data_size += self->period_size - partial;
+
+                    /* Tell playing thread about the new data */
+                    NOTIFY(self);
+                }
+
+                /* Wait for updates to play_pos etc */
+                pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
             }
         }
-        else
-        {
-            alsa_log1(self, "couldn't check if thread got realtime prio");
-        }
+
+        /* Bring the return parameters out of the lock and into Python land
+         */
+        play_pos = self->play_pos;
+        device_error = self->device_error;
+        log_message = self->log_message;
+        log_param = self->log_param;
+
+        /* Reset the log message now that we got it */
+        self->log_message = NULL;
+        self->log_param = NULL;;
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
-    else
+    
+    if (log_message)
     {
-        alsa_log1(self, "error setting realtime scheduler, running at normal prio");
+        if (log_param)
+            alsa_log2(self, log_message, log_param);
+        else
+            alsa_log1(self, log_message);
     }
 
-    Py_INCREF(Py_None);
-    return Py_None;
+    // TODO: remember device_error to avoid spawning new strings all the time
+
+    return Py_BuildValue("iis", stored, play_pos, device_error);
 }
-    
+
+
+static PyObject *alsa_thread_pause(alsa_thread_t *self, PyObject *args) 
+{
+    int res = 0;
+
+    if (!PyArg_ParseTuple(args,":pause")) 
+        return NULL;
+
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        if (self->handle) {
+            res = snd_pcm_pause(self->handle, 1);
+        }
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
+    }
+  
+    if (res < 0) 
+    {
+        PyErr_SetString(AlsaThreadError,snd_strerror(res));
+        return NULL;
+    }
+
+    return PyLong_FromLong(res);
+}
+
+
+static PyObject *alsa_thread_resume(alsa_thread_t *self, PyObject *args) 
+{
+    int res = 0;
+
+    if (!PyArg_ParseTuple(args,":resume")) 
+        return NULL;
+
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        if (self->handle) {
+            res = snd_pcm_pause(self->handle, 0);
+        }
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
+    }
+
+    if (res < 0) 
+    {
+        PyErr_SetString(AlsaThreadError,snd_strerror(res));
+        return NULL;
+    }
+
+    return PyLong_FromLong(res);
+}
+
 
 static PyObject *
-alsapcm_dumpinfo(alsapcm_t *self, PyObject *args) 
+alsa_thread_discard_buffer(alsa_thread_t *self, PyObject *args) 
 {
-    unsigned int val,val2;
-    snd_pcm_format_t fmt;
-    int dir;
-    snd_pcm_uframes_t frames;
-    snd_pcm_hw_params_t *hwparams;
-    snd_pcm_hw_params_alloca(&hwparams);
-    snd_pcm_hw_params_current(self->handle,hwparams);
-    
-    if (!PyArg_ParseTuple(args,":dumpinfo")) 
+    if (!PyArg_ParseTuple(args,":discard_buffer")) 
         return NULL;
-    
-    if (!self->handle) {
-        PyErr_SetString(ALSAAudioError, "PCM device is closed");
-        return NULL;
+
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        /* Reset counters, keeping mind of that the player thread
+         * might be trying to put data into the buffer right now.
+         */
+        if (self->buffer_size > 0)
+        {
+            self->play_pos = self->play_pos % self->buffer_size;
+            self->data_end = (self->play_pos + self->play_size) % self->buffer_size;
+            self->data_size = self->play_size;
+        }
+
+        /* Someone might be waiting on this */
+        NOTIFY(self);
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
-
-    printf("PCM handle name = '%s'\n", snd_pcm_name(self->handle));
-    printf("PCM state = %s\n", 
-           snd_pcm_state_name(snd_pcm_state(self->handle)));
     
-    snd_pcm_hw_params_get_access(hwparams, (snd_pcm_access_t *) &val);
-    printf("access type = %s\n", snd_pcm_access_name((snd_pcm_access_t)val));
-
-    snd_pcm_hw_params_get_format(hwparams, &fmt);
-    printf("format = '%s' (%s)\n", 
-           snd_pcm_format_name(fmt),
-           snd_pcm_format_description(fmt));
-    
-    snd_pcm_hw_params_get_subformat(hwparams, (snd_pcm_subformat_t *)&val);
-    printf("subformat = '%s' (%s)\n",
-           snd_pcm_subformat_name((snd_pcm_subformat_t)val),
-           snd_pcm_subformat_description((snd_pcm_subformat_t)val));
-    
-    snd_pcm_hw_params_get_channels(hwparams, &val);
-    printf("channels = %d\n", val);
-
-    snd_pcm_hw_params_get_rate(hwparams, &val, &dir);
-    printf("rate = %d bps\n", val);
-
-    snd_pcm_hw_params_get_period_time(hwparams, &val, &dir);
-    printf("period time = %d us\n", val);
-
-    snd_pcm_hw_params_get_period_size(hwparams, &frames, &dir);
-    printf("period size = %d frames\n", (int)frames);
-
-    snd_pcm_hw_params_get_buffer_time(hwparams, &val, &dir);
-    printf("buffer time = %d us\n", val);
-
-    snd_pcm_hw_params_get_buffer_size(hwparams, (snd_pcm_uframes_t *) &val);
-    printf("buffer size = %d frames\n", val);
-
-    snd_pcm_hw_params_get_periods(hwparams, &val, &dir);
-    printf("periods per buffer = %d frames\n", val);
-
-    snd_pcm_hw_params_get_rate_numden(hwparams, &val, &val2);
-    printf("exact rate = %d/%d bps\n", val, val2);
-
-    val = snd_pcm_hw_params_get_sbits(hwparams);
-    printf("significant bits = %d\n", val);
-
-    snd_pcm_hw_params_get_period_time(hwparams, &val, &dir);
-    printf("period time = %d us\n", val);
-
-    val = snd_pcm_hw_params_is_batch(hwparams);
-    printf("is batch = %d\n", val);
-
-    val = snd_pcm_hw_params_is_block_transfer(hwparams);
-    printf("is block transfer = %d\n", val);
-
-    val = snd_pcm_hw_params_is_double(hwparams);
-    printf("is double = %d\n", val);
-
-    val = snd_pcm_hw_params_is_half_duplex(hwparams);
-    printf("is half duplex = %d\n", val);
-
-    val = snd_pcm_hw_params_is_joint_duplex(hwparams);
-    printf("is joint duplex = %d\n", val);
-
-    val = snd_pcm_hw_params_can_overrange(hwparams);
-    printf("can overrange = %d\n", val);
-
-    val = snd_pcm_hw_params_can_mmap_sample_resolution(hwparams);
-    printf("can mmap = %d\n", val);
-
-    val = snd_pcm_hw_params_can_pause(hwparams);
-    printf("can pause = %d\n", val);
-
-    val = snd_pcm_hw_params_can_resume(hwparams);
-    printf("can resume = %d\n", val);
-
-    val = snd_pcm_hw_params_can_sync_start(hwparams);
-    printf("can sync start = %d\n", val);
 
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 
-static int set_format(alsapcm_t *self, PyObject *packet)
+
+static PyObject *
+alsa_thread_stream_reset(alsa_thread_t *self, PyObject *args) 
 {
-    int res,dir;
-    unsigned int channels, set_channels;
-    unsigned int rate, set_rate;
-    snd_pcm_uframes_t period_size, set_period_size;
-    snd_pcm_format_t sample_format, set_sample_format;
-    unsigned int periods;
-    snd_pcm_hw_params_t *hwparams;
-    PyObject *format = NULL;
+    if (!PyArg_ParseTuple(args,":stream_reset")) 
+        return NULL;
 
-    format = PyObject_GetAttrString(packet, "format");
-
-    if (format == NULL)
-	return 0;
-
-    /* Format hasn't changed  */
-    if (format == self->format)
     {
-        Py_DECREF(format);
-        return 1;
+        Py_BEGIN_ALLOW_THREADS;
+        BEGIN_LOCK(self);
+
+        if (self->data_size == 0)
+        {
+            self->play_pos = 0;
+            self->data_end = 0;
+        }
+
+        END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
 
-    // TODO: get this from format instead of being hardcoded...
-    sample_format = SND_PCM_FORMAT_S16_BE;
-    channels = 2;
-    rate = 44100;
-    period_size = 4096; // about 10 Hz
-    periods = 4;
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+
+static void* thread_main(void *arg)
+{
+    alsa_thread_t *self = arg;
+    
+    thread_loop(self);
+
+    {
+        BEGIN_LOCK(self);
+
+        self->log_message = "player thread died";
+        self->log_param = NULL;
+        self->device_error = "player thread died";
+        NOTIFY(self);
         
-    self->swap_bytes = 0;
-    self->bytes_per_frame = channels * 2;
+        END_LOCK(self);
+    }
+
+    return NULL;
+}
 
 
-    /* Change to this format. We keep track of the reference in self
-       so any errors below doesn't have to decref.
-    */
-    Py_XDECREF(self->format);
-    self->format = format;
-
-    alsa_debug2(self, "setting format to", PyEval_GetFuncName(format));
-
-    /* Allocate a hwparam structure on the stack, 
-       and fill it with configuration space */
-    snd_pcm_hw_params_alloca(&hwparams);
+static void thread_loop(alsa_thread_t *self)
+{
+    snd_pcm_t *handle;
 
     while (1)
     {
-        res = snd_pcm_hw_params_any(self->handle, hwparams);
-        if (res < 0)
         {
-            PyErr_Format(ALSAAudioError,
-                         "error initialising hwparams: %s",
-                         snd_strerror(res));
-            return 0;
+            BEGIN_LOCK(self);
+            handle = self->handle;
+            END_LOCK(self);
         }
-
-        snd_pcm_hw_params_set_access(self->handle, hwparams, 
-                                     SND_PCM_ACCESS_RW_INTERLEAVED);
-        snd_pcm_hw_params_set_format(self->handle, hwparams, sample_format);
-        snd_pcm_hw_params_set_channels(self->handle, hwparams, channels);
-
-        dir = 0;
-        snd_pcm_hw_params_set_rate(self->handle, hwparams, rate, dir);
-        snd_pcm_hw_params_set_period_size(self->handle, hwparams, period_size, dir);
-        snd_pcm_hw_params_set_periods(self->handle, hwparams, periods, 0);
-    
-        /* Write it to the device */
-        res = snd_pcm_hw_params(self->handle, hwparams);
-        if (res < 0)
-        {
-            PyErr_Format(ALSAAudioError,
-                         "error setting hw params: %s",
-                         snd_strerror(res));
-            return 0;
-        }
-
         
-        /* Check if the card accepted our settings */
-        res = snd_pcm_hw_params_current(self->handle, hwparams);
-        if (res < 0)
+        if (handle == NULL)
         {
-            PyErr_Format(ALSAAudioError,
-                         "error querying params: %s",
-                         snd_strerror(res));
-            return 0;
-        }
+            /* Attempt to reopen device */
+            
+            int res = snd_pcm_open(&handle, self->cardname,
+                                   self->pcmtype, self->pcmmode);
 
-        snd_pcm_hw_params_get_format(hwparams, &set_sample_format);
-        snd_pcm_hw_params_get_channels(hwparams, &set_channels);
-        snd_pcm_hw_params_get_rate(hwparams, &set_rate, &dir);
-        snd_pcm_hw_params_get_period_size(hwparams, &set_period_size, &dir); 
-    
-        if (channels != set_channels)
-        {
-            PyErr_Format(ALSAAudioError,
-                         "couldn't set device to %d channels",
-                         channels);
-            return 0;
-        }        
-
-        if (rate != set_rate)
-        {
-            PyErr_Format(ALSAAudioError,
-                         "couldn't set device to %d Hz",
-                         rate);
-            return 0;
-        }        
-
-        if (sample_format == set_sample_format)
-        {
-            /* Got an OK format */
-            if (self->swap_bytes)
-                alsa_debug1(self, "swapping bytes");
-
-            break;
-        }
-        else
-        {
-            if (sample_format == SND_PCM_FORMAT_S16_BE)
+            if (res >= 0) 
             {
-                alsa_debug1(self,
-                            "SND_PCM_FORMAT_S16_BE didn't work, trying SND_PCM_FORMAT_S16_LE");
+                if (thread_set_format(self, handle))
+                {
+                    BEGIN_LOCK(self);
 
-                /* Retry with little endian and swap bytes ourselves */
-                sample_format = SND_PCM_FORMAT_S16_LE;
-                self->swap_bytes = 1;
+                    self->handle = handle;
+                    self->log_message = "reopened device";
+                    self->log_param = self->cardname;
+                    self->device_error = NULL;
+
+                    NOTIFY(self);
+
+                    END_LOCK(self);
+                }
+                else
+                {
+                    struct timespec ts;
+
+                    /* thread_set_format will have set the messages */
+                    snd_pcm_close(handle);
+                    handle = NULL;
+
+                    /* Sleep to avoid busy-looping on a bad device */
+
+                    ts.tv_sec = 3;
+                    ts.tv_nsec = 0;
+                    while (nanosleep(&ts, &ts) < 0 && errno == EINTR)
+                    { }
+                }
             }
             else
             {
-                /* Give up */
+                struct timespec ts;
 
-                PyErr_Format(ALSAAudioError,
-                             "couldn't set sample format to either "
-                             "SND_PCM_FORMAT_S16_BE or SND_PCM_FORMAT_S16_LE");
-                return 0;
+                set_device_error(self, snd_strerror(res));
+
+                /* Sleep before we try again */
+                ts.tv_sec = 3;
+                ts.tv_nsec = 0;
+                while (nanosleep(&ts, &ts) < 0 && errno == EINTR)
+                { }
+            }
+        }
+
+        if (handle != NULL)
+        {
+            unsigned char *data = NULL;
+
+            {
+                BEGIN_LOCK(self);
+            
+                if (self->data_size < self->period_size)
+                {
+                    pthread_cond_wait(&self->cond, &self->mutex);
+                }
+                
+                if (self->data_size >= self->period_size)
+                {
+                    data = self->buffer + (self->play_pos % self->buffer_size);
+                    self->play_size = self->period_size;
+                }
+
+                END_LOCK(self);
+            }
+
+            if (data != NULL)
+            {
+                int res = 0;
+                
+                if (self->swap_bytes)
+                {
+                    int i;
+                    for (i = 0; i < self->period_size; i += 2)
+                    {
+                        unsigned char c = data[i];
+                        data[i] = data[i + 1];
+                        data[i + 1] = c;
+                    }
+                }
+                        
+                /* Suddenly the size argument is frames, not bytes... */
+                res = snd_pcm_writei(handle, data, self->period_frames);
+                if (res == -EPIPE) 
+                {
+                    /* EPIPE means underrun */
+                    res = snd_pcm_recover(handle, res, 1);
+                    if (res >= 0)
+                        res = snd_pcm_writei(handle, data, self->period_frames);
+                }
+
+                {
+                    BEGIN_LOCK(self);
+
+                    /* No matter what, we are no longer trying to put
+                     * any data into the device.
+                     */
+                    self->play_size = 0;
+                    
+                    if (res > 0)
+                    {
+                        self->play_pos += self->period_size;
+                        self->data_size -= self->period_size;
+                    }
+                    else if (res < 0)
+                    {
+                        self->handle = NULL;
+                        self->log_message = "error writing to device";
+                        self->log_param = snd_strerror(res);
+                        self->device_error = snd_strerror(res);
+                    }
+
+                    NOTIFY(self);
+
+                    END_LOCK(self);
+                }
+
+                if (res < 0)
+                {
+                    snd_pcm_close(handle);
+                    handle = NULL;
+                }
+                else if (res == 0)
+                {
+                    // It seems we can get a 0 write when pausing, even in blocking mode?
+                    printf("res == 0, sleeping 1 sec\n");
+                    sleep(1);
+                }
             }
         }
     }
-
-    /* Just use the period size determined by card */
-    alsa_debugi(self, "using period size", set_period_size);
-    self->period_size = set_period_size;
-    
-    return 1;
 }
 
-
-static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args) 
-{
-    PyObject *stream = NULL;
-    int first_packet = 1;
-    PyObject *packet = NULL;
-    int period_bytes = 0;
-    unsigned char *samples = NULL;
-    int sample_len = 0;
-    
-    if (!PyArg_ParseTuple(args, "O:play_stream", &stream)) 
-        return NULL;
-
-    if (!PyIter_Check(stream))
-    {
-	Py_DECREF(stream);
-        PyErr_SetString(ALSAAudioError, "stream is not an iterable object");
-        return NULL;
-    }
-
-    while ((packet = PyIter_Next(stream)) != NULL)
-    {
-	int res;
-        PyObject *data_object;
-        char *data;
-        Py_ssize_t data_len;
-        
-        /* When starting playing, set the packet directly as
-	   the buffer is likely empty.
-	*/
-	if (first_packet)
-	{
-	    if (!set_current_packet(self, packet))
-		goto loop_error;
-	    first_packet = 0;
-	}
-
+#if 0
         if (!self->handle)
         {
             int res;
@@ -683,7 +897,7 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 
             if (period_bytes <= 0 || period_bytes >= 65536)
             {
-                PyErr_Format(ALSAAudioError,
+                PyErr_Format(AlsaThreadError,
                              "weird period size: %d bytes",
                              period_bytes);
                 goto loop_error;
@@ -699,57 +913,9 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
             sample_len = 0;
         }
             
-        data_object = PyObject_GetAttrString(packet, "data");
-        if (data_object == NULL)
-            goto loop_error;
-            
-        if (PyString_AsStringAndSize(data_object, &data, &data_len) < 0)
-            goto loop_error;
-        
-        /* Hold on to the reference to the data object through out
-         * this code to ensure it isn't GCd under our feet.
-         */
-
         /* Go into C land fully */
 	Py_BEGIN_ALLOW_THREADS;
 
-        res = 0;
-        while (res >= 0 && data_len > 0)
-        {
-            // Copy into sample buffer
-            int remaining = period_bytes - sample_len;
-                
-            if (data_len < remaining)
-            {
-                memcpy(samples + sample_len, data, data_len);
-                sample_len += data_len;
-                remaining -= data_len;
-                data_len = 0;
-            }
-            else
-            {
-                memcpy(samples + sample_len, data, remaining);
-
-                data += remaining;
-                data_len -= remaining;
-                remaining = 0;
-                sample_len = period_bytes;
-            }
-
-            if (!remaining)
-            {
-                /* Full packet, so send it to the device */
-
-                if (self->swap_bytes)
-                {
-                    int i;
-                    for (i = 0; i < period_bytes; i += 2)
-                    {
-                        unsigned char c = samples[i];
-                        samples[i] = samples[i + 1];
-                        samples[i + 1] = c;
-                    }
-                }
             
                 res = snd_pcm_writei(self->handle, samples, self->period_size);
                 if (res == -EPIPE) 
@@ -769,13 +935,6 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
         
         Py_DECREF(data_object);
         
-        /* When all that went into the device buffer, it's close
-         * enough to this packet position to update the state.
-         */
-        if (!set_current_packet(self, packet))
-            goto loop_error;
-
-	Py_DECREF(packet);
 
 	if (res < 0) 
 	{
@@ -790,160 +949,189 @@ static PyObject *alsapcm_play_stream(alsapcm_t *self, PyObject *args)
 	}
     }
 
-    if (PyErr_Occurred())
-    {
-        /* error getting iterator */
-        return NULL;
-    }
 
-    /* Write any straggling data into the device */
+#endif
 
-    if (sample_len > 0)
-    {
-        int res;
+
+/* This function may be called in the playing thread, so it can't use
+ * any Python stuff.
+ */
+static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
+{
+    int res,dir;
+    unsigned int set_channels;
+    unsigned int set_rate;
+    snd_pcm_uframes_t set_period_size;
+    snd_pcm_format_t sample_format, set_sample_format;
+    unsigned int periods;
+    snd_pcm_hw_params_t *hwparams;
         
-        memset(samples + sample_len, 0, period_bytes - sample_len);
+        
+    self->swap_bytes = 0;
+    sample_format = self->big_endian ? SND_PCM_FORMAT_S16_BE : SND_PCM_FORMAT_S16_LE;
+    periods = 4;
 
-        if (self->swap_bytes)
+    /* Allocate a hwparam structure on the stack, 
+       and fill it with configuration space */
+    snd_pcm_hw_params_alloca(&hwparams);
+
+    while (1)
+    {
+        res = snd_pcm_hw_params_any(handle, hwparams);
+        if (res < 0)
         {
-            int i;
-            for (i = 0; i < period_bytes; i += 2)
+            set_device_error(self, snd_strerror(res));
+            return 0;
+        }
+
+        snd_pcm_hw_params_set_access(handle, hwparams, 
+                                     SND_PCM_ACCESS_RW_INTERLEAVED);
+        snd_pcm_hw_params_set_format(handle, hwparams, sample_format);
+        snd_pcm_hw_params_set_channels(handle, hwparams, self->channels);
+
+        dir = 0;
+        snd_pcm_hw_params_set_rate(handle, hwparams, self->rate, dir);
+        snd_pcm_hw_params_set_period_size(handle, hwparams, PERIOD_FRAMES, dir);
+        snd_pcm_hw_params_set_periods(handle, hwparams, periods, 0);
+    
+        /* Write it to the device */
+        res = snd_pcm_hw_params(handle, hwparams);
+        if (res < 0)
+        {
+            set_device_error(self, snd_strerror(res));
+            return 0;
+        }
+
+        
+        /* Check if the card accepted our settings */
+        res = snd_pcm_hw_params_current(handle, hwparams);
+        if (res < 0)
+        {
+            set_log_message(self, "error querying params", snd_strerror(res));
+            return 0;
+        }
+
+        snd_pcm_hw_params_get_format(hwparams, &set_sample_format);
+        snd_pcm_hw_params_get_channels(hwparams, &set_channels);
+        snd_pcm_hw_params_get_rate(hwparams, &set_rate, &dir);
+        snd_pcm_hw_params_get_period_size(hwparams, &set_period_size, &dir); 
+    
+        if (self->channels != set_channels)
+        {
+            set_device_error(self, "couldn't set device param: channels");
+            return 0;
+        }        
+
+        if (self->rate != set_rate)
+        {
+            set_device_error(self, "couldn't set device param: rate");
+            return 0;
+        }        
+
+        if (sample_format == set_sample_format)
+        {
+            /* Got an OK format */
+            break;
+        }
+        else
+        {
+            if (!self->swap_bytes)
             {
-                unsigned char c = samples[i];
-                samples[i] = samples[i + 1];
-                samples[i + 1] = c;
+                /* Retry with the other endianness and swap bytes ourselves */
+                sample_format = self->big_endian ? SND_PCM_FORMAT_S16_LE : SND_PCM_FORMAT_S16_BE;
+                self->swap_bytes = 1;
+            }
+            else
+            {
+                /* Give up */
+                set_device_error(self, "couldn't set device param: format");
+                return 0;
             }
         }
+    }
+
+    /* Just use the period size determined by card.  Now we know it,
+     * we can allocate the buffer (if we doesn't already have an OK
+     * one.)
+     */
+
+    if (self->period_frames != set_period_size)
+    {
+        self->period_frames = set_period_size;
             
-        res = snd_pcm_writei(self->handle, samples, self->period_size);
-        if (res == -EPIPE) 
+        /* Approx three seconds, adjusted to whole frames */
+        
+        int buffer_size = self->rate * 3;
+        buffer_size -= buffer_size % self->period_frames;
+        buffer_size *= self->channels * 2;
+
+
         {
-            /* EPIPE means underrun */
-            res = snd_pcm_recover(self->handle, res, 1);
-            if (res >= 0)
-                res = snd_pcm_writei(self->handle, samples, self->period_size);
+            BEGIN_LOCK(self);
+
+            if (self->buffer)
+            {
+                /* It's OK to discard anything in the buffer, since that
+                 * is anyway now the wrong format.
+                 */
+                free(self->buffer);
+                self->buffer = NULL;
+            }
+            
+            self->buffer = malloc(buffer_size);
+            self->buffer_size = self->buffer ? buffer_size : 0;
+            self->period_size = self->period_frames * self->channels * 2;
+            self->play_pos = 0;
+            self->data_end = 0;
+            self->data_size = 0;
+        
+            /* Tell the Python thread about being ready to accept data */
+            NOTIFY(self);
+
+            END_LOCK(self);
         }
-
-	if (res < 0) 
-	{
-            alsa_log2(self, "error writing to card", snd_strerror(res));
-            set_device_error(self, snd_strerror(res));
-
-            /* Close device and drop format to prepare for reopen attempt */
-            snd_pcm_close(self->handle);
-            self->handle = 0;
-            Py_XDECREF(self->format);
-            self->format = NULL;
-	}
     }
-
-    if (samples) {
-        free(samples);
-        samples = NULL;
-    }
-
-    /* Loop finished on end of iterator */
-    Py_INCREF(Py_None);
-    return Py_None;
-
-  loop_error:
-    /* Exception already set when we get here. */
-    Py_XDECREF(packet);
-
-    if (samples) {
-        free(samples);
-        samples = NULL;
-    }
-
-    return NULL;
-}
-
-
-static PyObject *alsapcm_pause(alsapcm_t *self, PyObject *args) 
-{
-    int res;
-
-    if (!PyArg_ParseTuple(args,":pause")) 
-        return NULL;
-
-    if (!self->handle) {
-        PyErr_SetString(ALSAAudioError, "PCM device is closed");
-        return NULL;
-    }
-
-    Py_BEGIN_ALLOW_THREADS
-    res = snd_pcm_pause(self->handle, 1);
-    Py_END_ALLOW_THREADS
-  
-    if (res < 0) 
-    {
-        PyErr_SetString(ALSAAudioError,snd_strerror(res));
-        return NULL;
-    }
-    return PyLong_FromLong(res);
-}
-
-
-static PyObject *alsapcm_resume(alsapcm_t *self, PyObject *args) 
-{
-    int res;
-
-    if (!PyArg_ParseTuple(args,":resume")) 
-        return NULL;
-
-    if (!self->handle) {
-        PyErr_SetString(ALSAAudioError, "PCM device is closed");
-        return NULL;
-    }
-
-    Py_BEGIN_ALLOW_THREADS
-    res = snd_pcm_pause(self->handle, 0);
-    Py_END_ALLOW_THREADS
-  
-    if (res < 0) 
-    {
-        PyErr_SetString(ALSAAudioError,snd_strerror(res));
-        return NULL;
-    }
-    return PyLong_FromLong(res);
+    
+    return 1;
 }
 
 
 
-/* ALSA PCM Object Bureaucracy */
 
-static PyMethodDef alsapcm_methods[] = {
-    { "init_thread", (PyCFunction)alsapcm_init_thread, METH_VARARGS },
-    { "dumpinfo", (PyCFunction)alsapcm_dumpinfo, METH_VARARGS },
-    { "pause", (PyCFunction)alsapcm_pause, METH_VARARGS },
-    { "resume", (PyCFunction)alsapcm_resume, METH_VARARGS },
-    { "play_stream", (PyCFunction)alsapcm_play_stream, METH_VARARGS },
+/* AlsaThread Object Bureaucracy */
 
+static PyMethodDef alsa_thread_methods[] = {
+    { "get_buffer_end", (PyCFunction)alsa_thread_get_buffer_end, METH_VARARGS },
+    { "pause", (PyCFunction)alsa_thread_pause, METH_VARARGS },
+    { "resume", (PyCFunction)alsa_thread_resume, METH_VARARGS },
+    { "playing", (PyCFunction)alsa_thread_playing, METH_VARARGS },
+    { "discard_buffer", (PyCFunction)alsa_thread_discard_buffer, METH_VARARGS },
+    { "stream_reset", (PyCFunction)alsa_thread_stream_reset, METH_VARARGS },
     {NULL, NULL}
 };
 
 #if PY_VERSION_HEX < 0x02020000 
 static PyObject *	 
-alsapcm_getattr(alsapcm_t *self, char *name) {	 
-    return Py_FindMethod(alsapcm_methods, (PyObject *)self, name);	 
+alsa_thread_getattr(alsa_thread_t *self, char *name) {	 
+    return Py_FindMethod(alsa_thread_methods, (PyObject *)self, name);	 
 }
 #endif
 
-static PyTypeObject ALSAPCMType = {
+static PyTypeObject AlsaThreadType = {
 #if PY_MAJOR_VERSION < 3
     PyObject_HEAD_INIT(&PyType_Type)
     0,                              /* ob_size */
 #else
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
 #endif
-    "alsaaudio.PCM",                /* tp_name */
-    sizeof(alsapcm_t),              /* tp_basicsize */
+    "alsaaudio.AlsaThread",                /* tp_name */
+    sizeof(alsa_thread_t),              /* tp_basicsize */
     0,                              /* tp_itemsize */
     /* methods */    
-    (destructor) alsapcm_dealloc,   /* tp_dealloc */
+    (destructor) alsa_thread_dealloc,   /* tp_dealloc */
     0,                              /* print */
 #if PY_VERSION_HEX < 0x02020000
-    (getattrfunc)alsapcm_getattr,   /* tp_getattr */
+    (getattrfunc)alsa_thread_getattr,   /* tp_getattr */
 #else
     0,                              /* tp_getattr */
 #endif
@@ -964,14 +1152,14 @@ static PyTypeObject ALSAPCMType = {
     0,                              /* tp_setattro */
     0,                              /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT,             /* tp_flags */
-    "ALSA PCM device.",             /* tp_doc */
+    "ALSA player thread.",             /* tp_doc */
     0,					          /* tp_traverse */
     0,					          /* tp_clear */
     0,					          /* tp_richcompare */
     0,					          /* tp_weaklistoffset */
     0,					          /* tp_iter */
     0,					          /* tp_iternext */
-    alsapcm_methods,		          /* tp_methods */
+    alsa_thread_methods,		          /* tp_methods */
     0,			                  /* tp_members */
 };
 
@@ -981,7 +1169,7 @@ static PyTypeObject ALSAPCMType = {
 /* Module initialization                  */
 /******************************************/
 
-static PyMethodDef alsaaudio_methods[] = {
+static PyMethodDef cod_alsa_device_methods[] = {
     { 0, 0 },
 };
 
@@ -991,12 +1179,12 @@ static PyMethodDef alsaaudio_methods[] = {
 #define _EXPORT_INT(mod, name, value) \
   if (PyModule_AddIntConstant(mod, name, (long) value) == -1) return NULL;
 
-static struct PyModuleDef alsaaudio_module = {
+static struct PyModuleDef cod_alsa_device_module = {
     PyModuleDef_HEAD_INIT,
     "cod_alsa_device",
     NULL,
     -1,
-    alsaaudio_methods,
+    cod_alsa_device_methods,
     0,  /* m_reload */
     0,  /* m_traverse */
     0,  /* m_clear */
@@ -1017,25 +1205,25 @@ PyObject *PyInit_cod_alsa_device(void)
 #endif
 {
     PyObject *m;
-    ALSAPCMType.tp_new = alsapcm_new;
+    AlsaThreadType.tp_new = alsa_thread_new;
 
     PyEval_InitThreads();
 
 #if PY_MAJOR_VERSION < 3
-    m = Py_InitModule3("cod_alsa_device", alsaaudio_methods, "");
+    m = Py_InitModule3("cod_alsa_device", cod_alsa_device_methods, "");
     if (!m) 
         return;
 #else
 
-    m = PyModule_Create(&alsaaudio_module);
+    m = PyModule_Create(&cod_alsa_device_module);
     if (!m) 
         return NULL;
 
 #endif
 
-    ALSAAudioError = PyErr_NewException("cod_alsa_device.ALSAAudioError", NULL, 
+    AlsaThreadError = PyErr_NewException("cod_alsa_device.AlsaThreadError", NULL, 
                                         NULL);
-    if (!ALSAAudioError)
+    if (!AlsaThreadError)
 #if PY_MAJOR_VERSION < 3
         return;
 #else
@@ -1044,11 +1232,11 @@ PyObject *PyInit_cod_alsa_device(void)
 
     /* Each call to PyModule_AddObject decrefs it; compensate: */
 
-    Py_INCREF(&ALSAPCMType);
-    PyModule_AddObject(m, "PCM", (PyObject *)&ALSAPCMType);
+    Py_INCREF(&AlsaThreadType);
+    PyModule_AddObject(m, "AlsaThread", (PyObject *)&AlsaThreadType);
   
-    Py_INCREF(ALSAAudioError);
-    PyModule_AddObject(m, "ALSAAudioError", ALSAAudioError);
+    Py_INCREF(AlsaThreadError);
+    PyModule_AddObject(m, "AlsaThreadError", AlsaThreadError);
 
 
 #if PY_MAJOR_VERSION >= 3

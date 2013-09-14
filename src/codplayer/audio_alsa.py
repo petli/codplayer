@@ -63,6 +63,8 @@ class AlsaDevice(audio.ThreadDevice):
                     stored, play_pos, device_error = self.alsa_thread.playing(buf)
                     self.set_device_error(device_error)
 
+                    self.log('{0}', play_pos)
+
                     if stored > 0:
                         # move forward in data buffer
                         buf = buffer(buf, stored)
@@ -79,8 +81,6 @@ class AlsaDevice(audio.ThreadDevice):
         except audio.StreamAbort:
             self.alsa_thread.discard_buffer()
             raise
-
-        
 
         # Wait for queued data to finish playing
         stored, play_pos, device_error = self.alsa_thread.playing(None)
@@ -108,10 +108,7 @@ class PythonAlsaThread(object):
                  channels, bytes_per_sample, rate, big_endian):
         self.log = parent.log
         self.debug = parent.debug
-        self.set_device_error = parent.set_device_error
-        self.set_current_packet = parent.set_current_packet
         self.alsa_card = card
-        self.start_without_device = start_without_device
 
         self.channels = channels
         self.rate = rate
@@ -164,7 +161,7 @@ class PythonAlsaThread(object):
                 self.log('alsa: error opening card {0}: {1}',
                          self.alsa_card, e)
                 self.log('alsa: proceeding since start_without_device = True')
-                self.set_device_error(str(e))
+                parent.set_device_error(str(e))
             else:
                 raise audio.DeviceError(e)
         
@@ -477,15 +474,13 @@ class PythonAlsaThread(object):
             self.cond.notifyAll()
 
 
-# try:
-#     from . import cod_alsa_device
-#     AlsaThread = cod_alsa_device.AlsaThread
-# 
-# except ImportError, e:
-#     sys.stderr.write("failed importing cod_alsa_device: {0}\n".format(e))
-#     import alsaaudio
-#     AlsaThread = PythonAlsaThread
+try:
+    from . import cod_alsa_device
+    AlsaThread = cod_alsa_device.AlsaThread
+
+except ImportError, e:
+    sys.stderr.write("failed importing cod_alsa_device: {0}\n".format(e))
+    import alsaaudio
+    AlsaThread = PythonAlsaThread
  
-import alsaaudio
-AlsaThread = PythonAlsaThread
 
