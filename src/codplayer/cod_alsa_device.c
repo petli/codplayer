@@ -267,6 +267,8 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     int rate = 0;
     int big_endian = 0;
     snd_pcm_t *handle = NULL;
+    pthread_attr_t thread_attr;
+    struct sched_param sched;
     
     if (!PyArg_ParseTuple(args, "Osiiiii:AlsaThread", 
                           &parent, &cardname, &start_without_device,
@@ -374,13 +376,51 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     }
 
     /* Ready to kick off thread */
-    // TODO: set scheduling
-    if (pthread_create(&self->thread, NULL, thread_main, self) != 0)
+
+    /* Try to start with elevated priority (without going to extremes) */
+    if (pthread_attr_init(&thread_attr) != 0)
+        return PyErr_Format(AlsaThreadError, "pthread_attr_init: %s",
+                            strerror(errno));
+
+    if (pthread_attr_setinheritsched(&thread_attr,
+                                     PTHREAD_EXPLICIT_SCHED) != 0)
+        return PyErr_Format(AlsaThreadError, "pthread_attr_setinheritsched: %s",
+                            strerror(errno));
+        
+    if (pthread_attr_setschedpolicy(&thread_attr, SCHED_RR) != 0)
+        return PyErr_Format(AlsaThreadError, "pthread_attr_setschedpolicy: %s",
+                            strerror(errno));
+        
+    sched.sched_priority = sched_get_priority_min(SCHED_RR);
+    if (pthread_attr_setschedparam(&thread_attr, &sched) != 0)
+        return PyErr_Format(AlsaThreadError, "pthread_attr_setschedparam: %s",
+                            strerror(errno));
+    
+    if (pthread_create(&self->thread, &thread_attr, thread_main, self) != 0)
     {
-        PyErr_Format(AlsaThreadError, "couldn't start thread: %s",
-                     strerror(errno));
-        return NULL;
+        if (errno == EPERM)
+        {
+            alsa_log1(self, "couldn't start realtime thread, falling back on a normal thread");
+            
+            if (pthread_create(&self->thread, NULL, thread_main, self) != 0)
+            {
+                PyErr_Format(AlsaThreadError, "couldn't start thread (try 2): %s",
+                             strerror(errno));
+                return NULL;
+            }
+        }
+        else
+        {
+            if (pthread_create(&self->thread, NULL, thread_main, self) != 0)
+            {
+                PyErr_Format(AlsaThreadError, "couldn't start thread: %s",
+                             strerror(errno));
+                return NULL;
+            }
+        }            
     }
+
+    pthread_attr_destroy(&thread_attr);
 
     return (PyObject *)self;
 }
@@ -675,7 +715,17 @@ alsa_thread_stream_reset(alsa_thread_t *self, PyObject *args)
 static void* thread_main(void *arg)
 {
     alsa_thread_t *self = arg;
-    
+    struct sched_param sched;
+    int policy;
+
+    pthread_getschedparam(pthread_self(), &policy, &sched);
+    if (policy == SCHED_RR) 
+        set_log_message(self, "running at SCHED_RR priority", NULL);
+    else if (policy == SCHED_FIFO) 
+        set_log_message(self, "running at SCHED_FIFO priority", NULL);
+    else
+        set_log_message(self, "running at normal priority", NULL);
+
     thread_loop(self);
 
     {
