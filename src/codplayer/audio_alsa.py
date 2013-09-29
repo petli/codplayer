@@ -44,9 +44,6 @@ class AlsaDevice(audio.ThreadDevice):
     def thread_play_stream(self, stream):
         first_packet = True
 
-        # (pos, packet)
-        queued_packets = []
-
         try:
             for packet in stream:
 
@@ -57,44 +54,33 @@ class AlsaDevice(audio.ThreadDevice):
                     first_packet = False
 
                 buf = buffer(packet.data)
-                queued_packets.append((self.alsa_thread.get_buffer_end(), packet))
-                
+
                 while len(buf) > 0:
-                    stored, play_pos, device_error = self.alsa_thread.playing(buf)
+                    stored, current_packet, device_error = self.alsa_thread.playing(buf, packet)
+
+                    if current_packet:
+                        self.set_current_packet(current_packet)
+
                     self.set_device_error(device_error)
 
                     if stored > 0:
                         # move forward in data buffer
                         buf = buffer(buf, stored)
 
-                    # Report if a new packet is being played
-                    current_packet = None
-                    while queued_packets and play_pos >= queued_packets[0][0]:
-                        current_packet = queued_packets[0][1]
-                        del queued_packets[0]
-
-                    if current_packet:
-                        self.set_current_packet(current_packet)
 
         except audio.StreamAbort:
             self.alsa_thread.discard_buffer()
             raise
 
         # Wait for queued data to finish playing
-        stored, play_pos, device_error = self.alsa_thread.playing(None)
-        end_pos = self.alsa_thread.get_buffer_end()
 
-        while play_pos < end_pos:
-            stored, play_pos, device_error = self.alsa_thread.playing(None)
+        while not self.alsa_thread.buffer_empty():
+            stored, current_packet, device_error = self.alsa_thread.playing(None, None)
+
+            if current_packet:
+                self.set_current_packet(current_packet)
+
             self.set_device_error(device_error)
-                
-            # Report if a new packet is being played
-            current_packet = None
-            while queued_packets and play_pos >= queued_packets[0][0]:
-                current_packet = queued_packets[0][1]
-                del queued_packets[0]
-
-        self.alsa_thread.stream_reset()
 
 
 class PythonAlsaThread(object):
@@ -131,23 +117,20 @@ class PythonAlsaThread(object):
         # Readable without lock, writing requires lock
         self.alsa_pcm = None
         self.device_error = None
+        self.current_packet = None
 
         # Requires lock for all access
 
         self.buffer_periods = None # Wait until we know the period size
         self.period_bytes = None   # ditto
         
-        self.play_pos = 0    # In whole periods
-        self.buffer_end = 0  # ditto
-
-        self.data_buffer = [] # (position, period_frames)
+        self.data_buffer = [] # (period_frames, packet)
         self.partial_period = None
 
         # End of thread state attributes
         
-
         self.log("using PythonAlsaThread - you might get glitchy sound");
-        
+
         # Try to open device
         try:
             self.debug('alsa: opening device for card: {0}', self.alsa_card)
@@ -173,12 +156,11 @@ class PythonAlsaThread(object):
         self.play_thread.start()
 
 
-    def get_buffer_end(self):
-        """Return the current position of the end of the buffer,
-        i.e. where new data will be queued.
+    def buffer_empty(self):
+        """Return true if the buffer is empty
         """
         with self.cond:
-            return self.buffer_end
+            return len(self.data_buffer) == 0
 
     def pause(self):
         # Don't use lock here, to not risk deadlocks with
@@ -202,15 +184,15 @@ class PythonAlsaThread(object):
                 self.log('ignoring error while resuming: {0}', e)
 
 
-    def playing(self, data):
+    def playing(self, data, packet):
         """Wait until some of data has been added, or the player state has changed somewhat.
 
         When reaching the end of the stream, keep calling this with
         data == None to play out buffered data.
 
-        Returns (stored, play_pos, device_error), where:
+        Returns (stored, current_packet, device_error), where:
           stored: bytes of data added to the buffer
-          play_pos: current position being played, counting from the last stream reset
+          current_packet: new packet being played
           device_error: any current device error, or None
         """
 
@@ -222,13 +204,12 @@ class PythonAlsaThread(object):
 
             if self.buffer_periods is None:
                 # Still not set, so give control back to caller
-                return 0, self.play_pos, self.device_error
+                return 0, self.current_packet, self.device_error
 
             assert self.period_bytes is not None
 
 
             stored = 0
-            play_pos = self.play_pos
             device_error = self.device_error
             
             if len(self.data_buffer) >= self.buffer_periods:
@@ -238,7 +219,7 @@ class PythonAlsaThread(object):
             if len(self.data_buffer) >= self.buffer_periods:
                 # Still can't add data, but position or device should
                 # have been updated
-                return 0, self.play_pos, self.device_error
+                return 0, self.current_packet, self.device_error
 
 
             # Now we can add data to buffer
@@ -248,8 +229,7 @@ class PythonAlsaThread(object):
                 n = self.period_bytes - len(self.partial_period)
                 assert n > 0
 
-                self.data_buffer.append(self.buffer_end, self.partial_period + ('\0' * n))
-                self.buffer_end += 1
+                self.data_buffer.append((self.partial_period + ('\0' * n), packet))
                 self.partial_period = None
 
                 # This does not increase stored, so signal thread directly
@@ -272,8 +252,7 @@ class PythonAlsaThread(object):
                     stored += n
                     
                     if len(self.partial_period) == self.period_bytes:
-                        self.data_buffer.append((self.buffer_end, self.partial_period))
-                        self.buffer_end += 1
+                        self.data_buffer.append((self.partial_period, packet))
                         self.partial_period = None
 
                 elif len(data) < self.period_bytes:
@@ -284,8 +263,7 @@ class PythonAlsaThread(object):
 
                 else:
                     # Break off a period chunk
-                    self.data_buffer.append((self.buffer_end, buffer(data, 0, self.period_bytes)))
-                    self.buffer_end += 1
+                    self.data_buffer.append((buffer(data, 0, self.period_bytes), packet))
                     data = buffer(data, self.period_bytes)
                     stored += self.period_bytes
                     
@@ -294,29 +272,17 @@ class PythonAlsaThread(object):
                 self.cond.notifyAll()
 
             # And were done
-            return stored, self.play_pos, self.device_error
+            return stored, self.current_packet, self.device_error
     
 
     def discard_buffer(self):
         """Discard all buffered data, typically on aborting the stream.
         """
         with self.cond:
-            if self.data_buffer:
-                self.buffer_end = self.data_buffer[0][0]
             del self.data_buffer[:]
             self.partial_period = None
+            self.current_packet = None
             
-
-    def stream_reset(self):
-        """Signal that the stream has finished playing, so all counters can now be reset.
-        """
-        with self.cond:
-            assert not self.data_buffer
-            assert not self.partial_period
-
-            self.play_pos = 0
-            self.buffer_end = 0
-    
 
     def _set_device_format(self, pcm):
         if self.big_endian:
@@ -389,7 +355,6 @@ class PythonAlsaThread(object):
                 time.sleep(3)
                 continue
 
-            pos = None
             data = None
 
             with self.cond:
@@ -399,27 +364,28 @@ class PythonAlsaThread(object):
                 # We _should_ only be woken when there's data, but
                 # let's not assume that.
                 if self.data_buffer:
-                    (pos, data) = self.data_buffer[0]
+                    (data, packet) = self.data_buffer[0]
 
+                    # Tell other thread we're now starting to play this packet
+                    if packet != self.current_packet:
+                        self.current_packet = packet
+                        self.cond.notifyAll()
+                    
             if data:
                 assert len(data) == self.period_bytes
                 # Play the data without holding the lock
                 error = self._play_period(data)
                 
-                # Update other thread on the results
                 with self.cond:
                     if error is None:
-                        # Pop packet (unless it's been discarded while we're playing)
-                        # and update state
-                        if self.data_buffer and self.data_buffer[0][1] is data:
+                        # Pop period (unless it's been discarded while we're playing)
+                        if self.data_buffer and self.data_buffer[0][0] is data:
                             del self.data_buffer[0]
-                            self.play_pos = pos
                     else:
                         self.alsa_pcm.close()
                         self.alsa_pcm = None
                         self.device_error = error
-
-                    self.cond.notifyAll()
+                        self.cond.notifyAll()
 
 
     def _play_period(self, data):

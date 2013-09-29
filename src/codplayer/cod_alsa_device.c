@@ -32,6 +32,9 @@
 /* Will run on approx 10Hz for PCM */
 #define PERIOD_FRAMES 4096
 
+#define BUFFER_SECONDS 5
+#define MAX_PERIODS_PER_SECOND 40
+
 typedef struct {
     PyObject_HEAD;
 
@@ -72,7 +75,9 @@ typedef struct {
     const char *log_message;
     const char *log_param;
 
-    /* All buffer parameters are in bytes, not frames or periods */
+    /* All buffer parameters are in bytes, not frames or periods.
+     * play_pos and data_end are < buffer_size.
+     */
     int period_size;
     int buffer_size;
     int play_pos;
@@ -80,7 +85,11 @@ typedef struct {
     int data_end;
     int data_size;
 
+    /* Frames buffered waiting to be played. */
     unsigned char *buffer;
+
+    /* Packet objects mapping to each period in the buffer */ 
+    PyObject **packets;
 
     /* End of thread buffer structure */
     
@@ -325,6 +334,13 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     self->data_size = 0;
     self->buffer = NULL;
 
+    /* But we grab this right away with some assumptions about
+     * what period size we might end up with */
+    self->packets = calloc(sizeof(PyObject*), BUFFER_SECONDS * MAX_PERIODS_PER_SECOND);
+    if (self->packets == NULL)
+        return PyErr_NoMemory();
+
+
     /* Try to open card straight away */
 
     alsa_debug2(self, "opening card", self->cardname);
@@ -446,24 +462,24 @@ static void alsa_thread_dealloc(alsa_thread_t *self)
 
 
 static PyObject *
-alsa_thread_get_buffer_end(alsa_thread_t *self, PyObject *args) 
+alsa_thread_buffer_empty(alsa_thread_t *self, PyObject *args) 
 {
-    int buffer_end = 0;
+    int buffer_empty = 0;
 
-    if (!PyArg_ParseTuple(args,":get_buffer_end")) 
+    if (!PyArg_ParseTuple(args,":buffer_empty")) 
         return NULL;
 
     {
         Py_BEGIN_ALLOW_THREADS;
         BEGIN_LOCK(self);
 
-        buffer_end = self->data_end;
+        buffer_empty = (self->data_size == 0);
 
         END_LOCK(self);
         Py_END_ALLOW_THREADS;
     }
 
-    return PyInt_FromLong(buffer_end);
+    return PyBool_FromLong(buffer_empty);
 }
     
 
@@ -471,14 +487,20 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
 {
     const char *data = NULL;
     Py_ssize_t data_size = 0;
+    PyObject *packet = NULL;
     int stored = 0;
-    int play_pos = 0;
+    PyObject *current_packet = NULL;
     const char *device_error = NULL;
     const char *log_message = NULL;
     const char *log_param = NULL;
+    int first_data_period = -1;
+    int last_data_period = -1;
+    int play_period = -1;
+    int i;
+
     
     /* Accept None too */
-    if (!PyArg_ParseTuple(args, "z#:playing", &data, &data_size))
+    if (!PyArg_ParseTuple(args, "z#O:playing", &data, &data_size, &packet))
         return NULL;
 
     {/* LOCK SCOPE */
@@ -523,20 +545,21 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
                     /* Can fit more data */
 
                     int buffer_free = self->buffer_size - self->data_size;
-                    int buffer_end = self->data_end % self->buffer_size;
                     
                     stored = data_size;
                     if (stored > buffer_free)
                         stored = buffer_free;
 
                     /* But don't wrap the end of the buffer */
-                    if (buffer_end + stored > self->buffer_size)
-                        stored = self->buffer_size - buffer_end;
+                    if (self->data_end + stored > self->buffer_size)
+                        stored = self->buffer_size - self->data_end;
 
-                    memcpy(self->buffer + buffer_end, data, stored);
-                    self->data_end += stored;
-                    self->data_size += stored;
+                    first_data_period = self->data_end / self->period_size;
+                    last_data_period = (self->data_end + stored) / self->period_size;
                     
+                    memcpy(self->buffer + self->data_end, data, stored);
+                    self->data_end = (self->data_end + stored) % self->buffer_size;
+                    self->data_size += stored;
 
                     /* Tell playing thread about the new data */
                     NOTIFY(self);
@@ -552,23 +575,33 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
 
                 if (partial > 0)
                 {
-                    memset(self->buffer + (self->data_end % self->buffer_size), 0,
+                    memset(self->buffer + self->data_end, 0,
                            self->period_size - partial);
-                    self->data_end += self->period_size - partial;
+                    self->data_end = (self->data_end + self->period_size - partial) % self->buffer_size;
                     self->data_size += self->period_size - partial;
 
                     /* Tell playing thread about the new data */
                     NOTIFY(self);
                 }
 
-                /* Wait for updates to play_pos etc */
+                /* Wait for updates to current_packet etc */
                 pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
             }
         }
 
         /* Bring the return parameters out of the lock and into Python land
          */
-        play_pos = self->play_pos;
+
+        if (self->data_size > 0)
+        {
+            /* By checking data_size we ensure that we have a valid pointer in self->packets.
+             * There are patological cases where this means we can't report progress, but if we don't
+             * have data in the buffer when we get to this point we have bigger problems than
+             * not updating the player status.
+             */
+            play_period = self->play_pos / self->period_size;
+        }
+
         device_error = self->device_error;
         log_message = self->log_message;
         log_param = self->log_param;
@@ -581,6 +614,43 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
         Py_END_ALLOW_THREADS;
     }
     
+    if (first_data_period >= 0)
+    {
+        /* Replace references to buffered packets with this one.
+         *
+         * BTW, this is only safe if only one Python thread is calling
+         * this object.  However, two threads calling this would be
+         * nonsense anyway, so let's not worry too much.
+         */
+
+        if (first_data_period == last_data_period)
+        {
+            /* Always write one reference to the packet, even in the
+             * case where we add less than a whole period
+             */
+            last_data_period = first_data_period + 1;
+        }
+
+        for (i = first_data_period; i < last_data_period; i++)
+        {
+            Py_XDECREF(self->packets[i]);
+            
+            self->packets[i] = packet;
+            Py_INCREF(packet);
+        }
+    }
+
+    if (play_period >= 0)
+    {
+        current_packet = self->packets[play_period];
+    }
+    
+    if (current_packet == NULL)
+    {
+        current_packet = Py_None;
+        Py_INCREF(current_packet);
+    }
+    
     if (log_message)
     {
         if (log_param)
@@ -591,7 +661,7 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
 
     // TODO: remember device_error to avoid spawning new strings all the time
 
-    return Py_BuildValue("iis", stored, play_pos, device_error);
+    return Py_BuildValue("iOs", stored, current_packet, device_error);
 }
 
 
@@ -668,7 +738,6 @@ alsa_thread_discard_buffer(alsa_thread_t *self, PyObject *args)
          */
         if (self->buffer_size > 0)
         {
-            self->play_pos = self->play_pos % self->buffer_size;
             self->data_end = (self->play_pos + self->play_size) % self->buffer_size;
             self->data_size = self->play_size;
         }
@@ -680,32 +749,6 @@ alsa_thread_discard_buffer(alsa_thread_t *self, PyObject *args)
         Py_END_ALLOW_THREADS;
     }
     
-
-    Py_INCREF(Py_None);
-    return Py_None;
-}
-
-
-
-static PyObject *
-alsa_thread_stream_reset(alsa_thread_t *self, PyObject *args) 
-{
-    if (!PyArg_ParseTuple(args,":stream_reset")) 
-        return NULL;
-
-    {
-        Py_BEGIN_ALLOW_THREADS;
-        BEGIN_LOCK(self);
-
-        if (self->data_size == 0)
-        {
-            self->play_pos = 0;
-            self->data_end = 0;
-        }
-
-        END_LOCK(self);
-        Py_END_ALLOW_THREADS;
-    }
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -821,7 +864,7 @@ static void thread_loop(alsa_thread_t *self)
                 
                 if (self->data_size >= self->period_size)
                 {
-                    data = self->buffer + (self->play_pos % self->buffer_size);
+                    data = self->buffer + self->play_pos;
                     self->play_size = self->period_size;
                 }
 
@@ -863,7 +906,7 @@ static void thread_loop(alsa_thread_t *self)
                     
                     if (res > 0)
                     {
-                        self->play_pos += self->period_size;
+                        self->play_pos = (self->play_pos + self->period_size) % self->buffer_size;
                         self->data_size -= self->period_size;
                     }
                     else if (res < 0)
@@ -894,113 +937,6 @@ static void thread_loop(alsa_thread_t *self)
         }
     }
 }
-
-#if 0
-        if (!self->handle)
-        {
-            int res;
-                
-            /* Try reopening the device */
-            alsa_debug2(self, "retrying opening card", self->cardname);
-    
-            Py_BEGIN_ALLOW_THREADS;
-            res = snd_pcm_open(&(self->handle), self->cardname, self->pcmtype,
-                               self->pcmmode);
-            Py_END_ALLOW_THREADS;
-    
-            if (res < 0) 
-            {
-                struct timespec ts;
-                
-                alsa_debug2(self, "error reopening card", snd_strerror(res));
-                self->handle = 0;
-                set_device_error(self, snd_strerror(res));
-
-                /* Sacrifice this audio packet and retry in a couple of seconds */
-                ts.tv_sec = 3;
-                ts.tv_nsec = 0;
-                while (nanosleep(&ts, &ts) < 0 && errno == EINTR)
-                {
-                }
-
-                continue;
-            }
-            else
-            {
-                alsa_log2(self, "successfully reopened card", self->cardname);
-                set_device_error(self, NULL);
-            }
-        }
-
-	if (!set_format(self, packet))
-	    goto loop_error;
-
-        /* Set up the sample buffer now, if not already done for this format */
-        if (period_bytes != self->period_size * self->bytes_per_frame)
-        {
-            if (samples) {
-                free(samples);
-                samples = NULL;
-            }
-
-            period_bytes = self->period_size * self->bytes_per_frame;
-
-            if (period_bytes <= 0 || period_bytes >= 65536)
-            {
-                PyErr_Format(AlsaThreadError,
-                             "weird period size: %d bytes",
-                             period_bytes);
-                goto loop_error;
-            }
-
-            samples = malloc(period_bytes);
-            if (samples == NULL)
-            {
-                PyErr_NoMemory();
-                goto loop_error;
-            }
-
-            sample_len = 0;
-        }
-            
-        /* Go into C land fully */
-	Py_BEGIN_ALLOW_THREADS;
-
-            
-                res = snd_pcm_writei(self->handle, samples, self->period_size);
-                if (res == -EPIPE) 
-                {
-                    /* EPIPE means underrun */
-                    res = snd_pcm_recover(self->handle, res, 1);
-                    if (res >= 0)
-                        res = snd_pcm_writei(self->handle, samples, self->period_size);
-                }
-
-                /* Start on new packet */
-                sample_len = 0;
-            }
-        }
-
-        Py_END_ALLOW_THREADS;
-        
-        Py_DECREF(data_object);
-        
-
-	if (res < 0) 
-	{
-            alsa_log2(self, "error writing to card", snd_strerror(res));
-            set_device_error(self, snd_strerror(res));
-
-            /* Close device and drop format to prepare for reopen attempt */
-            snd_pcm_close(self->handle);
-            self->handle = 0;
-            Py_XDECREF(self->format);
-            self->format = NULL;
-	}
-    }
-
-
-#endif
 
 
 /* This function may be called in the playing thread, so it can't use
@@ -1107,11 +1043,16 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
 
     if (self->period_frames != set_period_size)
     {
+        /* If rate is too high, the packets array is too small and we can't run */
+        if ((self->rate / set_period_size) >= MAX_PERIODS_PER_SECOND)
+        {
+            set_device_error(self, "period set by device is too small");
+            return 0;
+        }
+
         self->period_frames = set_period_size;
             
-        /* Approx three seconds, adjusted to whole frames */
-        
-        int buffer_size = self->rate * 3;
+        int buffer_size = self->rate * BUFFER_SECONDS;
         buffer_size -= buffer_size % self->period_frames;
         buffer_size *= self->channels * 2;
 
@@ -1129,6 +1070,9 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
             }
             
             self->buffer = malloc(buffer_size);
+
+            // TODO: packets
+
             self->buffer_size = self->buffer ? buffer_size : 0;
             self->period_size = self->period_frames * self->channels * 2;
             self->play_pos = 0;
@@ -1151,12 +1095,11 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
 /* AlsaThread Object Bureaucracy */
 
 static PyMethodDef alsa_thread_methods[] = {
-    { "get_buffer_end", (PyCFunction)alsa_thread_get_buffer_end, METH_VARARGS },
+    { "buffer_empty", (PyCFunction)alsa_thread_buffer_empty, METH_VARARGS },
     { "pause", (PyCFunction)alsa_thread_pause, METH_VARARGS },
     { "resume", (PyCFunction)alsa_thread_resume, METH_VARARGS },
     { "playing", (PyCFunction)alsa_thread_playing, METH_VARARGS },
     { "discard_buffer", (PyCFunction)alsa_thread_discard_buffer, METH_VARARGS },
-    { "stream_reset", (PyCFunction)alsa_thread_stream_reset, METH_VARARGS },
     {NULL, NULL}
 };
 
