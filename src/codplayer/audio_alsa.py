@@ -27,13 +27,19 @@ class AlsaDevice(audio.ThreadDevice):
             self,
             self.config.alsa_card,
             self.config.start_without_device,
+            self.config.log_performance,
             
             # Hardcode to CD PCM format for now.
             model.PCM.channels,
             model.PCM.bytes_per_sample,
             model.PCM.rate,
             model.PCM.big_endian)
-        
+
+        if self.config.log_performance:
+            self.packet_perf_log = open('/tmp/cod_alsa_packet.log', 'wt')
+        else:
+            self.packet_perf_log = None
+            
 
     def pause(self):
         self.alsa_thread.pause()
@@ -44,8 +50,19 @@ class AlsaDevice(audio.ThreadDevice):
     def thread_play_stream(self, stream):
         first_packet = True
 
+        perf_log = self.packet_perf_log
+        
         try:
+            if perf_log:
+                start_wait_packet = time.time()
+
             for packet in stream:
+
+                if perf_log:
+                    now = time.time()
+                    perf_log.write(
+                        '{0:06f} {1:06f} packet\n'.format(start_wait_packet, now))
+
 
                 # When starting playing, set the packet directly as
                 # the buffer is likely empty
@@ -56,10 +73,15 @@ class AlsaDevice(audio.ThreadDevice):
                 buf = buffer(packet.data)
 
                 while len(buf) > 0:
+                    if perf_log:
+                        start_playing = time.time()
+
                     stored, current_packet, device_error = self.alsa_thread.playing(buf, packet)
 
-#                    self.debug('{0} {1} {2}', stored, packet.abs_pos,
-#                               current_packet and current_packet.abs_pos)
+                    if perf_log:
+                        now = time.time()
+                        perf_log.write(
+                            '{0:06f} {1:06f} playing {2}\n'.format(start_playing, now, stored))
                     
                     if current_packet:
                         self.set_current_packet(current_packet)
@@ -91,7 +113,7 @@ class PythonAlsaThread(object):
     # four periods.
     PERIOD_SIZE = 4096
     
-    def __init__(self, parent, card, start_without_device,
+    def __init__(self, parent, card, start_without_device, log_performance,
                  channels, bytes_per_sample, rate, big_endian):
         self.log = parent.log
         self.debug = parent.debug

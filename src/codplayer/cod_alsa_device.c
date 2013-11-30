@@ -46,6 +46,9 @@ typedef struct {
     PyObject *log;
     PyObject *debug;
 
+    /* Performanace logging */
+    FILE *thread_perf_log;
+
     /* Sound format */
     int channels;
     int rate;
@@ -271,6 +274,7 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     PyObject *parent = NULL;
     char *cardname = NULL;
     int start_without_device = 0;
+    int log_performance = 0;
     int channels = 0;
     int bytes_per_sample = 0;
     int rate = 0;
@@ -279,8 +283,8 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     pthread_attr_t thread_attr;
     struct sched_param sched;
     
-    if (!PyArg_ParseTuple(args, "Osiiiii:AlsaThread", 
-                          &parent, &cardname, &start_without_device,
+    if (!PyArg_ParseTuple(args, "Osiiiiii:AlsaThread", 
+                          &parent, &cardname, &start_without_device, &log_performance,
                           &channels, &bytes_per_sample, &rate, &big_endian)) 
         return NULL;
     
@@ -305,6 +309,15 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     self->debug = get_parent_func(parent, "debug");
     if (self->debug == NULL)
         return NULL;    
+
+    if (log_performance)
+    {
+        self->thread_perf_log = fopen("/tmp/cod_alsa_thread.log", "wt");
+    }
+    else
+    {
+        self->thread_perf_log = NULL;
+    }
 
     self->channels = channels;
     self->rate = rate;
@@ -831,6 +844,11 @@ static void* thread_main(void *arg)
 static void thread_loop(alsa_thread_t *self)
 {
     snd_pcm_t *handle;
+    struct timeval start_data_wait;
+    
+    if (self->thread_perf_log) {
+        gettimeofday(&start_data_wait, NULL);
+    }
 
     while (1)
     {
@@ -861,6 +879,10 @@ static void thread_loop(alsa_thread_t *self)
                     NOTIFY(self);
 
                     END_LOCK(self);
+
+                    if (self->thread_perf_log) {
+                        gettimeofday(&start_data_wait, NULL);
+                    }
                 }
                 else
                 {
@@ -894,6 +916,7 @@ static void thread_loop(alsa_thread_t *self)
 
         if (handle != NULL)
         {
+            int data_size;
             unsigned char *data = NULL;
 
             {
@@ -908,6 +931,8 @@ static void thread_loop(alsa_thread_t *self)
                 {
                     data = self->buffer + self->play_pos;
                     self->play_size = self->period_size;
+
+                    data_size = self->data_size;
                 }
 
                 END_LOCK(self);
@@ -916,7 +941,19 @@ static void thread_loop(alsa_thread_t *self)
             if (data != NULL)
             {
                 int res = 0;
+                struct timeval start_write;
                 
+                if (self->thread_perf_log)
+                {
+                    struct timeval now;
+                    gettimeofday(&now, NULL);
+
+                    fprintf(self->thread_perf_log, "%lu.%06lu %lu.%06lu data %d\n",
+                            start_data_wait.tv_sec, start_data_wait.tv_usec,
+                            now.tv_sec, now.tv_usec,
+                            data_size);
+                }
+
                 if (self->swap_bytes)
                 {
                     int i;
@@ -928,6 +965,11 @@ static void thread_loop(alsa_thread_t *self)
                     }
                 }
                         
+                if (self->thread_perf_log)
+                {
+                    gettimeofday(&start_write, NULL);
+                }
+
                 /* Suddenly the size argument is frames, not bytes... */
                 res = snd_pcm_writei(handle, data, self->period_frames);
                 if (res == -EPIPE) 
@@ -937,6 +979,17 @@ static void thread_loop(alsa_thread_t *self)
                     if (res >= 0)
                         res = snd_pcm_writei(handle, data, self->period_frames);
                 }
+
+                if (self->thread_perf_log && res > 0)
+                {
+                    struct timeval now;
+                    gettimeofday(&now, NULL);
+
+                    fprintf(self->thread_perf_log, "%lu.%06lu %lu.%06lu write\n",
+                            start_write.tv_sec, start_write.tv_usec,
+                            now.tv_sec, now.tv_usec);
+                }
+
 
                 {
                     BEGIN_LOCK(self);
@@ -974,6 +1027,10 @@ static void thread_loop(alsa_thread_t *self)
                     // It seems we can get a 0 write when pausing, even in blocking mode?
                     printf("res == 0, sleeping 1 sec\n");
                     sleep(1);
+                }
+
+                if (self->thread_perf_log) {
+                    gettimeofday(&start_data_wait, NULL);
                 }
             }
         }

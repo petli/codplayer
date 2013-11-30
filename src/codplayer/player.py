@@ -157,6 +157,12 @@ class Player(object):
             except KeyError:
                 raise PlayerError('unknown group: {0}'.format(self.cfg.user))
 
+
+        if self.cfg.log_performance:
+            self.audio_streamer_perf_log = open('/tmp/cod_audio_streamer.log', 'wt')
+        else:
+            self.audio_streamer_perf_log = None
+            
         
     def run(self):
         try:
@@ -798,7 +804,7 @@ class AudioStreamer(object):
                     if e.errno == errno.ENOENT and self.is_ripping:
                         self.debug('{0}: retrying opening file {1}',
                                    self.thread.name, path)
-                        time.sleep(0.5)
+                        time.sleep(1)
                     else:
                         self.log('{0}: error opening file {1}: {2}',
                                  self.thread.name, path, e)
@@ -844,6 +850,8 @@ class AudioStreamer(object):
     def read_data_into_packet(self, p):
         """Thread helper method for populating data into packet P."""
 
+        perf_log = self.player.audio_streamer_perf_log
+
         length = p.length * self.disc.audio_format.bytes_per_frame
 
         if p.file_pos is None:
@@ -852,10 +860,18 @@ class AudioStreamer(object):
 
         else:
             file_pos = p.file_pos * self.disc.audio_format.bytes_per_frame
+
+            if perf_log:
+                start_read = time.time()
             
             self.audio_file.seek(file_pos)
-
             p.data = self.audio_file.read(length)
+
+            if perf_log:
+                now = time.time()
+                perf_log.write(
+                    '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(p.data)))
+
             length -= len(p.data)
             file_pos += len(p.data)
             
@@ -868,8 +884,17 @@ class AudioStreamer(object):
             while length > 0 and self.is_ripping:
                 time.sleep(1)
                 
+                if perf_log:
+                    start_read = time.time()
+
                 self.audio_file.seek(file_pos)
                 d = self.audio_file.read(length)
+
+                if perf_log:
+                    now = time.time()
+                    perf_log.write(
+                        '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(d)))
+
                 length -= len(d)
                 file_pos += len(d)
 
