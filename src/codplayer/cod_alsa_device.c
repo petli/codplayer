@@ -483,14 +483,15 @@ alsa_thread_buffer_empty(alsa_thread_t *self, PyObject *args)
 }
     
 
-static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args) 
+static Py_ssize_t playing_once(
+    alsa_thread_t *self,
+    PyObject *packet, const char *data, Py_ssize_t data_size,
+    struct timespec *timeout,
+
+    // Return variables
+    PyObject **playing_packet, const char **device_error)
 {
-    const char *data = NULL;
-    Py_ssize_t data_size = 0;
-    PyObject *packet = NULL;
     int stored = 0;
-    PyObject *current_packet = NULL;
-    const char *device_error = NULL;
     const char *log_message = NULL;
     const char *log_param = NULL;
     int first_data_period = -1;
@@ -498,15 +499,7 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
     int play_period = -1;
     int i;
 
-    
-    /* Accept None too */
-    if (!PyArg_ParseTuple(args, "z#O:playing", &data, &data_size, &packet))
-        return NULL;
-
     {/* LOCK SCOPE */
-        struct timeval now;
-        struct timespec timeout;
-
         Py_BEGIN_ALLOW_THREADS;
         BEGIN_LOCK(self);
 
@@ -515,19 +508,10 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
          * the interaction with the play thread.
          */
 
-
-        /* Never wait for more than one second, to avoid locking up
-         * the calling thread (it controls skipping streams)
-         */
-        gettimeofday(&now, NULL);
-        timeout.tv_sec = now.tv_sec + 1;
-        timeout.tv_nsec = now.tv_usec * 1000;
-
-
         if (self->buffer_size <= 0)
         {
             /* Wait for thread to open the device */
-            pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
+            pthread_cond_timedwait(&self->cond, &self->mutex, timeout);
         }
             
         if (self->buffer_size > 0)
@@ -537,7 +521,7 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
                 if (self->data_size >= self->buffer_size)
                 {
                     /* Wait for more room in buffer */
-                    pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
+                    pthread_cond_timedwait(&self->cond, &self->mutex, timeout);
                 }
 
                 if (self->data_size < self->buffer_size)
@@ -584,8 +568,8 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
                     NOTIFY(self);
                 }
 
-                /* Wait for updates to current_packet etc */
-                pthread_cond_timedwait(&self->cond, &self->mutex, &timeout);
+                /* Wait for updates to playing_packet etc */
+                pthread_cond_timedwait(&self->cond, &self->mutex, timeout);
             }
         }
 
@@ -602,7 +586,7 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
             play_period = self->play_pos / self->period_size;
         }
 
-        device_error = self->device_error;
+        *device_error = self->device_error;
         log_message = self->log_message;
         log_param = self->log_param;
 
@@ -642,13 +626,12 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
 
     if (play_period >= 0)
     {
-        current_packet = self->packets[play_period];
+        *playing_packet = self->packets[play_period];
     }
     
-    if (current_packet == NULL)
+    if (*playing_packet == NULL)
     {
-        current_packet = Py_None;
-        Py_INCREF(current_packet);
+        *playing_packet = Py_None;
     }
     
     if (log_message)
@@ -659,9 +642,68 @@ static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args)
             alsa_log1(self, log_message);
     }
 
+    return stored;
+}    
+    
+
+static PyObject *alsa_thread_playing(alsa_thread_t *self, PyObject *args) 
+{
+    const char *data = NULL;
+    Py_ssize_t data_size = 0;
+    PyObject *packet = NULL;
+    int stored = 0;
+    PyObject *prev_playing_packet = NULL;
+    PyObject *playing_packet = NULL;
+    const char *prev_device_error = NULL;
+    const char *device_error = NULL;
+    struct timeval now;
+    struct timespec timeout;
+    
+    /* Accept None or a string for the first argument */
+    if (!PyArg_ParseTuple(args, "z#O:playing", &data, &data_size, &packet))
+        return NULL;
+
+
+    /* We'll keep running here as long as possible, and only return to
+     * Python land when one (or more) of these things happen:
+     *
+     * - All data has been stored into the buffer
+     * - The current packet being played has changed
+     * - The device error has changed
+     * - One second has passed
+     */
+
+    /* Never wait for more than one second, to avoid locking up
+     * the calling thread (it controls skipping streams)
+     */
+    gettimeofday(&now, NULL);
+    timeout.tv_sec = now.tv_sec + 1;
+    timeout.tv_nsec = now.tv_usec * 1000;
+
+    do
+    {
+        Py_ssize_t n;
+        
+        prev_playing_packet = playing_packet;
+        prev_device_error = device_error;
+
+        n = playing_once(self, packet, data, data_size, &timeout,
+                                    &playing_packet, &device_error);
+
+        if (data != NULL)
+        {
+            data += n;
+            data_size -= n;
+            stored += n;
+        }
+    }
+    while ((data && data_size > 0)
+           && (prev_playing_packet == NULL || prev_playing_packet == playing_packet)
+           && (prev_device_error == NULL || prev_device_error == device_error));
+
     // TODO: remember device_error to avoid spawning new strings all the time
 
-    return Py_BuildValue("iOs", stored, current_packet, device_error);
+    return Py_BuildValue("iOs", stored, playing_packet, device_error);
 }
 
 

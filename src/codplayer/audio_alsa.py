@@ -58,6 +58,9 @@ class AlsaDevice(audio.ThreadDevice):
                 while len(buf) > 0:
                     stored, current_packet, device_error = self.alsa_thread.playing(buf, packet)
 
+#                    self.debug('{0} {1} {2}', stored, packet.abs_pos,
+#                               current_packet and current_packet.abs_pos)
+                    
                     if current_packet:
                         self.set_current_packet(current_packet)
 
