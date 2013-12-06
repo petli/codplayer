@@ -51,18 +51,11 @@ class AlsaDevice(audio.ThreadDevice):
         first_packet = True
 
         perf_log = self.packet_perf_log
+        if perf_log:
+            stream = perf_log_iterator(stream, perf_log, 'packet')
         
         try:
-            if perf_log:
-                start_wait_packet = time.time()
-
             for packet in stream:
-
-                if perf_log:
-                    now = time.time()
-                    perf_log.write(
-                        '{0:06f} {1:06f} packet\n'.format(start_wait_packet, now))
-
 
                 # When starting playing, set the packet directly as
                 # the buffer is likely empty
@@ -107,6 +100,19 @@ class AlsaDevice(audio.ThreadDevice):
 
             self.set_device_error(device_error)
 
+
+def perf_log_iterator(iterable, log_file, rowtype):
+    start_wait_item = time.time()
+
+    for item in iterable:
+        now = time.time()
+        log_file.write(
+            '{0:06f} {1:06f} {2}\n'.format(start_wait_item, now, rowtype))
+
+        yield item
+        start_wait_item = time.time()
+
+        
 
 class PythonAlsaThread(object):
     # Run on approx 10 Hz.  pyalsaaudio will hardcode the hardware buffer to
