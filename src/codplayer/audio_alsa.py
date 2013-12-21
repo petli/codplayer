@@ -22,6 +22,11 @@ class AlsaDevice(audio.ThreadDevice):
 
     def __init__(self, player, config):
         super(AlsaDevice, self).__init__(player, config)
+        self.alsa_thread = None
+        
+    def init_thread(self):
+        # Now we can create the helper thread, since we're past the
+        # daemonization fork (if any)
 
         self.alsa_thread = AlsaThread(
             self,
@@ -35,6 +40,7 @@ class AlsaDevice(audio.ThreadDevice):
             model.PCM.rate,
             model.PCM.big_endian)
 
+        # Also open log files now, to avoid having to save the FDs across the fork
         if self.config.log_performance:
             self.packet_perf_log = open('/tmp/cod_alsa_packet.log', 'wt')
         else:
@@ -182,7 +188,8 @@ class PythonAlsaThread(object):
 
 
         # Finally kick off thread
-        self.play_thread = threading.Thread(target = self._play_loop, name = 'ALSA device thread')
+        self.play_thread = threading.Thread(target = self._play_loop,
+                                            name = self.__class__.__name__)
         self.play_thread.daemon = True
         self.play_thread.start()
 

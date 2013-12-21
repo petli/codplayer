@@ -704,7 +704,8 @@ class AudioStreamer(object):
 
         self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
         
-        self.thread = threading.Thread(target = self.run_thread)
+        self.thread = threading.Thread(target = self.run_thread,
+                                       name = 'stream ' + db.Database.disc_to_db_id(disc.disc_id)[:8])
         self.thread.daemon = True
         self.thread.start()
 

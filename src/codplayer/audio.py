@@ -70,6 +70,11 @@ class Device(object):
         return None
         
 
+    def get_fds(self):
+        """Return a list of all file descriptors open for the device."""
+        return []
+
+
 class ThreadDevice(Device):
     """Common base for audio devices that implement the sound playing
     in a separate thread (most likely all of them).
@@ -80,7 +85,8 @@ class ThreadDevice(Device):
         
         self.stream_queue = Queue.Queue()
 
-        self.thread = threading.Thread(target = self.run_thread)
+        self.thread = threading.Thread(target = self.run_thread,
+                                       name = self.__class__.__name__)
         self.thread.daemon = True
 
         self.thread_ready = threading.Event()
