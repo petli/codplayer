@@ -1,0 +1,10 @@
+
+@font-face {
+    font-family: "entypo";
+    src: url('entypo.woff');
+}
+
+button.symbol {
+    font-family: "entypo";
+    font-size: 32px;
+}

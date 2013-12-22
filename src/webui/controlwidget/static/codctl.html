@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="codctl.css" type="text/css"></style>
+  <script src="jquery-2.0.3.min.js"></script>
+  <script src="socket.io/socket.io.js"></script>
+  <script src="codctl.js"></script>
+</head>
+<body>
+  <div id="codctl">
+
+    <div id="disc" class="ctl-pane">
+      <span id="state"></span>
+      <span id="track"></span>/<span id="no_tracks"></span>
+      <span id="position"></span>
+      <span id="ripping"></span>
+    </div>
+
+    <div>
+      <button id="prev" class="command symbol">&#9198;</button>
+      <button id="play" class="command symbol">&#9654;</button>
+      <button id="pause" class="command symbol">&#8214;</button>
+      <button id="stop" class="command symbol">&#9632;</button>
+      <button id="next" class="command symbol">&#9197;</button>
+    </div>
+  </div>
+</body>
+</html>

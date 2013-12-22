@@ -1,0 +1,6 @@
+{
+  "serverPort": 8304,
+  "stateFile": "/var/run/codplayer.state",
+  "pidFile": "/var/run/codplayer.pid",
+  "controlFifo": "/var/run/codplayer.fifo"
+}
