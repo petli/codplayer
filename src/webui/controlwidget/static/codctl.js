@@ -10,8 +10,8 @@ $(function(){
 		data.position = -data.position;
 	    }
 		
-	    var posMin = (data.position / 60).toFixed(0);
-	    var posSec = (data.position % 60).toFixed(0);
+	    var posMin = Math.floor(data.position / 60).toString();
+	    var posSec = (data.position % 60).toString();
 
 	    if (posSec.length == 1) {
 		posSec = '0' + posSec;
@@ -20,7 +20,7 @@ $(function(){
 	    $('#state').text(data.state.toString());
 	    $('#track').text(data.track.toString());
 	    $('#no_tracks').text(data.no_tracks.toString());
-	    $('#position').text(posMin + ':' + posSec);
+	    $('#position').text(sign + posMin + ':' + posSec);
 	    $('#ripping').text(data.ripping ? '(ripping)' : '');
 	});
     });
