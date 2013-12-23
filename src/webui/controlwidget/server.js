@@ -57,6 +57,17 @@ checkConfigParam('controlFifo', 'string');
 //
 
 var numClients = 0;
+var currentState;
+var lastStateTime = 0;
+var stateDelayed = false;
+
+var delayTimeout = function(short, long) {
+    var timeout = stateDelayed ? long : short;
+    stateDelayed = true;
+
+    return timeout;
+};
+
 
 var sendStateOnce = function() {
     jf.readFile(config.stateFile, function(err, state) {
@@ -72,21 +83,42 @@ var sendState = function() {
 	return;
     };
 
-    jf.readFile(config.stateFile, function(err, state) {
-	var timeout = state.state === 'NO_DISC' ? 5000 : 1000;
+    fs.stat(config.stateFile, function(err, stats) {
+	var timeout = 1007;
 	
-	if (state) {
-	    io.sockets.emit('cod-state', state);
-	    setTimeout(sendState, timeout);
-	} else {
-	    // we might be reading while the state file is being
-	    // swapped. In that case, sleep a tad longer than a second
-	    // to try to avoid running synchronised with codplayerd
-	    console.log('error reading state file: ' + err);
-	    setTimeout(sendState, 1100);
+	if (err) {
+	    timeout = delayTimeout(97, 5007);
 	}
+	else {
+	    if (lastStateTime != stats.mtime.getTime()) {
+		// Read updated file
+		jf.readFile(config.stateFile, function(err, state) {
+		    if (state) {
+			io.sockets.emit('cod-state', state);
+
+			lastStateTime = stats.mtime.getTime();
+			currentState = state;
+			stateDelayed = false;
+
+			// Sleep until a bit after the expected next update of the file
+			timeout = lastStateTime + 1097 - Date.now();
+			if (timeout < 10 || timeout > 1000) {
+			    // In case clocks are out of sync...
+			    timeout = 1007;
+			}
+		    } else {
+			timeout = delayTimeout(97, 5007);
+		    }
+		});
+	    }
+	    else {
+		// File hasn't changed
+		timeout = delayTimeout(97, 1007);
+	    }
+	}
+
+	setTimeout(sendState, timeout);
     });
-    
 };
 
 
@@ -110,13 +142,18 @@ server.listen(config.serverPort, function() {
 //
 
 io.sockets.on('connection', function (socket) {
+    // Tell new client immediately about current state, if any
+    if (currentState) {
+	socket.emit('cod-state', currentState);
+    }
+
     numClients++;
     console.log('connection, now ' + numClients + ' clients');
     if (numClients == 1) {
 	// Kick off sending updates
 	sendState();
     }
-    
+
     socket.on('disconnect', function () {
 	numClients--;
 	console.log('disconnect, now ' + numClients + ' clients');
