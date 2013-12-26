@@ -60,7 +60,7 @@ class State(object):
     """
 
     class NO_DISC:
-        valid_commands = ('quit', 'disc')
+        valid_commands = ('quit', 'disc', 'eject')
 
     class WORKING:
         valid_commands = ('quit', )
@@ -506,13 +506,30 @@ class Player(object):
         # As for cmd_stop() above, must resume the device if paused.
         if self.state.state == State.PAUSE:
             self.device.resume()
+            self.state.state = State.PLAY
+
+        if self.rip_process:
+            self.log("ripping disc, can't eject it yet")
+            return
 
         # Don't wait for state update, reset state directly
         self.state = State()
         self.write_state()
 
-        # TODO: actually eject the disc physically.
-        
+        # Eject the disc with the help of an external command. There's
+        # far too many ioctls to keep track of to do it ourselves.
+        if self.cfg.eject_command:
+            args = [self.cfg.eject_command, self.cfg.cdrom_device]
+            try:
+                subprocess.check_call(
+                    args,
+                    close_fds = True,
+                    stdout = self.log_file,
+                    stderr = subprocess.STDOUT)
+            except OSError, e:
+                self.log("error executing command {0!r}: {1}:", args, e)
+            except subprocess.CalledProcessError, e:
+                self.log("{0}", e)
 
 
     def rip_disc(self, mbd):

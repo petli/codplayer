@@ -30,6 +30,7 @@ class Config:
         ('control_fifo', str),
         ('cdrom_device', str),
         ('cdrdao_command', str),
+        ('eject_command', str),
         ('audio_device_type', str),
         ('start_without_device', bool),
         ('log_performance', bool),
