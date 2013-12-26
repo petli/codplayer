@@ -1,0 +1,2 @@
+# Tell codplayerd when the user inserts an audio CD
+SUBSYSTEM=="block", KERNEL=="sr0", ACTION=="change", ENV{ID_CDROM_MEDIA_TRACK_COUNT_AUDIO}!="", RUN+="/usr/local/bin/codctl disc"
