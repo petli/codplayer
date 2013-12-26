@@ -28,6 +28,14 @@ codplayer is licensed under an MIT license, please see the file
 LICENSE.
 
 
+Third-part sources
+------------------
+
+jQuery is licensed under an MIT license.
+
+The icon font was generated from icomoon.io.
+
+
 Architecture
 ============
 
@@ -68,9 +76,9 @@ codplayer is intended to support different platforms and control
 interfaces.  E.g.:
 
 * codctl - command line interface
-* Web interface (none implemented yet)
+* Web interface (a simple one is in `src/webui/controlwidget`)
 * Control apps (none implemented yet)
-* Physical button and LED display interfaces (also not implemented)
+* Physical button and LED display interfaces (not implemented either)
 
 
 Database administration
