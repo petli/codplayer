@@ -5,6 +5,14 @@
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
 $(function(){
+    var stateSymbols = {
+	NO_DISC: '\ue60a',
+	WORKING: '\ue606',
+	PLAY:    '\u25b6',
+	PAUSE:   '\u2016',
+	STOP:    '\u25a0'
+    };
+
     var socket = io.connect();
     socket.on('connect', function () {
 	socket.on('cod-state', function(data) {
@@ -23,11 +31,21 @@ $(function(){
 		posSec = '0' + posSec;
 	    }
 	    
-	    $('#state').text(data.state.toString());
+	    var stateSymbol = stateSymbols[data.state.toString()];
+	    
+	    $('#state').text(stateSymbol || data.state.toString());
 	    $('#track').text(data.track.toString());
 	    $('#no_tracks').text(data.no_tracks.toString());
 	    $('#position').text(sign + posMin + ':' + posSec);
-	    $('#ripping').text(data.ripping ? '(ripping)' : '');
+
+	    if (data.ripping === false) {
+		$('#ripping-state').text('');
+		$('#ripping-percentage').text('');
+	    }
+	    else {
+		$('#ripping-state').text('\ue607');
+		$('#ripping-percentage').text(data.ripping.toString() + '%');
+	    }
 	});
     });
 

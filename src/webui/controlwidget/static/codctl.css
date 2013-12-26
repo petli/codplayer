@@ -6,11 +6,14 @@
  */
 
 @font-face {
-    font-family: "entypo";
-    src: url('entypo.woff');
+    font-family: "cod-symbols";
+    src: url('cod-symbols.woff');
+}
+
+.symbol {
+    font-family: "cod-symbols";
 }
 
 button.symbol {
-    font-family: "entypo";
-    font-size: 32px;
+    font-size: 16px;
 }
