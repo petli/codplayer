@@ -15,6 +15,13 @@ import os
 import stat
 
 
+try:
+    string = unicode
+except NameError:
+    # Python 3, then
+    string = str
+    
+
 # By saving to temporary files and moving them in place, file writing
 # is much safer and can change the file to readonly when complete.
 SAVE_PERMISSIONS = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH

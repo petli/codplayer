@@ -299,6 +299,22 @@ class Disc(object):
             raise DiscInfoError('bad MSF in line: %s' % line)
 
 
+    def get_disc_file_size_frames(self):
+        """Return expected length of the file representing this disc,
+        in frames.  This assumes that the disc tracks have not been shuffled.
+        """
+        if self.tracks:
+            t = self.tracks[-1]
+            return t.file_offset + t.file_length
+        else:
+            return 0
+
+    def get_disc_file_size_bytes(self):
+        """Return expected length of the file representing this disc,
+        in bytes.  This assumes that the disc tracks have not been shuffled.
+        """
+        return self.get_disc_file_size_frames() * self.audio_format.bytes_per_frame
+
 
 class Track(object):
     """Represents one track on a disc and its offsets and indices.

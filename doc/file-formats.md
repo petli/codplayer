@@ -33,7 +33,7 @@ Example file:
   "index": 1, 
   "no_tracks": 4, 
   "position": 27, 
-  "ripping": true, 
+  "ripping": 47, 
   "state": "PLAY", 
   "track": 1
 }
@@ -63,6 +63,8 @@ Attributes:
   from index 1.  This means that in the pregap, the position is
   negative counting down towards 0.
 
-* `ripping`: `true` if disc is being ripped while playing, `false` if
-   it is played from a previously ripped copy.
+* `ripping`: `false` if the disc is played from a previously ripped
+  copy, otherwise a number 0-100 indicating how many percent of the
+  disc has been ripped.  (Take care to use the === operator in
+  javascript.)
 

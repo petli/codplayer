@@ -50,8 +50,8 @@ class State(object):
     position: Current position in track in whole seconds, counting
     from index 1 (so the pregap is negative).
 
-    ripping: True if disc is being ripped while playing, False if
-    played off previously ripped copy.
+    ripping: False if not currently ripping a disc, otherwise a number
+    0-100 showing the percentage done.
 
     audio_device_error: A string giving the error state of the audio device, if any.
     """
@@ -97,13 +97,13 @@ class State(object):
     STATE_PARAMS = (
         ('state', serialize.ClassEnumType(
                 NO_DISC, WORKING, PLAY, PAUSE, STOP)),
-        ('disc_id', unicode),
+        ('disc_id', serialize.string),
         ('track', int),
         ('no_tracks', int),
         ('index', int),
         ('position', int),
-        ('ripping', bool),
-        ('audio_device_error', str),
+        ('ripping', (bool, int)),
+        ('audio_device_error', serialize.string),
         )
 
     @classmethod
@@ -126,6 +126,8 @@ class Player(object):
 
         self.streamer = None
         self.current_disc = None
+        self.current_audio_path = None
+        self.current_audio_size = None
 
         self.state = State()
 
@@ -214,7 +216,18 @@ class Player(object):
         # Check if any current ripping process is finished
         if self.rip_process is not None:
             rc = self.rip_process.poll()
-            if rc is not None:
+            if rc is None:
+                # Still in progress, just check how far into the disc it is
+                assert self.current_audio_size > 0
+                try:
+                    prev_ripping = self.state.ripping
+                    stat = os.stat(self.current_audio_path)
+                    self.state.ripping = int(100 * (float(stat.st_size) / self.current_audio_size))
+                    if prev_ripping != self.state.ripping:
+                        self.write_state()
+                except OSError:
+                    self.state.ripping = 0
+            else:
                 self.debug('ripping process finished with status {0}', rc)
                 self.rip_process = None
 
@@ -559,6 +572,10 @@ class Player(object):
                                       self.rip_process is not None)
         self.current_disc = disc
 
+        db_id = self.db.disc_to_db_id(disc.disc_id)
+        self.current_audio_path = self.db.get_audio_path(db_id)
+        self.current_audio_size = disc.get_disc_file_size_bytes()
+
         # Initialise state to new disc and WORKING, i.e. we're waiting
         # for the device to tell us it's started playing
         self.state.state = State.WORKING
@@ -567,7 +584,10 @@ class Player(object):
         self.state.no_tracks = len(disc.tracks)
         self.state.index = 0
         self.state.position = 0
-        self.state.ripping = self.rip_process is not None
+        if self.rip_process is not None:
+            self.state.ripping = 0
+        else:
+            self.state.ripping = False
         
         self.write_state()
 
