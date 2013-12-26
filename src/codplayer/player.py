@@ -50,6 +50,9 @@ class State(object):
     position: Current position in track in whole seconds, counting
     from index 1 (so the pregap is negative).
 
+    length: Length of current track in whole seconds, counting
+    from index 1.
+
     ripping: False if not currently ripping a disc, otherwise a number
     0-100 showing the percentage done.
 
@@ -82,13 +85,14 @@ class State(object):
         self.no_tracks = 0
         self.index = 0
         self.position = 0
+        self.length = 0
         self.ripping = False
         self.audio_device_error = None
 
 
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
-                'index: {index} position: {position} ripping: {ripping} '
+                'index: {index} position: {position} length: {length} ripping: {ripping} '
                 'audio_device_error: {audio_device_error}'
                 .format(**self.__dict__))
 
@@ -584,6 +588,7 @@ class Player(object):
         self.state.no_tracks = len(disc.tracks)
         self.state.index = 0
         self.state.position = 0
+        self.state.length = 0
         if self.rip_process is not None:
             self.state.ripping = 0
         else:
@@ -611,9 +616,11 @@ class Player(object):
         
         if p is None:
             pos = 0
+            length = 0
         else:
             # Round down
             pos = int(p.rel_pos / self.current_disc.audio_format.rate)
+            length = int((p.track.length - p.track.pregap_offset) / self.current_disc.audio_format.rate)
 
 
         # Waiting for the first packet.  The case when that packet
@@ -624,6 +631,7 @@ class Player(object):
                 self.state.track = p.track_number + 1
                 self.state.index = p.index
                 self.state.position = pos
+                self.state.length = length
                 self.write_state()
                 return
 
@@ -637,6 +645,7 @@ class Player(object):
                 self.state.track = 0
                 self.state.index = 0
                 self.state.position = 0
+                self.state.length = 0
                 self.write_state()
                 return
 
@@ -646,6 +655,7 @@ class Player(object):
                 self.state.track = p.track_number + 1
                 self.state.index = p.index
                 self.state.position = pos
+                self.state.length = length
                 self.write_state()
                 return
 

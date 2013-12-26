@@ -63,6 +63,9 @@ Attributes:
   from index 1.  This means that in the pregap, the position is
   negative counting down towards 0.
 
+* `length`: Length of the current track in whole seconds, counting
+  from index 1 (i.e. not including any pregap).
+
 * `ripping`: `false` if the disc is played from a previously ripped
   copy, otherwise a number 0-100 indicating how many percent of the
   disc has been ripped.  (Take care to use the === operator in

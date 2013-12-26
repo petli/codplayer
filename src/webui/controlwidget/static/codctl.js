@@ -30,6 +30,13 @@ $(function(){
 	    if (posSec.length == 1) {
 		posSec = '0' + posSec;
 	    }
+
+	    var lengthMin = Math.floor(data.length / 60).toString();
+	    var lengthSec = (data.length % 60).toString();
+
+	    if (lengthSec.length == 1) {
+		lengthSec = '0' + lengthSec;
+	    }
 	    
 	    var stateSymbol = stateSymbols[data.state.toString()];
 	    
@@ -37,6 +44,7 @@ $(function(){
 	    $('#track').text(data.track.toString());
 	    $('#no_tracks').text(data.no_tracks.toString());
 	    $('#position').text(sign + posMin + ':' + posSec);
+	    $('#length').text(lengthMin + ':' + lengthSec);
 
 	    if (data.ripping === false) {
 		$('#ripping-state').text('');
