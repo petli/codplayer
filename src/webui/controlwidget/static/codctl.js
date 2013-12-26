@@ -54,6 +54,8 @@ $(function(){
 		$('#ripping-state').text('\ue607');
 		$('#ripping-percentage').text(data.ripping.toString() + '%');
 	    }
+
+	    document.title = data.track.toString() + '/' + data.no_tracks.toString() + ' ' + data.state.toString();
 	});
     });
 
