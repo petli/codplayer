@@ -48,6 +48,7 @@ var checkConfigParam = function(param, type) {
 
 checkConfigParam('serverPort', 'number');
 checkConfigParam('stateFile', 'string');
+checkConfigParam('discFile', 'string');
 checkConfigParam('pidFile', 'string');
 checkConfigParam('controlFifo', 'string');
 
@@ -60,6 +61,7 @@ var numClients = 0;
 var currentState;
 var lastStateTime = 0;
 var stateDelayed = false;
+var currentDisc = null;
 
 var delayTimeout = function(short, long) {
     var timeout = stateDelayed ? long : short;
@@ -76,6 +78,21 @@ var sendStateOnce = function() {
 	}
     });
 };
+
+var sendDisc = function() {
+    jf.readFile(config.discFile, function(err, disc) {
+	// Ignore errors, as providing disc info is a nice bonus
+	currentDisc = disc;
+
+	if (currentState && currentDisc && currentState.disc_id === currentDisc.disc_id) {
+	    io.sockets.emit('cod-disc', currentDisc);
+	}
+	else {
+	    io.sockets.emit('cod-disc', null);
+	}
+    });
+};
+
 
 var sendState = function() {
     if (numClients < 1) {
@@ -95,6 +112,16 @@ var sendState = function() {
 		jf.readFile(config.stateFile, function(err, state) {
 		    if (state) {
 			io.sockets.emit('cod-state', state);
+
+			if (state.disc_id) {
+			    if (currentDisc === null || state.disc_id !== currentDisc.disc_id) {
+				sendDisc();
+			    }
+			}
+			else {
+			    currentDisc = null;
+			    io.sockets.emit('cod-disc', null);
+			}
 
 			lastStateTime = stats.mtime.getTime();
 			currentState = state;
@@ -145,6 +172,13 @@ io.sockets.on('connection', function (socket) {
     // Tell new client immediately about current state, if any
     if (currentState) {
 	socket.emit('cod-state', currentState);
+    }
+
+    if (currentState && currentDisc && currentState.disc_id === currentDisc.disc_id) {
+	socket.emit('cod-disc', currentDisc);
+    }
+    else {
+	socket.emit('cod-disc', null);
     }
 
     numClients++;

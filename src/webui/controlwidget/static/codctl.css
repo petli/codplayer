@@ -17,3 +17,11 @@
 button.symbol {
     font-size: 16px;
 }
+
+.track-number {
+    text-align: right;
+}
+
+.track-length {
+    text-align: right;
+}

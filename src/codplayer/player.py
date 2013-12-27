@@ -134,7 +134,9 @@ class Player(object):
         self.current_audio_size = None
 
         self.state = State()
-
+        self.write_state()
+        self.write_disc()
+        
         self.keep_running = True
 
         self.control = CommandReader(control_fd)
@@ -251,6 +253,8 @@ class Player(object):
                         self.streamer.shutdown()
                         self.state.state = State.NO_DISC
                         self.write_state()
+                        self.current_disc = None
+                        self.write_disc()
             
         self.update_state()
 
@@ -281,11 +285,13 @@ class Player(object):
             # Play disc in database by its ID
             did = args[0]
 
+            disc = None
             if db.Database.is_valid_disc_id(did):
                 disc = self.db.get_disc_by_disc_id(did)
             elif db.Database.is_valid_db_id(did):
                 disc = self.db.get_disc_by_db_id(did)
-            else:
+
+            if disc is None:
                 self.log('invalid disc or database ID: {0}', did)
                 return
 
@@ -516,6 +522,9 @@ class Player(object):
         self.state = State()
         self.write_state()
 
+        self.current_disc = None
+        self.write_disc()
+
         # Eject the disc with the help of an external command. There's
         # far too many ioctls to keep track of to do it ourselves.
         if self.cfg.eject_command:
@@ -612,6 +621,7 @@ class Player(object):
             self.state.ripping = False
         
         self.write_state()
+        self.write_disc()
 
         # Finally tell device to start playing packets from this stream
         self.device.play_stream(self.streamer.iter_packets())
@@ -631,7 +641,7 @@ class Player(object):
         old_error = self.state.audio_device_error
         self.state.audio_device_error = self.device.get_device_error()
         
-        if p is None:
+        if p is None or self.current_disc is None:
             pos = 0
             length = 0
         else:
@@ -699,6 +709,13 @@ class Player(object):
         if log_state:
             self.debug('state: {0}', self.state)
 
+
+    def write_disc(self):
+        if self.current_disc:
+            serialize.save_json(model.ExternalDisc(self.current_disc), self.cfg.disc_file)
+        else:
+            serialize.save_json(None, self.cfg.disc_file)
+            
 
     def log(self, msg, *args, **kwargs):
         m = time.strftime('%Y-%m-%d %H:%M:%S ') + msg.format(*args, **kwargs) + '\n'

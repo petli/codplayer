@@ -27,6 +27,7 @@ class Config:
         ('pid_file', str),
         ('log_file', str),
         ('state_file', str),
+        ('disc_file', str),
         ('control_fifo', str),
         ('cdrom_device', str),
         ('cdrdao_command', str),

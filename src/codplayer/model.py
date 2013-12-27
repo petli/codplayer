@@ -14,6 +14,8 @@ Confusingly, the CD format has it's own definition of frame.  There
 are 75 CD frames per second, each consisting of 588 audio frames.
 """
 
+from . import serialize
+
 # Basic data formats
 
 
@@ -54,7 +56,7 @@ class DiscInfoError(Exception):
     
 # Actual data classes
 
-class Disc(object):
+class Disc(serialize.Serializable):
     """Represents a CD, consisting of a number of tracks.
     """
 
@@ -316,7 +318,7 @@ class Disc(object):
         return self.get_disc_file_size_frames() * self.audio_format.bytes_per_frame
 
 
-class Track(object):
+class Track(serialize.Serializable):
     """Represents one track on a disc and its offsets and indices.
     """
 
@@ -339,3 +341,40 @@ class Track(object):
 
         self.isrc = None
         
+
+class ExternalDisc(serialize.Serializable):
+    """External view of a Disc, hiding internal details and exposing
+    all lengths as whole seconds.
+    """
+
+    def __init__(self, disc = None):
+        if disc:
+            self.disc_id = disc.disc_id
+            self.tracks = [ExternalTrack(t, disc) for t in disc.tracks]
+            self.catalog = disc.catalog
+        else:
+            self.disc_id = None
+            self.tracks = []
+            self.catalog = None
+
+
+class ExternalTrack(serialize.Serializable):
+    """External view of a track, hiding internal details and exposing
+    all lengths as whole seconds.
+    """
+
+    def __init__(self, track = None, disc = None):
+        if track:
+            self.number = track.number
+            self.length = int(track.length / disc.audio_format.rate)
+            self.pregap_offset = int(track.pregap_offset / disc.audio_format.rate)
+            self.index = [int(i / disc.audio_format.rate) for i in track.index]
+            self.isrc = track.isrc
+        else:
+            self.number = 0
+            self.length = 0
+            self.pregap_offset = 0
+            self.index = []
+            self.isrc = None
+    
+    

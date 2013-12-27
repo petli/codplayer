@@ -13,38 +13,36 @@ $(function(){
 	STOP:    '\u25a0'
     };
 
+    var formatTime = function(seconds) {
+	var sign = '';
+	if (seconds < 0) {
+	    sign = '-';
+	    seconds = -seconds;
+	}
+
+	var minPart = Math.floor(seconds / 60).toString();
+	var secPart = (seconds % 60).toString();
+
+	if (secPart.length == 1) {
+	    secPart = '0' + secPart;
+	}
+
+	return sign + minPart + ':' + secPart;	
+    };
+
+
     var socket = io.connect();
     socket.on('connect', function () {
 	socket.on('cod-state', function(data) {
 	    // TODO: should probably be paranoid about what we get in data
 
-	    var sign = '';
-	    if (data.position < 0) {
-		sign = '-';
-		data.position = -data.position;
-	    }
-		
-	    var posMin = Math.floor(data.position / 60).toString();
-	    var posSec = (data.position % 60).toString();
-
-	    if (posSec.length == 1) {
-		posSec = '0' + posSec;
-	    }
-
-	    var lengthMin = Math.floor(data.length / 60).toString();
-	    var lengthSec = (data.length % 60).toString();
-
-	    if (lengthSec.length == 1) {
-		lengthSec = '0' + lengthSec;
-	    }
-	    
 	    var stateSymbol = stateSymbols[data.state.toString()];
 	    
 	    $('#state').text(stateSymbol || data.state.toString());
 	    $('#track').text(data.track.toString());
 	    $('#no_tracks').text(data.no_tracks.toString());
-	    $('#position').text(sign + posMin + ':' + posSec);
-	    $('#length').text(lengthMin + ':' + lengthSec);
+	    $('#position').text(formatTime(data.position));
+	    $('#length').text(formatTime(data.length));
 
 	    if (data.ripping === false) {
 		$('#ripping-state').text('');
@@ -56,6 +54,24 @@ $(function(){
 	    }
 
 	    document.title = data.track.toString() + '/' + data.no_tracks.toString() + ' ' + data.state.toString();
+	});
+
+	socket.on('cod-disc', function(disc) {
+	    var template = $('#track-list-template').html();
+	    var trackList;
+
+	    if (disc && disc.tracks && disc.tracks.length) {
+		disc.lengthSeconds = function() {
+		    return formatTime(this.length);
+		};
+		
+		trackList = $.mustache(template, disc);
+	    }
+	    else {
+		trackList = $('<div id="track-list">No disc info</div>');
+	    }
+
+	    $('#track-list').replaceWith(trackList);
 	});
     });
 

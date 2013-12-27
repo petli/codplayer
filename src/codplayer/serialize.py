@@ -34,6 +34,12 @@ class SaveError(Exception):
     pass
 
 
+class Serializable(object):
+    """All classes that should be serialized must inherit this class.
+    """
+    pass
+
+
 class ClassEnumType(object):
     """Used to list valid classes used as enums when deserializing.
     """
@@ -87,6 +93,9 @@ class CodEncoder(json.JSONEncoder):
         if type(obj) is types.ClassType:
             return obj.__name__
 
+        if isinstance(obj, Serializable):
+            return obj.__dict__
+
         super(CodEncoder, self).default(obj)
         
 
@@ -109,7 +118,12 @@ def save_json(obj, path):
             delete = False) as f:
 
             temp_path = f.name
-            json.dump(obj.__dict__, f, indent = 2, sort_keys = True, cls = CodEncoder)
+            if obj is not None:
+                value = obj.__dict__
+            else:
+                value = None
+                
+            json.dump(value, f, indent = 2, sort_keys = True, cls = CodEncoder)
 
         os.chmod(temp_path, SAVE_PERMISSIONS)
 

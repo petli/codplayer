@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="codctl.css" type="text/css"></style>
   <script src="jquery-2.0.3.min.js"></script>
   <script src="socket.io/socket.io.js"></script>
+  <script src="jquery.mustache.js"></script>
   <script src="codctl.js"></script>
 </head>
 <body>
@@ -28,5 +29,17 @@
       <button id="eject" class="command symbol" type="button">&#xe605;</button>
     </div>
   </div>
+
+  <div id="track-list"></div>
+
+  <script type="text/template" id="track-list-template">
+    <table id="track-list">
+      {{#tracks}}
+        <tr id="track-{{number}}" class="track-row">
+	  <td class="track-number">{{number}}:</td>
+	  <td class="track-length">{{lengthSeconds}}</td>
+	</tr>
+      {{/tracks}}
+    </table>
 </body>
 </html>
