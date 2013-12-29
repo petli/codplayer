@@ -23,9 +23,12 @@ def cmd_list(args):
         d = db.Database(args.db_dir)
         
         for db_id in d.iterdiscs_db_ids():
-            disc = d.get_disc_by_db_id(db_id)
-            if disc:
-                sys.stdout.write('{0} {1:2d} tracks\n'.format(db_id, len(disc.tracks)))
+            try:
+                disc = d.get_disc_by_db_id(db_id)
+                if disc:
+                    sys.stdout.write('{0} {1:2d} tracks\n'.format(db_id, len(disc.tracks)))
+            except model.DiscInfoError, e:
+                sys.stderr.write('error reading {0}: {1}\n'.format(db_id, e))
             
     except db.DatabaseError, e:
         sys.exit(str(e))
