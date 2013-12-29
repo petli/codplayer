@@ -48,3 +48,15 @@ On a RaspberryPi, it seems that it doesn't detect any events unless
 someone uses the USB CDROM device.  The script
 `tools/trigger_rpi_cdrom_udev.sh` can be run until that is resolved.
 
+
+Database initialisation
+-----------------------
+
+    mkdir /path/to/new/database/dir
+    codadmin init /path/to/new/database/dir
+
+
+Listing database contents
+-------------------------
+
+    codadmin list /path/to/database
