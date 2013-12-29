@@ -324,7 +324,7 @@ class Database(object):
             raise DatabaseError('error reading {0}: {1}'.format(
                     orig_toc_file, e))
         
-        return model.Disc.from_toc(toc_data, self.db_to_disc_id(db_id))
+        return model.DbDisc.from_toc(toc_data, self.db_to_disc_id(db_id))
 
 
     def create_disc_dir(self, db_id):

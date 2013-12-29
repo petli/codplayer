@@ -176,9 +176,9 @@ class AudioPacket(object):
     It has the following attributes (all positions and lengths count
     audio frames, as usual):
     
-    disc: a model.Disc object 
+    disc: a model.DbDisc object 
 
-    track: a model.Track object 
+    track: a model.DbTrack object 
 
     track_number: the number of the track in the play order, counting
     from 0 (and not always equal to track.number - 1, e.g. when randomising

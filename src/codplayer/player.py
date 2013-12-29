@@ -550,7 +550,7 @@ class Player(object):
         db_id = self.db.disc_to_db_id(mbd.getId())
         path = self.db.create_disc_dir(db_id)
 
-        disc = model.Disc.from_musicbrainz_disc(
+        disc = model.DbDisc.from_musicbrainz_disc(
             mbd, filename = self.db.get_audio_path(db_id))
         
         self.log('ripping new disk: {0}', disc)
@@ -712,7 +712,7 @@ class Player(object):
 
     def write_disc(self):
         if self.current_disc:
-            serialize.save_json(model.ExternalDisc(self.current_disc), self.cfg.disc_file)
+            serialize.save_json(model.ExtDisc(self.current_disc), self.cfg.disc_file)
         else:
             serialize.save_json(None, self.cfg.disc_file)
             

@@ -15,7 +15,7 @@ class TestAudioPacket(unittest.TestCase):
 
     def test_no_pregap_or_index(self):
 
-        t = model.Track()
+        t = model.DbTrack()
         t.file_offset = 5000
         t.length = 50000
 
@@ -32,7 +32,7 @@ class TestAudioPacket(unittest.TestCase):
         
     def test_pregap_and_index(self):
 
-        t = model.Track()
+        t = model.DbTrack()
         t.file_offset = 5000
         t.length = 50000
         t.pregap_offset = 3000
@@ -73,7 +73,7 @@ class TestAudioPacket(unittest.TestCase):
         
     def test_silent_pregap(self):
 
-        t = model.Track()
+        t = model.DbTrack()
         t.file_offset = 5000
         t.length = 50000
         t.pregap_offset = 3000
@@ -126,7 +126,7 @@ TWO_CHANNEL_AUDIO
 FILE "data.cdr" 00:02:00 00:00:17
 '''
         
-        disc = model.Disc.from_toc(toc, 'testId')
+        disc = model.DbDisc.from_toc(toc, 'testId')
 
         # Work with three packets per second, i.e. 25 frames per
         # packet, to make the test case reasonably easy to write
