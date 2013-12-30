@@ -304,7 +304,7 @@ class DbDisc(Disc):
         first_frame = tracks[0][0]
 
         for start, length in tracks:
-            track = Track()
+            track = DbTrack()
             track.file_offset = (start - first_frame) * PCM.audio_frames_per_cd_frame
             track.length = length * PCM.audio_frames_per_cd_frame
             track.file_length = track.length
