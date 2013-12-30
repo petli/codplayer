@@ -14,6 +14,8 @@ Confusingly, the CD format has it's own definition of frame.  There
 are 75 CD frames per second, each consisting of 588 audio frames.
 """
 
+import re
+
 from . import serialize
 
 # Basic data formats
@@ -138,21 +140,17 @@ class DbDisc(Disc):
         disc.disc_id = disc_id
 
         track = None
+        cd_text = CDText()
 
-        for line in toc.split('\n'):
-            # Strip comments
-            p = line.find('//')
-            if p != -1:
-                line = line[:p]
-                
-            line = line.strip()
+        iter_toc = iter_toc_lines(toc)
+        for line in iter_toc:
 
             # Don't bother about disc flags
             if line in ('CD_DA', 'CD_ROM', 'CD_ROM_XA'):
                 pass
 
             elif line.startswith('CATALOG '):
-                disc.catalog = disc.get_toc_string_arg(line)
+                disc.catalog = get_toc_string_arg(line)
 
             # Start of a new track
             elif line.startswith('TRACK '):
@@ -178,12 +176,19 @@ class DbDisc(Disc):
 
             # Implement CD_TEXT later
             elif line.startswith('CD_TEXT '):
-                raise DiscInfoError('no support for parsing CD_TEXT yet')
+                info = cd_text.parse(line[7:], iter_toc, track is None)
+                if info:
+                    if track is None:
+                        disc.artist = info.get('artist')
+                        disc.title = info.get('title')
+                    else:
+                        track.artist = info.get('artist')
+                        track.title = info.get('title')
 
-            
+
             # Pick up the offsets within the data file
             elif line.startswith('FILE '):
-                filename = disc.get_toc_string_arg(line)
+                filename = get_toc_string_arg(line)
 
                 if disc.data_file_name is None:
                     disc.data_file_name = filename
@@ -198,7 +203,7 @@ class DbDisc(Disc):
                 elif disc.data_file_name != filename:
                     raise DiscInfoError('expected filename "%s", got "%s"'
                                         % (disc.data_file_name, filename))
-                    
+
 
                 p = line.split()
 
@@ -216,7 +221,7 @@ class DbDisc(Disc):
                         track.file_offset = PCM.msf_to_frames(offset)
                     except ValueError:
                         raise DiscInfoError('bad offset for file: %s' % line)
-                    
+
                 try:
                     track.file_length = PCM.msf_to_frames(length)
                 except ValueError:
@@ -227,30 +232,29 @@ class DbDisc(Disc):
 
 
             elif line.startswith('SILENCE '):
-                track.pregap_silence = disc.get_toc_msf_arg(line)
+                track.pregap_silence = get_toc_msf_arg(line)
 
             elif line.startswith('START '):
-                track.pregap_offset = disc.get_toc_msf_arg(line)
+                track.pregap_offset = get_toc_msf_arg(line)
 
             elif line.startswith('INDEX '):
                 # Adjust indices to be relative start of track instead
                 # of pregap
-                track.index.append(disc.get_toc_msf_arg(line)
+                track.index.append(get_toc_msf_arg(line)
                                    + track.pregap_offset)
-                
+
             elif line.startswith('ISRC '):
-                track.isrc = disc.get_toc_string_arg(line)
+                track.isrc = get_toc_string_arg(line)
 
             elif line.startswith('DATAFILE '):
                 pass
 
             elif line != '':
                 raise DiscInfoError('unexpected line: %s' % line)
-                
+
 
         if track is not None:
             disc.add_track(track)
-
 
         # Make sure we did read an audio disc
         if not disc.tracks:
@@ -309,35 +313,6 @@ class DbDisc(Disc):
         return disc
     
 
-    @staticmethod
-    def get_toc_string_arg(line):
-        """Parse out a string argument from a TOC line."""
-        s = line.find('"')
-        if s == -1:
-            raise DiscInfoError('no string argument in line: %s' % line)
-
-        e = line.find('"', s + 1)
-        if s == -1:
-            raise DiscInfoError('no string argument in line: %s' % line)
-        
-        return line[s + 1 : e]
-
-
-    @staticmethod
-    def get_toc_msf_arg(line):
-        """Parse an MSF from a TOC line."""
-
-        p = line.split()
-        if len(p) != 2:
-            raise DiscInfoError(
-                'expected a single MSF argument in line: %s' % line)
-
-        try:
-            return PCM.msf_to_frames(p[1])
-        except ValueError:
-            raise DiscInfoError('bad MSF in line: %s' % line)
-
-
     def get_disc_file_size_frames(self):
         """Return expected length of the file representing this disc,
         in frames.  This assumes that the disc tracks have not been shuffled.
@@ -369,7 +344,6 @@ class DbTrack(Track):
         # If part or all of the pregap isn't contained in the data
         # file at all
         self.pregap_silence = 0
-        
         
 
 #
@@ -414,3 +388,152 @@ class ExtTrack(Track):
             self.isrc = track.isrc
             self.title = track.title
             self.artist = track.artist
+
+
+#
+# TOC parser helper classes
+#
+
+class CDText:
+    LANGUAGE_MAP_RE = re.compile(r'LANGUAGE_MAP +\{')
+    LANGUAGE_RE = re.compile(r'LANGUAGE +([0-9]+) +\{ *$')
+    MAPPING_RE = re.compile(r'\b([0-9]+)\s*:\s*([0-9A-Z]+)\b')
+    
+    def __init__(self):
+        self.language = None
+
+    def parse(self, line, toc_iter, for_disc = False):
+        """Parse a CD_TEXT block.
+
+        Returns a dict with the extracted values, if any.
+        """
+
+        info = None
+        
+        if line.strip() != '{':
+            raise DiscInfoError('expected "\{" but got "{0}"'.format(line))
+
+        for line in toc_iter:
+            if line == '}':
+                return info
+            
+            m = self.LANGUAGE_MAP_RE.match(line)
+            if m:
+                if not for_disc:
+                    raise DiscInfoError('unexpected LANGUAGE_MAP in track CD_TEXT block')
+                
+                self.parse_language_map(line[m.end():], toc_iter)
+                continue
+
+            m = self.LANGUAGE_RE.match(line)
+            if m:
+                if self.language is None:
+                    raise DiscInfoError('no CD_TEXT language mapping defined')
+
+                if self.language == m.group(1):
+                    info = self.parse_language_block(toc_iter)
+                else:
+                    # Just parse and throw away the result
+                    self.parse_language_block(toc_iter)
+
+                continue
+
+            raise DiscInfoError('unexpected CD_TEXT line: {0}'.format(line))
+
+        raise DiscInfoError('unexpected EOF in CD_TEXT block')
+
+
+    def parse_language_map(self, line, toc_iter):
+        i = line.find('}')
+        if i != -1:
+            # entire mapping on one line
+            mapstr = line[:i]
+        else:
+            mapstr = line
+            for line in toc_iter:
+                i = line.find('}')
+                if i != -1:
+                    # end of mapping
+                    mapstr += ' ' + line[:i]
+                    break
+                else:
+                    mapstr += ' ' + line
+
+        mappings = self.MAPPING_RE.findall(mapstr)
+        for langnum, langcode in mappings:
+            # Find an English code
+            if langcode == '9' or langcode == 'EN':
+                self.language = langnum
+                return
+
+        # Use first language mapping, if any
+        if mappings:
+            self.language = mappings[0][0]
+        else:
+            raise DiscInfoError('found no language mappings: {0}'.format(mapstr))
+
+
+    def parse_language_block(self, toc_iter):
+        info = {}
+        for line in toc_iter:
+            if line == '}':
+                return info
+            elif line.startswith('TITLE '):
+                info['title'] = get_toc_string_arg(line)
+            elif line.startswith('PERFORMER '):
+                info['artist'] = get_toc_string_arg(line)
+            elif '{' in line:
+                if '}' not in line:
+                    self.skip_binary_data(toc_iter)
+                    
+        raise DiscInfoError('unexpected EOF in CD_TEXT LANGUAGE block')
+
+    def skip_binary_data(self, toc_iter):
+        for line in toc_iter:
+            if '}' in line:
+                return
+
+        raise DiscInfoError('unexpected EOF in binary CD_TEXT data')
+    
+
+def iter_toc_lines(toc):
+    for line in toc.split('\n'):
+        # Strip comments and whitespace
+        p = line.find('//')
+        if p != -1:
+            line = line[:p]
+            
+        line = line.strip()
+
+        # Hand over non-empty lines
+        if line:
+            yield line
+
+
+def get_toc_string_arg(line):
+    """Parse out a string argument from a TOC line."""
+    s = line.find('"')
+    if s == -1:
+        raise DiscInfoError('no string argument in line: %s' % line)
+
+    e = line.find('"', s + 1)
+    if s == -1:
+        raise DiscInfoError('no string argument in line: %s' % line)
+
+    return line[s + 1 : e]
+
+
+def get_toc_msf_arg(line):
+    """Parse an MSF from a TOC line."""
+
+    p = line.split()
+    if len(p) != 2:
+        raise DiscInfoError(
+            'expected a single MSF argument in line: %s' % line)
+
+    try:
+        return PCM.msf_to_frames(p[1])
+    except ValueError:
+        raise DiscInfoError('bad MSF in line: %s' % line)
+
+

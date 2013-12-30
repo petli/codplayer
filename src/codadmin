@@ -26,7 +26,11 @@ def cmd_list(args):
             try:
                 disc = d.get_disc_by_db_id(db_id)
                 if disc:
-                    sys.stdout.write('{0} {1:2d} tracks\n'.format(db_id, len(disc.tracks)))
+                    sys.stdout.write('{0} {1:2d} tracks {2}/{3}\n'.format(
+                            db_id, len(disc.tracks),
+                            disc.artist or '?',
+                            disc.title or '?'
+                            ))
             except model.DiscInfoError, e:
                 sys.stderr.write('error reading {0}: {1}\n'.format(db_id, e))
             

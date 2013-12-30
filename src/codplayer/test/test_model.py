@@ -192,25 +192,79 @@ INDEX 00:05:00
 
 
 
-    def test_fail_on_cdtext(self):
+    def test_cdtext(self):
         toc = '''
 CD_DA
 
 CD_TEXT {
-    LANGUAGE_MAP {
-      0 : EN
-    }
-
-    LANGUAGE 0 {
-      TITLE "CD Title"
-      PERFORMER "Performer"
-      DISC_ID "XY12345"
-      UPC_EAN ""
-    }
+  // Comment inside text block
+  LANGUAGE_MAP {
+    1: 2
+    // Will use language 0, which is English
+    10: EN 2 : 3
+  }
+  LANGUAGE 10 {
+    TITLE "Disc title"
+    PERFORMER "Disc artist"
+    GENRE { 0,  0,  0}
+    SIZE_INFO { 1,  1, 22,  0, 29, 20,  0,  0,  0,  0,  0,  1,
+                0,  0,  0,  0,  0,  0,  0,  3, 52,  0,  0,  0,
+                0,  0,  0,  0,  9,  0,  0,  0,  0,  0,  0,  0}
+  }
 }
+
+TRACK AUDIO
+NO COPY
+NO PRE_EMPHASIS
+TWO_CHANNEL_AUDIO
+CD_TEXT {
+  LANGUAGE 1 {
+    TITLE "will be skipped"
+    PERFORMER "will be skipped"
+  }
+
+  LANGUAGE 10 {
+    TITLE "Title track 1"
+    PERFORMER "Artist track 1"
+  }
+}
+FILE "data.cdr" 0 03:15:63
+
+TRACK AUDIO
+NO COPY
+NO PRE_EMPHASIS
+TWO_CHANNEL_AUDIO
+CD_TEXT {
+  LANGUAGE 10 {
+    TITLE "Title track 2"
+    PERFORMER "Artist track 2"
+  }
+
+  LANGUAGE 1 {
+    TITLE "will be skipped"
+    PERFORMER "will be skipped"
+  }
+}
+FILE "data.cdr" 03:15:63 03:17:47
 '''
-        with self.assertRaises(model.DiscInfoError):
-            model.DbDisc.from_toc(toc, 'testId')
+
+        d = model.DbDisc.from_toc(toc, 'testId')
+
+        self.assertEqual(len(d.tracks), 2)
+        self.assertEqual(d.data_file_name, "data.cdr")
+
+        self.assertEqual(d.title, 'Disc title')
+        self.assertEqual(d.artist, 'Disc artist')
+
+        t = d.tracks[0]
+        self.assertEqual(t.title, 'Title track 1')
+        self.assertEqual(t.artist, 'Artist track 1')
+        self.assertEqual(t.file_offset, 0)
+
+        t = d.tracks[1]
+        self.assertEqual(t.title, 'Title track 2')
+        self.assertEqual(t.artist, 'Artist track 2')
+        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('03:15:63'))
 
 
     def test_track_isrc(self):
