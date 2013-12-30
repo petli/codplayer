@@ -30,13 +30,26 @@
     </div>
   </div>
 
-  <div id="track-list"></div>
+  <div id="album"></div>
 
-  <script type="text/template" id="track-list-template">
-    <table id="track-list">
+  <script type="text/template" id="album-template">
+    <div id="album">
+      <table class="album-info">
+	{{#title}}
+	  <tr><td class="info-desc">Album:</td>
+	      <td class="info-value">{{.}}</td></tr>
+	{{/title}}
+
+	{{#artist}}
+	  <tr><td class="info-desc">Artist:</td>
+	      <td class="info-value">{{.}}</td></tr>
+	{{/artist}}
+      </table>
+      <table class="track-list">
       {{#tracks}}
         <tr id="track-{{number}}" class="track-row">
 	  <td class="track-number">{{number}}:</td>
+	  <td class="track-info"><div class="track-title">{{title}}</div><div class="track-artist">{{artistIfDifferent}}</div></td>
 	  <td class="track-length">{{lengthSeconds}}</td>
 	</tr>
       {{/tracks}}

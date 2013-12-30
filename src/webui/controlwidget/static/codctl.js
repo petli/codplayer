@@ -57,21 +57,25 @@ $(function(){
 	});
 
 	socket.on('cod-disc', function(disc) {
-	    var template = $('#track-list-template').html();
-	    var trackList;
+	    var template = $('#album-template').html();
+	    var album;
 
 	    if (disc && disc.tracks && disc.tracks.length) {
 		disc.lengthSeconds = function() {
 		    return formatTime(this.length);
 		};
+
+		disc.artistIfDifferent = function() {
+		    return this.artist === disc.artist ? '' : this.artist;
+		};
 		
-		trackList = $.mustache(template, disc);
+		album = $.mustache(template, disc);
 	    }
 	    else {
-		trackList = $('<div id="track-list">No disc info</div>');
+		album = $('<div id="album">No disc info</div>');
 	    }
 
-	    $('#track-list').replaceWith(trackList);
+	    $('#album').replaceWith(album);
 	});
     });
 
