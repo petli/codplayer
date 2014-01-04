@@ -21,6 +21,12 @@ class BAR(object):
     pass
 
 
+class Structure(serialize.Serializable):
+    MAPPING = (
+        ('number', int),
+        )
+
+
 class TestPopulateObject(unittest.TestCase):
     def test_missing_attr(self):
         with self.assertRaises(serialize.LoadError):
@@ -79,4 +85,55 @@ class TestPopulateObject(unittest.TestCase):
 
         self.assertIs(obj.foo, FOO)
         self.assertIs(obj.bar, BAR)
+
         
+    def test_structure(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'value': { 'number': 17 } },
+            obj,
+            [('value', Structure)]
+            )
+
+        self.assertIsInstance(obj.value, Structure)
+        self.assertEqual(obj.value.number, 17)
+        
+
+    def test_bad_structure(self):
+        with self.assertRaises(serialize.LoadError):
+            serialize.populate_object(
+                { 'value': 17 },
+                DummyObject(),
+                [('value', Structure)]
+                )
+        
+
+    def test_list(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'values': [17, 42, 39] },
+            obj,
+            [('values', [int])]
+            )
+
+        self.assertIsInstance(obj.values, list)
+        self.assertListEqual(obj.values, [17, 42, 39])
+
+    def test_bad_list(self):
+        with self.assertRaises(serialize.LoadError):
+            serialize.populate_object(
+                { 'values': 17 },
+                DummyObject(),
+                [('values', [int])]
+                )
+
+    def test_bad_list_value(self):
+        with self.assertRaises(serialize.LoadError):
+            serialize.populate_object(
+                { 'values': ['foo'] },
+                DummyObject(),
+                [('values', [int])]
+                )
+

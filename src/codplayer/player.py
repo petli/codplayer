@@ -28,7 +28,7 @@ from . import db, model, audio, serialize
 class PlayerError(Exception):
     pass
 
-class State(object):
+class State(serialize.Serializable):
     """Player state as visible to external users.  Attributes:
 
     state: One of the state identifiers:
@@ -98,7 +98,7 @@ class State(object):
 
 
     # Deserialisation methods
-    STATE_PARAMS = (
+    MAPPING = (
         ('state', serialize.ClassEnumType(
                 NO_DISC, WORKING, PLAY, PAUSE, STOP)),
         ('disc_id', serialize.string),
@@ -113,7 +113,7 @@ class State(object):
     @classmethod
     def from_file(cls, path):
         """Create a State object from the JSON stored in the file PATH."""
-        return serialize.load_json(cls(), path, cls.STATE_PARAMS)
+        return serialize.load_json(cls, path)
         
 
 class Player(object):
