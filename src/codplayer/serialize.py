@@ -176,3 +176,16 @@ def load_json(cls, path):
     populate_object(raw, obj, cls.MAPPING)
     return obj
         
+
+def load_jsons(cls, string):
+    """Load JSON into a new object of type CLS from STRING, using CLS.MAPPING to populate it.
+
+    Returns the object.
+    """
+    
+    raw = json.loads(string)
+
+    obj = cls()
+    populate_object(raw, obj, cls.MAPPING)
+    return obj
+        

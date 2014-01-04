@@ -62,6 +62,18 @@ class DiscInfoError(Exception):
 #
 
 class Disc(serialize.Serializable):
+
+    MAPPING = (
+        ('disc_id', serialize.string),
+        ('catalog', serialize.string),
+        ('title', serialize.string),
+        ('artist', serialize.string),
+        ('barcode', serialize.string),
+        ('release_date', serialize.string),
+
+        # tracks mapping is added by the subclasses
+        )
+
     def __init__(self):
         self.disc_id = None
         
@@ -82,6 +94,16 @@ class Disc(serialize.Serializable):
 
 
 class Track(serialize.Serializable):
+    MAPPING = (
+        ('number', int),
+        ('length', int),
+        ('pregap_offset', int),
+        ('index', [int]),
+        ('isrc', serialize.string),
+        ('title', serialize.string),
+        ('artist', serialize.string),
+        )
+
     def __init__(self):
         self.number = 0
         self.length = 0
@@ -102,10 +124,39 @@ class Track(serialize.Serializable):
 # Database versions of disc and track classes
 #
 
+class DbTrack(Track):
+    """Represents one track on a disc and its offsets and indices.
+    All time values are in frames.
+    """
+
+    MAPPING = Track.MAPPING + (
+        ('file_offset', int),
+        ('file_length', int),
+        ('pregap_silence', int),
+        )
+
+    def __init__(self):
+        super(DbTrack, self).__init__()
+        
+        self.file_offset = 0
+        self.file_length = 0
+
+        # If part or all of the pregap isn't contained in the data
+        # file at all
+        self.pregap_silence = 0
+        
+
 class DbDisc(Disc):
     """Represents a CD, consisting of a number of tracks.  All time
     values are in frames.
     """
+
+    MAPPING = Disc.MAPPING + (
+        ('tracks', [DbTrack]),
+        ('data_file_name', serialize.string),
+        ('data_file_format', serialize.ClassEnumType(RAW_CD)),
+        ('audio_format', serialize.ClassEnumType(PCM)),
+        )
 
     def __init__(self):
         super(DbDisc, self).__init__()
@@ -330,44 +381,10 @@ class DbDisc(Disc):
         return self.get_disc_file_size_frames() * self.audio_format.bytes_per_frame
 
 
-class DbTrack(Track):
-    """Represents one track on a disc and its offsets and indices.
-    All time values are in frames.
-    """
-
-    def __init__(self):
-        super(DbTrack, self).__init__()
-        
-        self.file_offset = 0
-        self.file_length = 0
-
-        # If part or all of the pregap isn't contained in the data
-        # file at all
-        self.pregap_silence = 0
-        
 
 #
 # External views of the database objects
 #
-
-class ExtDisc(Disc):
-    """External view of a Disc, hiding internal details and exposing
-    all lengths as whole seconds.
-    """
-
-    def __init__(self, disc = None):
-        super(ExtDisc, self).__init__()
-        
-        if disc:
-            assert isinstance(disc, DbDisc)
-            self.disc_id = disc.disc_id
-            self.tracks = [ExtTrack(t, disc) for t in disc.tracks]
-            self.catalog = disc.catalog
-            self.title = disc.title
-            self.artist = disc.artist
-            self.barcode = disc.barcode
-            self.release_date = disc.release_date
-
 
 class ExtTrack(Track):
     """External view of a track, hiding internal details and exposing
@@ -388,6 +405,30 @@ class ExtTrack(Track):
             self.isrc = track.isrc
             self.title = track.title
             self.artist = track.artist
+
+
+class ExtDisc(Disc):
+    """External view of a Disc, hiding internal details and exposing
+    all lengths as whole seconds.
+    """
+
+    MAPPING = Disc.MAPPING + (
+        ('tracks', [ExtTrack]),
+        )
+
+    def __init__(self, disc = None):
+        super(ExtDisc, self).__init__()
+        
+        if disc:
+            assert isinstance(disc, DbDisc)
+            self.disc_id = disc.disc_id
+            self.tracks = [ExtTrack(t, disc) for t in disc.tracks]
+            self.catalog = disc.catalog
+            self.title = disc.title
+            self.artist = disc.artist
+            self.barcode = disc.barcode
+            self.release_date = disc.release_date
+
 
 
 #

@@ -7,6 +7,7 @@
 import unittest
 
 from .. import model
+from .. import serialize
 
 class TestMSF(unittest.TestCase):
     def test_1s(self):
@@ -347,3 +348,102 @@ class TestDiscFromMusicbrainz(unittest.TestCase):
         self.assertEqual(t.length,
                          9037 * model.PCM.audio_frames_per_cd_frame)
         self.assertEqual(t.length, t.file_length)
+
+
+class TestDiscFromJSON(unittest.TestCase):
+    def test_ext_disc(self):
+        raw = '''
+{
+  "artist": "Brainpool", 
+  "barcode": "4711", 
+  "catalog": "4712", 
+  "disc_id": "Fy3nZdEhBmXzkiolzR08Xk5rPQ4-", 
+  "release_date": "2010-10-10", 
+  "title": "We Aimed To Please (Best Of Brainpool Vol.1)", 
+  "tracks": [
+    {
+      "artist": "Brainpool", 
+      "index": [190], 
+      "isrc": "SEWNV0500101", 
+      "length": 195, 
+      "number": 1, 
+      "pregap_offset": 0, 
+      "title": "At School"
+    }
+  ]
+}
+'''
+        obj = serialize.load_jsons(model.ExtDisc, raw)
+
+        self.assertEqual(obj.artist, 'Brainpool')
+        self.assertEqual(obj.barcode, '4711')
+        self.assertEqual(obj.catalog, '4712')
+        self.assertEqual(obj.disc_id, 'Fy3nZdEhBmXzkiolzR08Xk5rPQ4-')
+        self.assertEqual(obj.release_date, '2010-10-10')
+        self.assertEqual(obj.title, 'We Aimed To Please (Best Of Brainpool Vol.1)')
+        
+        self.assertEqual(len(obj.tracks), 1)
+
+        t = obj.tracks[0]
+        self.assertEqual(t.artist, 'Brainpool')
+        self.assertListEqual(t.index, [190])
+        self.assertEqual(t.isrc, 'SEWNV0500101')
+        self.assertEqual(t.length, 195)
+        self.assertEqual(t.number, 1)
+        self.assertEqual(t.pregap_offset, 0)
+        self.assertEqual(t.title, 'At School')
+        
+
+    def test_db_disc(self):
+        raw = '''
+{
+  "artist": "Brainpool", 
+  "audio_format": "PCM",
+  "barcode": "4711",
+  "catalog": "4712", 
+  "data_file_format": "RAW_CD",
+  "data_file_name": "172de765.cdr",
+  "disc_id": "Fy3nZdEhBmXzkiolzR08Xk5rPQ4-",
+  "release_date": "2010-10-10", 
+  "title": "We Aimed To Please (Best Of Brainpool Vol.1)", 
+  "tracks": [
+    {
+      "artist": "Brainpool",
+      "file_length": 8599500,
+      "file_offset": 0,
+      "index": [8379000], 
+      "isrc": "SEWNV0500101", 
+      "length": 8599500, 
+      "number": 1, 
+      "pregap_offset": 0, 
+      "pregap_silence": 0, 
+      "title": "At School"
+    }
+  ]
+}
+'''
+        obj = serialize.load_jsons(model.DbDisc, raw)
+
+        self.assertEqual(obj.artist, 'Brainpool')
+        self.assertIs(obj.audio_format, model.PCM)
+        self.assertEqual(obj.barcode, '4711')
+        self.assertEqual(obj.catalog, '4712')
+        self.assertIs(obj.data_file_format, model.RAW_CD)
+        self.assertEqual(obj.data_file_name, '172de765.cdr')
+        self.assertEqual(obj.disc_id, 'Fy3nZdEhBmXzkiolzR08Xk5rPQ4-')
+        self.assertEqual(obj.release_date, '2010-10-10')
+        self.assertEqual(obj.title, 'We Aimed To Please (Best Of Brainpool Vol.1)')
+        
+        self.assertEqual(len(obj.tracks), 1)
+
+        t = obj.tracks[0]
+        self.assertEqual(t.artist, 'Brainpool')
+        self.assertEqual(t.file_length, 8599500)
+        self.assertEqual(t.file_offset, 0)
+        self.assertListEqual(t.index, [8379000])
+        self.assertEqual(t.isrc, 'SEWNV0500101')
+        self.assertEqual(t.length, 8599500)
+        self.assertEqual(t.number, 1)
+        self.assertEqual(t.pregap_offset, 0)
+        self.assertEqual(t.pregap_silence, 0)
+        self.assertEqual(t.title, 'At School')
