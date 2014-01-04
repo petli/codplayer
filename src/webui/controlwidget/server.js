@@ -101,15 +101,15 @@ var sendState = function() {
     };
 
     fs.stat(config.stateFile, function(err, stats) {
-	var timeout = 1007;
-	
 	if (err) {
-	    timeout = delayTimeout(97, 5007);
+	    setTimeout(sendState, delayTimeout(97, 5007));
 	}
 	else {
-	    if (lastStateTime != stats.mtime.getTime()) {
+	    if (lastStateTime !== stats.mtime.getTime()) {
 		// Read updated file
 		jf.readFile(config.stateFile, function(err, state) {
+	            var timeout = 1007;
+
 		    if (state) {
 			io.sockets.emit('cod-state', state);
 
@@ -136,15 +136,15 @@ var sendState = function() {
 		    } else {
 			timeout = delayTimeout(97, 5007);
 		    }
+                    
+	            setTimeout(sendState, timeout);
 		});
 	    }
 	    else {
 		// File hasn't changed
-		timeout = delayTimeout(97, 1007);
+	        setTimeout(sendState, delayTimeout(97, 1007));
 	    }
 	}
-
-	setTimeout(sendState, timeout);
     });
 };
 
