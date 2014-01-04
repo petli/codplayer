@@ -1,10 +1,174 @@
 /* CSS for codplayer web control widget server
  *
- * Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+ * Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
  *
  * Distributed under an MIT license, please see LICENSE in the top dir.
  */
 
+body {
+    background-color: #444;
+    padding: 0px;
+    margin: 0px;
+
+    font-size: 12pt;
+    font-family: sans-serif;
+}
+
+/*
+ * Main layout
+ */
+
+#controls {
+    position: fixed;
+    top: 0px;
+    bottom: 5em;
+
+    width: 40em;
+    max-width: 100%;
+    margin: 4px auto;
+
+    text-align: center;
+    vertical-align: middle;
+}
+
+#album {
+    position: fixed;
+    top: 5em;
+    bottom: 0px;
+
+    width: 40em;
+    max-width: 100%;
+    margin: 4px auto;
+
+    text-align: center;
+}
+
+
+
+/*
+ * Control layout
+ */
+.control-pane {
+    display: inline-block;
+    vertical-align: middle;
+    padding: 4px;
+}
+
+
+/* Button layout */
+#eject {
+    margin-right: 10px;
+}
+
+#stop {
+    margin-left: 10px;
+}
+
+
+/* State layout */
+
+.state-info-box {
+    display: inline-block;
+    background-color: #ddd;
+    padding: 4px;
+    font-size: 14pt;
+}
+
+.left-value {
+    display: inline-block;
+    text-align: right;
+}
+
+.right-value {
+    display: inline-block;
+    text-align: left;
+}
+
+.pos {
+    width: 2em;
+}
+
+.time {
+    width: 3em;
+}
+
+
+#ripping-state {
+    float: right;
+    margin-top: 4px;
+    margin-right: 18px;
+    display: none;
+    font-size: 8pt;
+    min-width: 4.5em;
+}
+    
+
+/*
+ * Album info
+ */
+
+.scrollable {
+    overflow-y: scroll;
+    height: 100%;
+    padding: 0px 8px;
+}
+
+#album-info {
+    display: inline-table;
+    border-collapse: collapse;
+    margin-left: 10px;
+    margin-right: 10px;
+}
+    
+#album-info td {
+    vertical-align: baseline;
+    text-align: left;
+    background-color: #ddd;
+    padding: 4px;
+}
+
+#track-list {
+    text-align: center;
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+.full-track-info-box {
+    display: block;
+    background-color: #ddd;
+    padding: 4px;
+    margin: 6px auto 6px auto;
+    text-align: left;
+}
+
+.short-track-info-box {
+    display: inline-block;
+    background-color: #ddd;
+    padding: 4px;
+    margin: 6px 3px 6px 3px;
+    min-width: 5em;
+}
+
+.track-info {
+    display: inline-block;
+    padding-left: 8px;
+}
+
+.full-track-info-box .track-number {
+    display: inline-block;
+    min-width: 2em;
+    text-align: right;
+}
+
+.full-track-info-box .track-length {
+    display: inline-block;
+    min-width: 2.5em;
+    text-align: right;
+}
+
+/*
+ * Symbol font
+ */
 @font-face {
     font-family: "cod-symbols";
     src: url('cod-symbols.woff');
@@ -15,13 +179,6 @@
 }
 
 button.symbol {
-    font-size: 16px;
+    font-size: 14pt;
 }
 
-.track-number {
-    text-align: right;
-}
-
-.track-length {
-    text-align: right;
-}

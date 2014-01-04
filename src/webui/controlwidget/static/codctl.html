@@ -10,31 +10,45 @@
   <script src="codctl.js"></script>
 </head>
 <body>
-  <div id="codctl">
-
-    <div id="disc" class="ctl-pane">
-      <span id="state" class="symbol"></span>
-      <span id="track"></span>/<span id="no_tracks"></span>
-      <span id="position"></span>/<span id="length"></span>
-      <span id="ripping-state" class="symbol"></span>
-      <span id="ripping-percentage"></span>
+  <div id="widgetarea">
+  <div id="controls">
+    <div id="ripping-state" class="state-info-box">
+      <span class="symbol">&#xe607;</span>
+      <span class=""><span id="ripping-percentage"></span>%</span>
     </div>
 
-    <div>
+    <div class="control-pane">
+      <span class="state-info-box">
+        <span id="state" class="symbol"></span>
+      </span>
+      <span class="state-info-box">
+	<span id="track" class="left-value pos"></span>/<span id="no_tracks" class="right-value pos"></span>
+      </span>
+      <span class="state-info-box">
+	<span id="position" class="left-value time"></span>/<span id="length" class="right-value time"></span>
+      </span>
+    </div>
+
+    <br>
+
+    <div class="control-pane">
+      <button id="eject" class="command symbol" type="button">&#xe605;</button>
       <button id="prev" class="command symbol" type="button">&#x23ee;</button>
       <button id="play" class="command symbol" type="button">&#x25b6;</button>
       <button id="pause" class="command symbol" type="button">&#x2016;</button>
-      <button id="stop" class="command symbol" type="button">&#x25a0;</button>
       <button id="next" class="command symbol" type="button">&#x23ed;</button>
-      <button id="eject" class="command symbol" type="button">&#xe605;</button>
+      <button id="stop" class="command symbol" type="button">&#x25a0;</button>
     </div>
   </div>
 
   <div id="album"></div>
 
+  </div>
+  
   <script type="text/template" id="album-template">
     <div id="album">
-      <table class="album-info">
+      <div class="scrollable">
+      <table id="album-info">
 	{{#title}}
 	  <tr><td class="info-desc">Album:</td>
 	      <td class="info-value">{{.}}</td></tr>
@@ -45,14 +59,32 @@
 	      <td class="info-value">{{.}}</td></tr>
 	{{/artist}}
       </table>
-      <table class="track-list">
-      {{#tracks}}
-        <tr id="track-{{number}}" class="track-row">
-	  <td class="track-number">{{number}}:</td>
-	  <td class="track-info"><div class="track-title">{{title}}</div><div class="track-artist">{{artistIfDifferent}}</div></td>
-	  <td class="track-length">{{lengthSeconds}}</td>
-	</tr>
-      {{/tracks}}
-    </table>
+
+      
+      <div id="track-list">
+	{{#tracks}}
+
+          {{#title}}
+          <span class="full-track-info-box">
+            <span class="track-number">{{number}}.</span>
+            <span class="track-length">{{lengthSeconds}}</span>
+            <span class="track-info">
+              <div class="track-title">{{title}}</div><div class="track-artist">{{artistIfDifferent}}</div>
+            </span>
+          </span>
+          {{/title}}
+          
+          {{^title}}
+          <span class="short-track-info-box">
+            <span class="track-number">{{number}}.</span>
+            <span class="track-length">{{lengthSeconds}}</span>
+          </span>
+          {{/title}}
+
+	{{/tracks}}
+      </div>
+      </div>
+    </div>
+  </script>
 </body>
 </html>

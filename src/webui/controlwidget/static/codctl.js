@@ -1,6 +1,6 @@
 // codplayer web control widget client
 //
-// Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+// Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 //
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -12,6 +12,8 @@ $(function(){
 	PAUSE:   '\u2016',
 	STOP:    '\u25a0'
     };
+
+    var showingRipping = false;
 
     var formatTime = function(seconds) {
 	var sign = '';
@@ -44,13 +46,18 @@ $(function(){
 	    $('#position').text(formatTime(data.position));
 	    $('#length').text(formatTime(data.length));
 
-	    if (data.ripping === false) {
-		$('#ripping-state').text('');
-		$('#ripping-percentage').text('');
+	    if (typeof data.ripping !== 'number') {
+                if (showingRipping) {
+		    $('#ripping-state').fadeOut();
+                    showingRipping = false;
+                }
 	    }
 	    else {
-		$('#ripping-state').text('\ue607');
-		$('#ripping-percentage').text(data.ripping.toString() + '%');
+		$('#ripping-percentage').text(data.ripping.toString());
+                if (!showingRipping) {
+		    $('#ripping-state').fadeIn();
+                    showingRipping = true;
+                }
 	    }
 
 	    document.title = data.track.toString() + '/' + data.no_tracks.toString() + ' ' + data.state.toString();
@@ -72,7 +79,7 @@ $(function(){
 		album = $.mustache(template, disc);
 	    }
 	    else {
-		album = $('<div id="album">No disc info</div>');
+		album = $('<div id="album"></div>');
 	    }
 
 	    $('#album').replaceWith(album);
