@@ -23,7 +23,7 @@ class BAR(object):
 
 class Structure(serialize.Serializable):
     MAPPING = (
-        ('number', int),
+        serialize.Attr('number', int),
         )
 
 
@@ -33,7 +33,7 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'foo': 'bar' },
                 DummyObject(),
-                [('gazonk', int)]
+                [serialize.Attr('gazonk', int)]
                 )
         
     def test_incorrect_type(self):
@@ -41,7 +41,7 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'foo': 'bar' },
                 DummyObject(),
-                [('foo', int)]
+                [serialize.Attr('foo', int)]
                 )
         
     def test_populate(self):
@@ -54,9 +54,9 @@ class TestPopulateObject(unittest.TestCase):
               'ignored': None,
               },
             obj,
-            [('gazonk', int),
-             ('foo', str),
-             ('flag', bool)]
+            [serialize.Attr('gazonk', int),
+             serialize.Attr('foo', str),
+             serialize.Attr('flag', bool)]
             )
 
         self.assertEqual(obj.foo, 'bar')
@@ -64,13 +64,54 @@ class TestPopulateObject(unittest.TestCase):
         self.assertIs(obj.flag, True)
         
         
+    def test_optional(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'foo': 'bar' },
+            obj,
+            [serialize.Attr('foo', str),
+             serialize.Attr('opt', int, optional = True)]
+            )
+
+        self.assertEqual(obj.foo, 'bar')
+        self.assertFalse(hasattr(obj, 'opt'))
+
+
+    def test_unicode_to_str(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'foo': u'bar' },
+            obj,
+            [serialize.Attr('foo', str)]
+            )
+
+        self.assertTrue(isinstance(obj.foo, str))
+        self.assertEqual(obj.foo, 'bar')
+
+
+    def test_unicode(self):
+        obj = DummyObject()
+
+        serialize.populate_object(
+            { 'foo': u'bar\u20ac' },
+            obj,
+            [serialize.Attr('foo', serialize.str_unicode)]
+            )
+
+        self.assertTrue(isinstance(obj.foo, serialize.str_unicode))
+        self.assertEqual(obj.foo, u'bar\u20ac')
+
+
     def test_bad_enum(self):
         with self.assertRaises(serialize.LoadError):
             serialize.populate_object(
                 { 'foo': 'GAZONK' },
                 DummyObject(),
-                [('foo', serialize.ClassEnumType(FOO, BAR))]
+                [serialize.Attr('foo', enum = (FOO, BAR))]
                 )
+
 
     def test_enum(self):
         obj = DummyObject()
@@ -79,8 +120,8 @@ class TestPopulateObject(unittest.TestCase):
             { 'foo': 'FOO',
               'bar': 'BAR' },
             obj,
-            [('foo', serialize.ClassEnumType(FOO, BAR)),
-             ('bar', serialize.ClassEnumType(FOO, BAR))]
+            [serialize.Attr('foo', enum = (FOO, BAR)),
+             serialize.Attr('bar', enum = (FOO, BAR))]
             )
 
         self.assertIs(obj.foo, FOO)
@@ -93,7 +134,7 @@ class TestPopulateObject(unittest.TestCase):
         serialize.populate_object(
             { 'value': { 'number': 17 } },
             obj,
-            [('value', Structure)]
+            [serialize.Attr('value', Structure)]
             )
 
         self.assertIsInstance(obj.value, Structure)
@@ -105,7 +146,7 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'value': 17 },
                 DummyObject(),
-                [('value', Structure)]
+                [serialize.Attr('value', Structure)]
                 )
         
 
@@ -115,7 +156,7 @@ class TestPopulateObject(unittest.TestCase):
         serialize.populate_object(
             { 'values': [17, 42, 39] },
             obj,
-            [('values', [int])]
+            [serialize.Attr('values', list_type = int)]
             )
 
         self.assertIsInstance(obj.values, list)
@@ -126,7 +167,7 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'values': 17 },
                 DummyObject(),
-                [('values', [int])]
+                [serialize.Attr('values', list_type = int)]
                 )
 
     def test_bad_list_value(self):
@@ -134,6 +175,6 @@ class TestPopulateObject(unittest.TestCase):
             serialize.populate_object(
                 { 'values': ['foo'] },
                 DummyObject(),
-                [('values', [int])]
+                [serialize.Attr('values', list_type = int)]
                 )
 

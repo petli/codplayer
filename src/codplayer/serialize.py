@@ -16,10 +16,10 @@ import stat
 
 
 try:
-    string = unicode
+    str_unicode = unicode
 except NameError:
     # Python 3, then
-    string = str
+    str_unicode = str
     
 
 # By saving to temporary files and moving them in place, file writing
@@ -45,67 +45,100 @@ class Serializable(object):
     pass
 
 
-class ClassEnumType(object):
-    """Used to list valid classes used as enums when deserializing.
-    """
-    def __init__(self, *classes):
-        self.classes = classes
-    
-
-def populate_object(src, dest, mapping):
-    """Populate the object DEST by copying values from the dictionary SRC.
-
-    MAPPPING is a sequence of tuples specyfing which attributes to set
-    and the expected types for them: (attribute, type)
-
-    Raises LoadError if a value is missing or is of the wrong type.
+class Attr(object):
+    """Define one attribute in a MAPPING table.
     """
 
-    for attr, desttype in mapping:
-        try:
-            value = src[attr]
-        except KeyError:
-            raise LoadError('missing attribute: {0}'.format(attr))
+    def __init__(self, name, value_type = None, list_type = None,
+                 enum = None, optional = False):
+        """name: attribute name
 
-        setattr(dest, attr, get_value_from_json(attr, desttype, value))
+        value_type: expected type of the value.  Either a tuple that
+        can be passed to isinstance(), or a class deriving from
+        Serializable.
 
-def get_value_from_json(attr, desttype, value):
-        if value is None:
-            return value
+        list_type: the value should be a list where each element has
+        this type (specified as for value_type).
+
+        enum: if provided, a sequence of valid enum classes.
+
+        optional: if True, don't raise an error if missing.
+        """
+
+        assert value_type or list_type or enum
+        
+        self.name = name
+        self.value_type = value_type
+        self.list_type = list_type
+        self.enum = enum
+        self.optional = optional
+        
+
+    def get_value_from_json(self, value):
+        if self.value_type:
+            return self._get_value(value, self.value_type)
+
+        elif self.list_type:
+            if not isinstance(value, list):
+                raise LoadError('expected list for attribute {0}, got {1!r}'
+                                .format(self.name, value))
             
-        elif isinstance(desttype, ClassEnumType):
-            for cls in desttype.classes:
+            return [self._get_value(v, self.list_type) for v in value]
+
+        elif self.enum:
+            for cls in self.enum:
                 if value == cls.__name__:
                     return cls
             else:
                 raise LoadError('invalid class enum for attribute {0}, got {1}'
-                                .format(attr, value))
-                    
-        elif isinstance(desttype, type) and issubclass(desttype, Serializable):
+                                .format(self.name, value))
+        else:
+            assert False, 'this should not happen'
+
+
+    def _get_value(self, value, value_type):
+        if value is None:
+            return value
+            
+        if isinstance(value_type, type) and issubclass(value_type, Serializable):
             if not isinstance(value, dict):
                 raise LoadError('expected mapping for attribute {0}, got {1!r}'
-                                .format(attr, value))
-                
-            obj = desttype()
+                                .format(self.name, value))
+
+            obj = value_type()
             populate_object(value, obj, obj.MAPPING)
             return obj
-
-        elif isinstance(desttype, list):
-            assert len(desttype) == 1
-
-            if not isinstance(value, list):
-                raise LoadError('expected list for attribute {0}, got {1!r}'
-                                .format(attr, value))
-            
-            subtype = desttype[0]
-            return [get_value_from_json(attr, subtype, v) for v in value]
-            
         else:
-            if not isinstance(value, desttype):
-                raise LoadError('expected type {0} for attribute {1}, got {2!r}'
-                                .format(desttype.__name__, attr, value))
+            # Special case: translate unicode to str
+            if value_type is str and isinstance(value, str_unicode):
+                value = str(value)
+
+            if not isinstance(value, value_type):
+                raise LoadError('expected type {0!r} for attribute {1}, got {2!r}'
+                                .format(value_type, self.name, value))
 
             return value
+        
+
+def populate_object(src, dest, mapping):
+    """Populate the object DEST by copying values from the dictionary SRC.
+
+    MAPPPING is a sequence of Attr objects specifying how to map types
+    from the SRC dictionary to the DEST object.
+
+    Raises LoadError if a value is missing or is of the wrong type.
+    """
+
+    for attr in mapping:
+        try:
+            value = src[attr.name]
+        except KeyError:
+            if not attr.optional:
+                raise LoadError('missing attribute: {0}'.format(attr.name))
+        else:
+            setattr(dest, attr.name, attr.get_value_from_json(value))
+
+
             
 
 class CodEncoder(json.JSONEncoder):

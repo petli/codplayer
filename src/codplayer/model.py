@@ -64,12 +64,12 @@ class DiscInfoError(Exception):
 class Disc(serialize.Serializable):
 
     MAPPING = (
-        ('disc_id', serialize.string),
-        ('catalog', serialize.string),
-        ('title', serialize.string),
-        ('artist', serialize.string),
-        ('barcode', serialize.string),
-        ('release_date', serialize.string),
+        serialize.Attr('disc_id', str),
+        serialize.Attr('catalog', serialize.str_unicode, optional = True),
+        serialize.Attr('title', serialize.str_unicode, optional = True),
+        serialize.Attr('artist', serialize.str_unicode, optional = True),
+        serialize.Attr('barcode', serialize.str_unicode, optional = True),
+        serialize.Attr('release_date', serialize.str_unicode, optional = True),
 
         # tracks mapping is added by the subclasses
         )
@@ -95,13 +95,11 @@ class Disc(serialize.Serializable):
 
 class Track(serialize.Serializable):
     MAPPING = (
-        ('number', int),
-        ('length', int),
-        ('pregap_offset', int),
-        ('index', [int]),
-        ('isrc', serialize.string),
-        ('title', serialize.string),
-        ('artist', serialize.string),
+        serialize.Attr('isrc', serialize.str_unicode, optional = True),
+        serialize.Attr('title', serialize.str_unicode, optional = True),
+        serialize.Attr('artist', serialize.str_unicode, optional = True),
+
+        # Length fields are added by the subclasses
         )
 
     def __init__(self):
@@ -130,9 +128,13 @@ class DbTrack(Track):
     """
 
     MAPPING = Track.MAPPING + (
-        ('file_offset', int),
-        ('file_length', int),
-        ('pregap_silence', int),
+        serialize.Attr('number', int),
+        serialize.Attr('length', int),
+        serialize.Attr('pregap_offset', int),
+        serialize.Attr('index', list_type = int),
+        serialize.Attr('file_offset', int),
+        serialize.Attr('file_length', int),
+        serialize.Attr('pregap_silence', int),
         )
 
     MUTABLE_ATTRS = (
@@ -158,10 +160,10 @@ class DbDisc(Disc):
     """
 
     MAPPING = Disc.MAPPING + (
-        ('tracks', [DbTrack]),
-        ('data_file_name', serialize.string),
-        ('data_file_format', serialize.ClassEnumType(RAW_CD)),
-        ('audio_format', serialize.ClassEnumType(PCM)),
+        serialize.Attr('tracks', list_type = DbTrack),
+        serialize.Attr('data_file_name', serialize.str_unicode),
+        serialize.Attr('data_file_format', enum = (RAW_CD, )),
+        serialize.Attr('audio_format', enum = (PCM, )),
         )
 
     MUTABLE_ATTRS = (
@@ -405,6 +407,13 @@ class ExtTrack(Track):
     all lengths as whole seconds.
     """
 
+    MAPPING = Track.MAPPING + (
+        serialize.Attr('number', int, optional = True),
+        serialize.Attr('length', int, optional = True),
+        serialize.Attr('pregap_offset', int, optional = True),
+        serialize.Attr('index', list_type = int, optional = True),
+        )
+    
     def __init__(self, track = None, disc = None):
         super(ExtTrack, self).__init__()
         
@@ -427,7 +436,7 @@ class ExtDisc(Disc):
     """
 
     MAPPING = Disc.MAPPING + (
-        ('tracks', [ExtTrack]),
+        serialize.Attr('tracks', list_type = ExtTrack),
         )
 
     def __init__(self, disc = None):

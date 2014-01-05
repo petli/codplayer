@@ -99,15 +99,14 @@ class State(serialize.Serializable):
 
     # Deserialisation methods
     MAPPING = (
-        ('state', serialize.ClassEnumType(
-                NO_DISC, WORKING, PLAY, PAUSE, STOP)),
-        ('disc_id', serialize.string),
-        ('track', int),
-        ('no_tracks', int),
-        ('index', int),
-        ('position', int),
-        ('ripping', (bool, int)),
-        ('audio_device_error', serialize.string),
+        serialize.Attr('state', enum = (NO_DISC, WORKING, PLAY, PAUSE, STOP)),
+        serialize.Attr('disc_id', str),
+        serialize.Attr('track', int),
+        serialize.Attr('no_tracks', int),
+        serialize.Attr('index', int),
+        serialize.Attr('position', int),
+        serialize.Attr('ripping', (bool, int)),
+        serialize.Attr('audio_device_error', serialize.str_unicode),
         )
 
     @classmethod

@@ -21,26 +21,26 @@ class Config:
     DEFAULT_FILE = '/etc/codplayer.conf'
 
     CONFIG_PARAMS = (
-        ('database', str),
-        ('user', str),
-        ('group', str),
-        ('pid_file', str),
-        ('log_file', str),
-        ('state_file', str),
-        ('disc_file', str),
-        ('control_fifo', str),
-        ('cdrom_device', str),
-        ('cdrdao_command', str),
-        ('eject_command', str),
-        ('audio_device_type', str),
-        ('start_without_device', bool),
-        ('log_performance', bool),
+        serialize.Attr('database', str),
+        serialize.Attr('user', str),
+        serialize.Attr('group', str),
+        serialize.Attr('pid_file', str),
+        serialize.Attr('log_file', str),
+        serialize.Attr('state_file', str),
+        serialize.Attr('disc_file', str),
+        serialize.Attr('control_fifo', str),
+        serialize.Attr('cdrom_device', str),
+        serialize.Attr('cdrdao_command', str),
+        serialize.Attr('eject_command', str),
+        serialize.Attr('audio_device_type', str),
+        serialize.Attr('start_without_device', bool),
+        serialize.Attr('log_performance', bool),
 
         # File device options
-        ('file_play_speed', int),
+        serialize.Attr('file_play_speed', int),
 
         # Alsa device options
-        ('alsa_card', str),
+        serialize.Attr('alsa_card', str),
 
         )
 
