@@ -135,6 +135,12 @@ class DbTrack(Track):
         ('pregap_silence', int),
         )
 
+    MUTABLE_ATTRS = (
+        'isrc',
+        'title',
+        'artist',
+        )
+
     def __init__(self):
         super(DbTrack, self).__init__()
         
@@ -156,6 +162,14 @@ class DbDisc(Disc):
         ('data_file_name', serialize.string),
         ('data_file_format', serialize.ClassEnumType(RAW_CD)),
         ('audio_format', serialize.ClassEnumType(PCM)),
+        )
+
+    MUTABLE_ATTRS = (
+        'catalog', 
+        'title',
+        'artist',
+        'barcode',
+        'release_date',
         )
 
     def __init__(self):

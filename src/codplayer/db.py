@@ -12,8 +12,10 @@ import os
 import string
 import base64
 import re
+import types
 
 from . import model
+from . import serialize
 
 
 class DatabaseError(Exception):
@@ -251,6 +253,8 @@ class Database(object):
     def get_orig_toc_file(self, db_id):
         return self.filename_base(db_id) + self.ORIG_TOC_SUFFIX
 
+    def get_cooked_toc_file(self, db_id):
+        return self.filename_base(db_id) + self.COOKED_TOC_SUFFIX
 
     def get_id_path(self, db_id):
         return os.path.join(self.get_disc_dir(db_id),
@@ -264,6 +268,10 @@ class Database(object):
     def get_orig_toc_path(self, db_id):
         return os.path.join(self.get_disc_dir(db_id),
                             self.get_orig_toc_file(db_id))
+
+    def get_cooked_toc_path(self, db_id):
+        return os.path.join(self.get_disc_dir(db_id),
+                            self.get_cooked_toc_file(db_id))
         
 
     def iterdiscs_db_ids(self):
@@ -308,7 +316,14 @@ class Database(object):
 
         path = self.get_disc_dir(db_id)
 
-        # TODO: check cooked TOC before original
+        # Try cooked TOC first
+        cooked_toc_file = self.get_cooked_toc_path(db_id)
+
+        if os.path.exists(cooked_toc_file):
+            try:
+                return serialize.load_json(model.DbDisc, cooked_toc_file)
+            except serialize.LoadError, e:
+                raise DatabaseError('error reading disc cooked toc: {0}'.format(e))
 
         orig_toc_file = self.get_orig_toc_path(db_id)
 
@@ -362,3 +377,61 @@ class Database(object):
         return path
 
     
+    def update_disc(self, ext_disc):
+        """Update the database information about a disc, based on the
+        information provided in EXT_DISC.
+
+        This must be a model.ExtDisc instance, with the same number of
+        tracks, as the database record.  (I.e. you can't attempt to
+        remove tracks here.)
+
+        Fields set to None in EXT_DISC are not updated, to protect
+        against losing information if the information came from an
+        outdated client.  To erase a text field, set it to the empty
+        string.
+        """
+
+        if not isinstance(ext_disc, model.ExtDisc):
+            raise ValueError('update requires an ExtDisc object: {0!r}'.format(ext_disc))
+
+        if not self.is_valid_disc_id(ext_disc.disc_id):
+            raise ValueError('invalid disc ID: {0!r}'.format(ext_disc.disc_id))
+            
+        db_id = self.disc_to_db_id(ext_disc.disc_id)
+        db_disc = self.get_disc_by_db_id(db_id)
+
+        if db_disc is None:
+            raise DatabaseError('attempting to update an unknown disc: {0}'.format(ext_disc.disc_id))
+
+        # Disc ok, update attributes
+        update_db_object(db_disc, ext_disc)
+
+
+        # Update the tracks, checking that nothing fishy is happening
+        if len(ext_disc.tracks) != len(db_disc.tracks):
+            raise ValueError('update expected {0} tracks, got {1}'.format(
+                    len(db_disc.tracks), len(ext_disc.tracks)))
+
+        for db_track, ext_track in zip(db_disc.tracks, ext_disc.tracks):
+            if not isinstance(ext_track, model.ExtTrack):
+                raise ValueError('update requires an ExtTrack object: {0!r}'.format(ext_track))
+
+            if db_track.number != ext_track.number:
+                raise ValueError('update expected track number {0}, got {1}'.format(
+                        db_track.number, ext_track.number))
+                
+            # Track ok, update attribute
+            update_db_object(db_track, ext_track)
+            
+
+        # Save new record
+        serialize.save_json(db_disc, self.get_cooked_toc_path(db_id))
+
+        
+def update_db_object(db_obj, ext_obj):
+    for attr in db_obj.MUTABLE_ATTRS:
+        value = getattr(ext_obj, attr)
+        if value is not None:
+            if isinstance(value, types.StringTypes):
+                value = value.strip()
+            setattr(db_obj, attr, value)
