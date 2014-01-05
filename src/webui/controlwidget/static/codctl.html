@@ -64,20 +64,20 @@
       <div id="track-list">
 	{{#tracks}}
 
-          {{#title}}
+          {{#trackHasTitle}}
           <span class="full-track-info-box">
             <span class="track-number">{{number}}.</span>
-            <span class="track-length">{{lengthSeconds}}</span>
+            <span class="track-length">{{lengthTime}}</span>
             <span class="track-info">
               <div class="track-title">{{title}}</div><div class="track-artist">{{artistIfDifferent}}</div>
             </span>
           </span>
-          {{/title}}
+          {{/trackHasTitle}}
           
           {{^title}}
           <span class="short-track-info-box">
             <span class="track-number">{{number}}.</span>
-            <span class="track-length">{{lengthSeconds}}</span>
+            <span class="track-length">{{lengthTime}}</span>
           </span>
           {{/title}}
 

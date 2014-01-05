@@ -68,7 +68,11 @@ $(function(){
 	    var album;
 
 	    if (disc && disc.tracks && disc.tracks.length) {
-		disc.lengthSeconds = function() {
+                disc.trackHasTitle = function() {
+                    return this.title && this.title.length > 0;
+                };
+
+		disc.lengthTime = function() {
 		    return formatTime(this.length);
 		};
 
