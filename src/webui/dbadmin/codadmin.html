@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>codplayer admin</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- All the third-party goodies -->
+  <script src="libs/jquery-2.0.3.min.js"></script>
+  <script src="libs/underscore-min.js"></script>
+  <script src="libs/backbone.js"></script>
+  <link rel="stylesheet" href="libs/bootstrap.min.css"></link>
+  <link rel="stylesheet" href="libs/bootstrap-theme.min.css"></link>
+  <script src="libs/bootstrap.min.js"></script>
+
+  <!-- Our own stuff --> 
+  <link rel="stylesheet" href="codadmin.css" type="text/css"></style>
+  <script src="codadmin.js"></script>
+
+</head>
+<body>
+  <table id="discs" class="table table-hover table-condensed">
+    <tr>
+      <th>Artist</th>
+      <th>Album</th>
+      <th>Tracks</th>
+    </tr>
+  </table>
+
+
+  <script type="text/template" id="disc-row-template">
+    <% if (artist || title) { %>
+      <td><%- artist %></td>
+      <td><%- title %></td>
+    <% } else { %>
+      <td>?</td>
+      <td><%- disc_id %></td>
+    <% } %>
+
+    <% if (typeof tracks === 'number') { %>
+      <td><%- tracks %></td>
+    <% } else { %>
+      <td><%- tracks.length %></td>
+    <% } %>
+  </script>
+
+  <script type="text/template" id="disc-detail-template">
+    <td colspan="3">
+      <div class="row">
+        <div class="col-xs-offset-1 col-xs-11 col-md-offset-2 col-md-10">
+          <table class="table table-hover table-condensed">
+            <tr>
+              <th>Track</th>
+              <th>Length</th>
+              <th>Title/Artist</th>
+            </tr>
+            <% var i; for (i = 0; i < tracks.length; i++) { %>
+               <tr class="track">
+                 <td class="track-number"><%- tracks[i].number %></td>
+                 <td class="track-length"><%- tracks[i].length %></td>
+                 <td class="track-details">
+                   <div><%- tracks[i].title %></div>
+                   <% if (tracks[i].artist && tracks[i].artist !== artist) { %>
+                   <div><%- tracks[i].artist %></div>
+                   <% } %>
+                 </td>
+               </tr>
+            <% } %>
+          </table>
+        </div>
+      </div>
+    </td>
+  </script>
+</body>
+</html>
+  
