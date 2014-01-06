@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+# Hey Emacs, this is -*-python-*-
+#
+# codplayer - REST API using bottle.py
+#
+# Copyright 2014 Peter Liljenberg <peter.liljenberg@gmail.com>
+#
+# Distributed under an MIT license, please see LICENSE in the top dir.
+
+import sys
+import argparse
+
+from codplayer import rest
+from codplayer import config
+
+parser = argparse.ArgumentParser(description = 'codplayer database REST API')
+parser.add_argument('-c', '--config', help = 'alternative configuration file')
+parser.add_argument('-d', '--debug', action = 'store_true',
+                    help = 'run in debug mode')
+
+def main(args):
+    try:
+        cfg = config.RestConfig(args.config)
+    except config.ConfigError, e:
+        sys.exit('invalid configuration:\n{0}'.format(e))
+        
+    app = rest.rest_app(cfg)
+    app.run(host = cfg.host, port = cfg.port, debug = args.debug)
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    main(args)
+        

@@ -192,6 +192,10 @@ def save_json(obj, path):
     except (IOError, OSError), e:
         raise SaveError('error saving to {0}: {1}'.format(path, e))
     
+
+def get_jsons(obj, pretty = False):
+    return json.dumps(obj, indent = 2 if pretty else None, sort_keys = pretty, cls = CodEncoder)
+
     
 def load_json(cls, path):
     """Load JSON into a new object of type CLS from PATH, using CLS.MAPPING to populate it.
@@ -221,4 +225,17 @@ def load_jsons(cls, string):
     obj = cls()
     populate_object(raw, obj, cls.MAPPING)
     return obj
+
+
+def load_jsono(cls, raw):
+    """Load JSON into a new object of type CLS from already parsed
+    RAW json, using CLS.MAPPING to populate it.
+
+    Returns the object.
+    """
+    
+    obj = cls()
+    populate_object(raw, obj, cls.MAPPING)
+    return obj
+
         

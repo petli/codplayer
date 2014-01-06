@@ -25,7 +25,7 @@ def main(args):
         # the files that should be kept open across the daemonization
         preserve_files = []
 
-        cfg = config.Config(args.config)
+        cfg = config.PlayerConfig(args.config)
         database = db.Database(cfg.database)
 
         dev_class = get_audio_device_class(cfg)

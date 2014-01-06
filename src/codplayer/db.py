@@ -389,6 +389,8 @@ class Database(object):
         against losing information if the information came from an
         outdated client.  To erase a text field, set it to the empty
         string.
+
+        Returns the updated DbDisc object.
         """
 
         if not isinstance(ext_disc, model.ExtDisc):
@@ -426,6 +428,8 @@ class Database(object):
 
         # Save new record
         serialize.save_json(db_disc, self.get_cooked_toc_path(db_id))
+
+        return db_disc
 
         
 def update_db_object(db_obj, ext_obj):
