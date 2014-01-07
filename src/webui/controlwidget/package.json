@@ -2,7 +2,7 @@
   "name": "codctl_widget",
   "description": "codplayer control web widget",
   "version": "0.0.1",
-  "main": "server.js",
+  "bin": "server.js",
   "dependencies": {
     "jsonfile": "*",
     "express": "3.x",

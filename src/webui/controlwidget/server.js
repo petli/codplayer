@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // codplayer web control widget server
 //
 // Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
