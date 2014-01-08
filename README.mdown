@@ -81,6 +81,7 @@ codplayer is intended to support different platforms and control
 interfaces.  E.g.:
 
 * codctl - command line interface
+* codmousectl - use a wireless USB mouse as remote control
 * Web interface (a simple one is in `src/webui/controlwidget`)
 * Control apps (none implemented yet)
 * Physical button and LED display interfaces (not implemented either)

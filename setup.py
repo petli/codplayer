@@ -12,6 +12,8 @@ setup(
     scripts = [ 'src/codplayerd',
                 'src/codctl',
                 'src/codadmin',
+                'src/codmousectl',
+                'src/codrestd',
                 ],
 
     package_dir = { '': 'src' },

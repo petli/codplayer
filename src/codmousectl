@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+# Hey Emacs, this is -*-python-*-
+#
+# codplayer - REST API using bottle.py
+#
+# Copyright 2014 Peter Liljenberg <peter.liljenberg@gmail.com>
+#
+# Distributed under an MIT license, please see LICENSE in the top dir.
+
+"""This little script reads input events from /dev/input/eventX and
+translates mouse button presses into commands to codplayerd.
+
+It is probably a better idea to use one of the symlinks instead of the
+direct device path to avoid being dependent on USB ordering.  E.g.:
+/dev/input/by-id/usb-MLK_Trust_Mouse-event-mouse
+
+Left:    Play or pause
+Right:   Stop
+Middle:  Eject
+Forward: Next track
+Back:    Previous track
+"""
+
+import sys
+import argparse
+import struct
+import time
+import os
+
+from codplayer import config
+
+
+# Event interface:
+# https://www.kernel.org/doc/Documentation/input/input.txt
+
+INPUT_EVENT = 'IIHHI'
+EVENT_SIZE = struct.calcsize(INPUT_EVENT)
+
+EV_KEY      = 0x01
+
+BTN_LEFT    = 0x110
+BTN_RIGHT   = 0x111
+BTN_MIDDLE  = 0x112
+BTN_FORWARD = 0x115
+BTN_BACK    = 0x116
+
+parser = argparse.ArgumentParser(description = 'codplayer mouse remote controller')
+parser.add_argument('-c', '--config', help = 'alternative configuration file')
+parser.add_argument('device', help = 'the /dev/input/eventX device to use')
+
+def main(args):
+    try:
+        cfg = config.PlayerConfig(args.config)
+    except config.ConfigError, e:
+        sys.exit('invalid configuration:\n{0}'.format(e))
+        
+    # Then go into a loop retrying
+    while True:
+        try:
+            with open(args.device, 'rb') as f:
+                read_events(cfg, f)
+        except IOError, e:
+            sys.stderr.write('device IO error: {0}'.format(e))
+            
+        # avoid busylooping
+        time.sleep(5)
+        
+
+def read_events(cfg, f):
+    while True:
+        d = f.read(16)
+        if len(d) < 16:
+            sys.stderr.write('end of file reading from device')
+            return
+
+        (tv_sec, tv_usec, ev_type, ev_code, ev_value) = struct.unpack(INPUT_EVENT, d)
+        if ev_type == EV_KEY and ev_value == 1:
+            # Mouse button down
+            if ev_code == BTN_LEFT:
+                send_command(cfg, 'play_pause')
+            elif ev_code == BTN_RIGHT:
+                send_command(cfg, 'stop')
+            elif ev_code == BTN_MIDDLE:
+                send_command(cfg, 'eject')
+            elif ev_code == BTN_FORWARD:
+                send_command(cfg, 'next')
+            elif ev_code == BTN_BACK:
+                send_command(cfg, 'prev')
+        
+
+def send_command(cfg, cmd):
+    try:
+        fd = os.open(cfg.control_fifo, os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, cmd + '\n')
+        os.close(fd)
+    except OSError, e:
+        if e.errno == errno.ENXIO:
+            sys.stderr.write(
+                'error sending command to {0}: no deamon listening\n'
+                .format(cfg.control_fifo))
+        elif e.errno == errno.ENOENT:
+            sys.stderr.write(
+                'error sending command to {0}: no such fifo\n'
+                .format(cfg.control_fifo))
+        else:
+            sys.stderr.write(
+                'error sending command to fifo: {0}\n'.format(e))
+        
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    main(args)
+
