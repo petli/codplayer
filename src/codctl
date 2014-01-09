@@ -15,7 +15,7 @@ from codplayer import player, config, serialize, db
 
 def main(args):
     try:
-        cfg = config.Config(args.config)
+        cfg = config.PlayerConfig(args.config)
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
