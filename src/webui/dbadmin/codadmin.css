@@ -5,4 +5,7 @@
  * Distributed under an MIT license, please see LICENSE in the top dir.
  */
 
-
+.disc-details {
+    margin-top: 10px;
+    display: none;
+}

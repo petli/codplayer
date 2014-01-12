@@ -30,19 +30,28 @@ $(function(){
     //
 
     var DiscRowView = Backbone.View.extend({
-        tagName: 'tr',
-        className: 'disc-row',
+        tagName: 'li',
+        className: 'list-group-item',
 
         events: {
-            'click': 'toggleDetails',
+            'click .disc-row': 'toggleDetails',
         },
 
-        template: _.template($('#disc-row-template').html()),
+        rowTemplate: _.template($('#disc-row-template').html()),
+        detailTemplate: _.template($('#disc-detail-template').html()),
+        
+        template: function(obj) {
+            var html = this.rowTemplate(obj);
+            if (this.showDetail) {
+                html += this.detailTemplate(obj);
+            }
+            return html;
+        },
 
         initialize: function() {
             this.listenTo(this.model, 'change', this.render);
 
-            this.detailView = null;
+            this.showDetail = false;
         },
 
         render: function() {
@@ -53,10 +62,12 @@ $(function(){
         toggleDetails: function() {
             var that = this;
 
-            if (this.detailView) {
+            if (this.showDetail) {
                 console.log('hiding details');
-                this.detailView.remove();
-                this.detailView = null;
+                this.$('.disc-details').slideUp(function() {
+                    that.showDetail = false;
+                    that.render();
+                });
             }
             else {
                 if (typeof this.model.get('tracks') === 'number') {
@@ -84,25 +95,9 @@ $(function(){
 
         showDetails: function() {
             console.log('showing details');
-            this.detailView = new DiscDetailView({ model: this.model });
-            this.$el.after(this.detailView.render().el);
-        },
-    });
-
-
-    var DiscDetailView = Backbone.View.extend({
-        tagName: 'tr',
-        className: 'disc-detail',
-
-        template: _.template($('#disc-detail-template').html()),
-
-        initialize: function() {
-            this.listenTo(this.model, 'change', this.render);
-        },
-
-        render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
-            return this;
+            this.showDetail = true;
+            this.render();
+            this.$('.disc-details').slideDown();
         },
     });
 
