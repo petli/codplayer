@@ -29,13 +29,29 @@
 
 
   <script type="text/template" id="disc-row-template">
-    <div class="disc-row row">
+    <div class="disc-row hover-row row">
+
+    <!-- Disc row viewing mode -->
     <% if (artist || title) { %>
-      <div class="col-xs-5"><%- artist %></div>
-      <div class="col-xs-6"><%- title %></div>
+      <div class="view-only col-xs-5"><%- artist %></div>
+      <div class="view-only col-xs-6"><%- title %></div>
     <% } else { %>
-      <div class="col-xs-11">(<%- disc_id %>)</div>
+      <div class="view-only col-xs-11">(<%- disc_id %>)</div>
     <% } %>
+
+    <!-- Disc row edit mode -->
+    <div class="edit-only col-xs-5">
+      <input data-edit-field="disc-artist"
+             class="form-control"
+             placeholder="Artist"
+             value="<%- artist %>" >
+    </div>
+    <div class="edit-only col-xs-6">
+      <input data-edit-field="disc-title"
+             class="form-control"
+             placeholder="Title"
+             value="<%- title %>" >
+    </div>
 
     <div class="col-xs-1">
       <span class="badge">
@@ -47,22 +63,60 @@
   
   <script type="text/template" id="disc-detail-template">
     <div class="disc-details row">
+      <!-- track list -->
       <div class="col-xs-10">
         <ul class="list-group disc-tracks">
         <% var i; for (i = 0; i < tracks.length; i++) { %>
-           <li class="list-group-item"><div class="row">
+           <li class="list-group-item">
+             <div class="track-row row">
              <div class="col-xs-1 track-number"><%- tracks[i].number %></div>
              <div class="col-xs-1 track-length"><%- tracks[i].length %></div>
              <div class="col-xs-10">
-               <div><%- tracks[i].title %></div>
-               <% if (tracks[i].artist && tracks[i].artist !== artist) { %>
-               <div><%- tracks[i].artist %></div>
-               <% } %>
+
+               <!--Track viewing mode -->
+               <div class="view-only">
+                 <div><%- tracks[i].title %></div>
+                 <% if (tracks[i].artist && tracks[i].artist !== artist) { %>
+                 <div><%- tracks[i].artist %></div>
+                 <% } %>
+               </div>
+
+               <!-- Track editing mode -->
+               <div class="edit-only">
+                 <input data-edit-field="track-title"
+                        data-edit-track-index="<%- i %>"
+                        class="form-control input-sm"
+                        placeholder="Track title"
+                        value="<%- tracks[i].title %>" >
+                 <input data-edit-field="track-artist"
+                        data-edit-track-index="<%- i %>"
+                        class="form-control input-sm"
+                        placeholder="Track artist (if different to disc artist)"
+                        value="<%- tracks[i].artist %>" >
+               </div>
              </div>
-           </div></li>
+           </div>
+           </li>
         <% } %>
         </ul>
       </div>
+
+      <!-- Edit buttons etc -->
+      <div class="col-xs-2">
+        <button type="button"
+                class="edit-disc view-only btn btn-primary btn-block">
+          Edit
+        </button>
+        <button type="button"
+                class="save-edit edit-only btn btn-success btn-block">
+          Save
+        </button>
+        <button type="button"
+                class="cancel-edit edit-only btn btn-default btn-block">
+          Cancel
+        </button>
+      </div>
+                  
     </div>
   </script>
 </body>

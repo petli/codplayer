@@ -5,7 +5,28 @@
  * Distributed under an MIT license, please see LICENSE in the top dir.
  */
 
+/* Override bootstrap padding to get a good hover effect on the lists */
+.list-group-item {
+    padding: 0px 15px;
+}
+
+.disc-row {
+    padding: 8px 0px;
+}
+
+.track-row {
+    padding: 4px 0px;
+}
+
+.hover-row:hover {
+    background-color: #cdf;
+}
+
 .disc-details {
     margin-top: 10px;
+    display: none;
+}
+
+.edit-only {
     display: none;
 }

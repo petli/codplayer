@@ -31,10 +31,13 @@ $(function(){
 
     var DiscRowView = Backbone.View.extend({
         tagName: 'li',
-        className: 'list-group-item',
+        className: 'list-group-item disc',
 
         events: {
             'click .disc-row': 'toggleDetails',
+            'click .edit-disc': 'startEdit',
+            'click .save-edit': 'saveEdit',
+            'click .cancel-edit': 'cancelEdit',
         },
 
         rowTemplate: _.template($('#disc-row-template').html()),
@@ -52,15 +55,37 @@ $(function(){
             this.listenTo(this.model, 'change', this.render);
 
             this.showDetail = false;
+            this.editing = false;
         },
 
         render: function() {
             this.$el.html(this.template(this.model.toJSON()));
+            this.setEditClasses();
             return this;
+        },
+
+        setEditClasses: function() {
+            if (this.editing) {
+                this.$('.disc-row').removeClass('hover-row');
+                this.$('.track-row').removeClass('hover-row');
+                this.$('.view-only').hide();
+                this.$('.edit-only').show();
+            }
+            else {
+                this.$('.disc-row').addClass('hover-row');
+                this.$('.track-row').addClass('hover-row');
+                this.$('.edit-only').hide();
+                this.$('.view-only').show();
+            }
         },
 
         toggleDetails: function() {
             var that = this;
+
+            // Can't toggle while editing
+            if (this.editing) {
+                return;
+            }
 
             if (this.showDetail) {
                 console.log('hiding details');
@@ -99,11 +124,27 @@ $(function(){
             this.render();
             this.$('.disc-details').slideDown();
         },
+
+        startEdit: function() {
+            this.editing = true;
+            this.setEditClasses();
+        },
+
+        saveEdit: function() {
+            // TODO: get the input values
+            this.editing = false;
+            this.setEditClasses();
+        },
+
+        cancelEdit: function() {
+            this.editing = false;
+            this.setEditClasses();
+        },
     });
 
 
     //
-    // Table view of all discs
+    // List view of all discs
     //
 
     var DiscsView = Backbone.View.extend({
