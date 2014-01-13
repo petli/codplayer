@@ -24,6 +24,19 @@ $(function(){
     });
 
     var discs = new DiscList();
+
+    //
+    // Keep track of alerts
+    //
+    
+    var Alert = Backbone.Model.extend({
+        initialize: function() {
+            this.set('header', null);
+            this.set('message', null);
+        },
+    });
+
+    var currentAlert = new Alert();
     
     //
     // Table view of a disc
@@ -59,13 +72,14 @@ $(function(){
         },
 
         render: function() {
+            this.setEditing(this.editing);
             this.$el.html(this.template(this.model.toJSON()));
-            this.setEditClasses();
             return this;
         },
 
-        setEditClasses: function() {
-            if (this.editing) {
+        setEditing: function(editing) {
+            this.editing = editing;
+            if (editing) {
                 this.$('.disc-row').removeClass('hover-row');
                 this.$('.track-row').removeClass('hover-row');
                 this.$('.view-only').hide();
@@ -88,7 +102,6 @@ $(function(){
             }
 
             if (this.showDetail) {
-                console.log('hiding details');
                 this.$('.disc-details').slideUp(function() {
                     that.showDetail = false;
                     that.render();
@@ -99,16 +112,17 @@ $(function(){
                     // We only have the partial disc info, so fetch
                     // the full structure
 
-                    console.log('fetching disc details');
-                    
                     this.model.fetch({
                         success: function() {
                             that.showDetails();
                         },
 
                         error: function(model, response) {
-                            alert("Couldn't fetch disc details.");
-                        }
+                            currentAlert.set({
+                                header: 'Error fetching disc details:',
+                                message: response.statusText + ' (' + response.status + ')',
+                            });
+                        },
                     });
                 }
                 else {
@@ -119,26 +133,85 @@ $(function(){
         },
 
         showDetails: function() {
-            console.log('showing details');
             this.showDetail = true;
             this.render();
             this.$('.disc-details').slideDown();
         },
 
         startEdit: function() {
-            this.editing = true;
-            this.setEditClasses();
+            // Ensure the forms are enabled
+            this.$('fieldset').prop('disabled', false);
+
+            this.setEditing(true);
         },
 
         saveEdit: function() {
-            // TODO: get the input values
-            this.editing = false;
-            this.setEditClasses();
+            // Get the values of the edit fields.  Put them all into a
+            // map so we can call model.save() and have them all
+            // stashed to the server atomically(ish)
+
+            var that = this;
+            var save = {};
+
+            var getTrackValues = function(field, func) {
+                that.$('[data-edit-field="' + field + '"]').each(function(elementIndex, element) {
+                    var i = parseInt(element.dataset.editTrackIndex, 10);
+                    
+                    if (!_.isNaN(i) && i >= 0 && i < save.tracks.length) {
+                        func(save.tracks[i], element);
+                    }
+                    else {
+                        console.error('Bad data-edit-track-index: ' + element.dataset.editTrackIndex);
+                    }
+                });
+            };
+
+            // Disable the forms before we do anything else
+            this.$('fieldset').prop('disabled', true);
+
+            // We need a deep copy of the track array
+            save.tracks = _.map(this.model.get('tracks'), _.clone);
+
+            save.artist = this.$('[data-edit-field="disc-artist"]').val();
+            save.title = this.$('[data-edit-field="disc-title"]').val();
+
+            getTrackValues('track-artist', function(track, element) {
+                track.artist = element.value;
+            });
+
+            getTrackValues('track-title', function(track, element) {
+                track.title = element.value;
+            });
+
+            // Do save, but don't update model until we get a response
+            // from server.  Also set editing mode to false so that a
+            // successful update renders the viewing mode directly.
+            
+            that.model.save(save, {
+                wait: true,
+                success: function() {
+                    // Unlock fields so the Edit button is enabled again
+                    that.$('fieldset').prop('disabled', false);
+
+                    // Flip to view mode
+                    that.setEditing(false);
+                },
+
+                error: function(model, xhr) {
+                    // Unlock fields so the user can cancel or retry save
+                    that.$('fieldset').prop('disabled', false);
+
+                    // Show alert
+                    currentAlert.set({
+                        header: 'Error saving changes:',
+                        message: xhr.statusText + ' (' + xhr.status + ')',
+                    });
+                },
+            });
         },
 
         cancelEdit: function() {
-            this.editing = false;
-            this.setEditClasses();
+            this.setEditing(false);
         },
     });
 
@@ -165,7 +238,37 @@ $(function(){
         },
     });
 
-    discsView = new DiscsView();
+    var discsView = new DiscsView();
+
+
+    //
+    // Alert view
+    //
+
+    var AlertView = Backbone.View.extend({
+        el: $('#alert-area'),
+
+        events: {
+            'closed.bs.alert': 'onClosed',
+        },
+
+        template: _.template($('#alert-template').html()),
+
+        initialize: function() {
+            this.listenTo(this.model, 'change', this.render);
+        },
+
+        render: function() {
+            this.$el.html(this.template(this.model.toJSON()));
+            return this;
+        },
+
+        onClosed: function() {
+            this.model.set({ header: null, message: null });
+        },
+    });
+
+    var alertView = new AlertView({ model: currentAlert });
 
     //
     // Kick everything off by fetching the list of discs

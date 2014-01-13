@@ -9,7 +9,7 @@
   <!-- All the third-party goodies -->
   <script src="libs/jquery-2.0.3.min.js"></script>
   <script src="libs/underscore-min.js"></script>
-  <script src="libs/backbone.js"></script>
+  <script src="libs/backbone-min.js"></script>
   <link rel="stylesheet" href="libs/bootstrap.min.css"></link>
   <link rel="stylesheet" href="libs/bootstrap-theme.min.css"></link>
   <script src="libs/bootstrap.min.js"></script>
@@ -20,6 +20,9 @@
 
 </head>
 <body>
+  <div id="alert-area">
+  </div>
+  
   <div class="row">
     <div class="col-xs-12 col-md-offset-2 col-md-8">
       <ul id="discs" class="list-group">
@@ -34,35 +37,44 @@
     <!-- Disc row viewing mode -->
     <% if (artist || title) { %>
       <div class="view-only col-xs-5"><%- artist %></div>
-      <div class="view-only col-xs-6"><%- title %></div>
+      <div class="view-only col-xs-7"><%- title %>
     <% } else { %>
-      <div class="view-only col-xs-11">(<%- disc_id %>)</div>
+      <div class="view-only col-xs-12">(<%- disc_id %>)
     <% } %>
+      <span class="badge pull-right">
+        <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
+      </span>
+    </div>
 
     <!-- Disc row edit mode -->
+    <fieldset>
     <div class="edit-only col-xs-5">
       <input data-edit-field="disc-artist"
              class="form-control"
              placeholder="Artist"
              value="<%- artist %>" >
     </div>
-    <div class="edit-only col-xs-6">
+    <div class="edit-only col-xs-5">
       <input data-edit-field="disc-title"
              class="form-control"
              placeholder="Title"
              value="<%- title %>" >
     </div>
 
-    <div class="col-xs-1">
-      <span class="badge">
+    <div class="edit-only col-xs-2">
+      <span class="badge pull-right">
         <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
       </span>
     </div>
+
+    </fieldset>
     </div>
   </script>
   
   <script type="text/template" id="disc-detail-template">
     <div class="disc-details row">
+      <fieldset>
+
       <!-- track list -->
       <div class="col-xs-10">
         <ul class="list-group disc-tracks">
@@ -108,7 +120,8 @@
           Edit
         </button>
         <button type="button"
-                class="save-edit edit-only btn btn-success btn-block">
+                class="save-edit edit-only btn btn-success btn-block"
+                data-loading-text="Saving...">
           Save
         </button>
         <button type="button"
@@ -117,7 +130,19 @@
         </button>
       </div>
                   
+      <fieldset>
     </div>
+  </script>
+
+  <script type="text/template" id="alert-template">
+    <% if (header || message) { %>
+    <div class="row">
+      <div class="alert-danger alert-dismissable col-xs-offset-1 col-xs-10 alert col-md-offset-3 col-md-6">
+        <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
+        <strong><%- header %></strong> <%- message %>
+      </div>
+    </div>
+    <% } %>
   </script>
 </body>
 </html>

@@ -5,6 +5,10 @@
  * Distributed under an MIT license, please see LICENSE in the top dir.
  */
 
+body {
+    padding: 10px 0px;
+}
+
 /* Override bootstrap padding to get a good hover effect on the lists */
 .list-group-item {
     padding: 0px 15px;
@@ -27,6 +31,17 @@
     display: none;
 }
 
+/* Edit fields are hidden until shown with jquery */
 .edit-only {
     display: none;
+}
+
+/* Alerts are shown in a fixed box at the top */
+#alert-area {
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    right: 0px;
+    bottom: auto;
+    z-index: 100;
 }
