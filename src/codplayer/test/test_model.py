@@ -268,6 +268,49 @@ FILE "data.cdr" 03:15:63 03:17:47
         self.assertEqual(t.file_offset, model.PCM.msf_to_frames('03:15:63'))
 
 
+    def test_cdtext_no_language_map(self):
+        toc = '''
+CD_DA
+
+CD_TEXT {
+  LANGUAGE 10 {
+    TITLE "Disc title"
+    PERFORMER "Disc artist"
+  }
+}
+
+TRACK AUDIO
+NO COPY
+NO PRE_EMPHASIS
+TWO_CHANNEL_AUDIO
+CD_TEXT {
+  LANGUAGE 1 {
+    TITLE "will be skipped"
+    PERFORMER "will be skipped"
+  }
+
+  LANGUAGE 10 {
+    TITLE "Title track 1"
+    PERFORMER "Artist track 1"
+  }
+}
+FILE "data.cdr" 0 03:15:63
+'''
+
+        d = model.DbDisc.from_toc(toc, 'testId')
+
+        self.assertEqual(len(d.tracks), 1)
+        self.assertEqual(d.data_file_name, "data.cdr")
+
+        self.assertEqual(d.title, 'Disc title')
+        self.assertEqual(d.artist, 'Disc artist')
+
+        t = d.tracks[0]
+        self.assertEqual(t.title, 'Title track 1')
+        self.assertEqual(t.artist, 'Artist track 1')
+        self.assertEqual(t.file_offset, 0)
+
+
     def test_track_isrc(self):
         toc = '''
 TRACK AUDIO

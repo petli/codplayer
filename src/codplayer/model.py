@@ -492,7 +492,9 @@ class CDText:
             m = self.LANGUAGE_RE.match(line)
             if m:
                 if self.language is None:
-                    raise DiscInfoError('no CD_TEXT language mapping defined')
+                    # No LANGUAGE_MAP, so just use whatever language
+                    # ID we find here (it's probably 0)
+                    self.language = m.group(1)
 
                 if self.language == m.group(1):
                     info = self.parse_language_block(toc_iter)
