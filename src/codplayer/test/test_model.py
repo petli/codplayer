@@ -1,10 +1,12 @@
-# codplayer - test the disc module
+# codplayer - test the model module
+# -*- coding: utf-8 -*-
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 import unittest
+import os
 
 from .. import model
 from .. import serialize
@@ -401,7 +403,8 @@ class TestDiscFromJSON(unittest.TestCase):
   "barcode": "4711", 
   "catalog": "4712", 
   "disc_id": "Fy3nZdEhBmXzkiolzR08Xk5rPQ4-", 
-  "release_date": "2010-10-10", 
+  "date": "2010-10-10",
+  "mb_id": "fake-id",
   "title": "We Aimed To Please (Best Of Brainpool Vol.1)", 
   "tracks": [
     {
@@ -422,7 +425,8 @@ class TestDiscFromJSON(unittest.TestCase):
         self.assertEqual(obj.barcode, '4711')
         self.assertEqual(obj.catalog, '4712')
         self.assertEqual(obj.disc_id, 'Fy3nZdEhBmXzkiolzR08Xk5rPQ4-')
-        self.assertEqual(obj.release_date, '2010-10-10')
+        self.assertEqual(obj.mb_id, 'fake-id')
+        self.assertEqual(obj.date, '2010-10-10')
         self.assertEqual(obj.title, 'We Aimed To Please (Best Of Brainpool Vol.1)')
         
         self.assertEqual(len(obj.tracks), 1)
@@ -447,7 +451,7 @@ class TestDiscFromJSON(unittest.TestCase):
   "data_file_format": "RAW_CD",
   "data_file_name": "172de765.cdr",
   "disc_id": "Fy3nZdEhBmXzkiolzR08Xk5rPQ4-",
-  "release_date": "2010-10-10", 
+  "date": "2010-10-10", 
   "title": "We Aimed To Please (Best Of Brainpool Vol.1)", 
   "tracks": [
     {
@@ -474,7 +478,8 @@ class TestDiscFromJSON(unittest.TestCase):
         self.assertIs(obj.data_file_format, model.RAW_CD)
         self.assertEqual(obj.data_file_name, '172de765.cdr')
         self.assertEqual(obj.disc_id, 'Fy3nZdEhBmXzkiolzR08Xk5rPQ4-')
-        self.assertEqual(obj.release_date, '2010-10-10')
+        self.assertEqual(obj.date, '2010-10-10')
+        self.assertIsNone(obj.mb_id)
         self.assertEqual(obj.title, 'We Aimed To Please (Best Of Brainpool Vol.1)')
         
         self.assertEqual(len(obj.tracks), 1)
@@ -490,3 +495,112 @@ class TestDiscFromJSON(unittest.TestCase):
         self.assertEqual(t.pregap_offset, 0)
         self.assertEqual(t.pregap_silence, 0)
         self.assertEqual(t.title, 'At School')
+
+
+class TestMusicbrainz(unittest.TestCase):
+    def get_test_xml(self, name):
+        path = os.path.join(
+            os.path.dirname(__file__),
+            'data',
+            name)
+        
+        return open(path, 'rt').read()
+
+    def test_discset_compilation(self):
+        xml = self.get_test_xml('discset-compilation.xml')
+
+        # Disc two of a very good disco compilation
+        discs = model.ExtDisc.get_from_mb_xml(xml, '3xX9wXAggfDzwq32XenV9CFGsm0-')
+
+        self.assertEqual(len(discs), 1)
+        d = discs[0]
+        
+        self.assertEqual(d.disc_id, '3xX9wXAggfDzwq32XenV9CFGsm0-')
+        self.assertEqual(d.mb_id, u'08c4ce0e-9c09-4057-b9ca-3d9acb20bf1c')
+        self.assertEqual(d.title, u'Disco Discharge: Classic Disco (disc 2)')
+        self.assertEqual(d.artist, u'Various Artists')
+        self.assertEqual(d.date, u'2009')
+
+        self.assertEqual(len(d.tracks), 10)
+        t = d.tracks[6]
+
+        self.assertEqual(t.number, 7)
+        self.assertEqual(t.length, 618)
+        self.assertEqual(t.title, u'Look for Love')
+        self.assertEqual(t.artist, u'Cerrone')
+        
+    def test_many_releases(self):
+        xml = self.get_test_xml('many-releases.xml')
+
+        # Blonde on Blonde has been released many, many times... 
+        discs = model.ExtDisc.get_from_mb_xml(xml, 'CfMonbWEmkO6tDj8k0KBoRXrH6M-')
+
+        # But we expect that the titles of all of them are the same,
+        # so there should just be one left
+        self.assertEqual(len(discs), 1)
+        d = discs[0]
+        
+        self.assertEqual(d.disc_id, 'CfMonbWEmkO6tDj8k0KBoRXrH6M-')
+        self.assertEqual(d.mb_id, u'4d894f37-ca03-38ff-bad2-ef1aaa5ea9c0')
+        self.assertEqual(d.title, u'Blonde on Blonde')
+        self.assertEqual(d.artist, u'Bob Dylan')
+        self.assertEqual(d.date, u'1982-05')
+
+        self.assertEqual(len(d.tracks), 14)
+        t = d.tracks[2]
+
+        self.assertEqual(t.number, 3)
+        self.assertEqual(t.length, 454)
+        self.assertEqual(t.title, u'Visions of Johanna')
+        self.assertEqual(t.artist, u'Bob Dylan')
+        
+    def test_different_titles(self):
+        xml = self.get_test_xml('different-titles.xml')
+
+        # Behaviour is my desert island disc.  And the remaster has a
+        # slightly different title.
+        discs = model.ExtDisc.get_from_mb_xml(xml, 'GVrNYbjD87B.vpShA1rZHbw3WQo-')
+
+        self.assertEqual(len(discs), 2)
+
+        if discs[0].title == 'Behaviour':
+            orig = discs[0]
+            remaster = discs[1]
+        else:
+            orig = discs[1]
+            remaster = discs[0]
+            
+        self.assertEqual(orig.disc_id, 'GVrNYbjD87B.vpShA1rZHbw3WQo-')
+        self.assertEqual(orig.mb_id, u'30a9bbd6-e456-3478-9a35-1cf958cf9637')
+        self.assertEqual(orig.title, u'Behaviour')
+        self.assertEqual(orig.artist, u'Pet Shop Boys')
+        self.assertEqual(orig.date, u'1990-10-22')
+
+        self.assertEqual(remaster.disc_id, 'GVrNYbjD87B.vpShA1rZHbw3WQo-')
+        self.assertEqual(remaster.mb_id, u'd7762dcc-90cc-4c03-9008-624457c40010')
+        self.assertEqual(remaster.title, u'Behaviour / Further Listening 1990-1991 (disc 1)')
+        self.assertEqual(remaster.artist, u'Pet Shop Boys')
+        self.assertEqual(remaster.date, u'2001-06-04')
+
+    def test_cdstub(self):
+        xml = self.get_test_xml('cdstub.xml')
+
+        # This one is Swedish, despite the artist name
+        discs = model.ExtDisc.get_from_mb_xml(xml, 'umw3uGXn_h78p6weU1v48WDGe0U-')
+
+        self.assertEqual(len(discs), 1)
+        d = discs[0]
+        
+        self.assertEqual(d.disc_id, 'umw3uGXn_h78p6weU1v48WDGe0U-')
+        self.assertIsNone(d.mb_id)
+        self.assertEqual(d.title, u'Ljudet Av Tiden Som Går')
+        self.assertEqual(d.artist, u'Mauro Scocco')
+        self.assertIsNone(d.date)
+
+        self.assertEqual(len(d.tracks), 11)
+        t = d.tracks[2]
+
+        self.assertEqual(t.number, 3)
+        self.assertEqual(t.length, 234)
+        self.assertEqual(t.title, u'Taxi')
+        self.assertEqual(t.artist, None)

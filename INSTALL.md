@@ -21,7 +21,9 @@ Debian/Raspbian/Ubuntu system this should install them all:
 
     apt-get install \
     cdrdao eject libasound2-dev \
-    python-musicbrainz2 python-daemon python-dev 
+    python-musicbrainz2 python-musicbrainzngs \
+    python-daemon python-dev \
+    python-bottle
 
 
 Build and install

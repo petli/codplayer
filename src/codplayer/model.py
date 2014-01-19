@@ -1,6 +1,6 @@
 # codplayer - data model for discs and tracks
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -15,6 +15,8 @@ are 75 CD frames per second, each consisting of 588 audio frames.
 """
 
 import re
+
+from musicbrainzngs import mbxml
 
 from . import serialize
 
@@ -65,17 +67,19 @@ class Disc(serialize.Serializable):
 
     MAPPING = (
         serialize.Attr('disc_id', str),
+        serialize.Attr('mb_id', str, optional = True),
         serialize.Attr('catalog', serialize.str_unicode, optional = True),
         serialize.Attr('title', serialize.str_unicode, optional = True),
         serialize.Attr('artist', serialize.str_unicode, optional = True),
         serialize.Attr('barcode', serialize.str_unicode, optional = True),
-        serialize.Attr('release_date', serialize.str_unicode, optional = True),
+        serialize.Attr('date', serialize.str_unicode, optional = True),
 
         # tracks mapping is added by the subclasses
         )
 
     def __init__(self):
         self.disc_id = None
+        self.mb_id = None
         
         self.tracks = []
         
@@ -87,7 +91,7 @@ class Disc(serialize.Serializable):
         # Additional information we might get from MusicBrainz (not
         # every possible morsel, but what might be useful to keep locally)
         self.barcode = None
-        self.release_date = None
+        self.date = None
 
     def __str__(self):
         return self.disc_id
@@ -167,11 +171,12 @@ class DbDisc(Disc):
         )
 
     MUTABLE_ATTRS = (
+        'mb_id',
         'catalog', 
         'title',
         'artist',
         'barcode',
-        'release_date',
+        'date',
         )
 
     def __init__(self):
@@ -445,15 +450,125 @@ class ExtDisc(Disc):
         if disc:
             assert isinstance(disc, DbDisc)
             self.disc_id = disc.disc_id
+            self.mb_id = disc.mb_id
             self.tracks = [ExtTrack(t, disc) for t in disc.tracks]
             self.catalog = disc.catalog
             self.title = disc.title
             self.artist = disc.artist
             self.barcode = disc.barcode
-            self.release_date = disc.release_date
+            self.date = disc.date
 
 
+    @classmethod
+    def get_from_mb_xml(cls, xml, disc_id):
+        """Parse Musicbrainz XML for a given disc_id. The XML should
+        have been returned from a
+        "/ws/2/discid/DISC_ID?inc=recordings artist" query.
 
+        This returns a list of matching discs.
+        """
+
+        return cls.get_from_mb_dict(mbxml.parse_message(xml), disc_id)
+
+    @classmethod
+    def get_from_mb_dict(cls, mb_dict, disc_id):
+        """Parse a Musicbrainz dict for a given disc_id. The dict should
+        have been returned from a
+        "/ws/2/discid/DISC_ID?inc=recordings artist" query.
+
+        This returns a list of matching discs.
+        """
+
+        discs = []
+
+        # Dig down until we find a medium (== disc) matching the
+        # provided disc_id
+
+        if mb_dict.has_key('disc'):
+            for release in mb_dict['disc']['release-list']:
+                for medium in release['medium-list']:
+                    for mb_disc_id in medium['disc-list']:
+                        if disc_id == mb_disc_id['id']:
+                            add_mb_ext_disc(discs, cls, disc_id, release, medium)
+
+        elif mb_dict.has_key('cdstub'):
+            add_cdstub_ext_disc(discs, cls, disc_id, mb_dict['cdstub'])
+
+        return discs
+
+#
+# Musicbrainz helper functions
+#
+    
+def add_mb_ext_disc(discs, cls, disc_id, release, medium):
+    disc = cls()
+    disc.disc_id = disc_id
+    disc.mb_id = release['id']
+
+    if len(release['medium-list']) == 1:
+        disc.title = release['title']
+    else:
+        disc.title = u'{0} (disc {1})'.format(release['title'], medium['position'])
+
+    disc.artist = release['artist-credit-phrase']
+    disc.date = release.get('date')
+    disc.barcode = release.get('barcode')
+
+    for mbtrack in medium['track-list']:
+        track = ExtTrack()
+        track.number = int(mbtrack['position'])
+        track.length = int(mbtrack['length']) / 1000
+        track.title = mbtrack['recording']['title']
+        track.artist = mbtrack['recording']['artist-credit-phrase']
+
+        disc.tracks.append(track)
+
+    disc.tracks.sort(lambda a, b: cmp(a.number, b.number))
+
+    # If an identical disc is already in the list, don't add it
+    for other in discs:
+        if same_disc_title_and_artist(disc, other):
+            # Keep the oldest date to get something closer to the
+            # original release.
+            if (disc.date is not None
+                and (other.date is None or disc.date < other.date)):
+                other.date = disc.date
+                other.mb_id = disc.mb_id
+
+            # Nothing to add here
+            return
+
+    # This was the first time we saw this disc
+    discs.append(disc)
+
+
+def same_disc_title_and_artist(disc, other):
+    if disc.title != other.title: return False
+    if disc.artist != other.artist: return False
+
+    if len(disc.tracks) != len(other.tracks): return False
+
+    for dt, ot in zip(disc.tracks, other.tracks):
+        if dt.title != ot.title: return False
+        if dt.artist != ot.artist: return False
+
+    return True
+
+def add_cdstub_ext_disc(discs, cls, disc_id, cdstub):
+    disc = cls()
+    disc.disc_id = disc_id
+    disc.title = cdstub['title']
+    disc.artist = cdstub['artist']
+
+    for mb_track in cdstub['track-list']:
+        track = ExtTrack()
+        track.number = len(disc.tracks) + 1
+        track.title = mb_track['title']
+        track.length = int(mb_track['length']) / 1000
+        disc.tracks.append(track)
+        
+    discs.append(disc)
+    
 #
 # TOC parser helper classes
 #

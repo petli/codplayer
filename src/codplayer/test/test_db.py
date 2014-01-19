@@ -1,6 +1,6 @@
 # codplayer - test the DB module
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -299,11 +299,12 @@ FILE "{0}.cdr" 0 02:54:53
         ext_disc = model.ExtDisc(orig_disc)
         
         # These ones are allowed to be changed
+        ext_disc.mb_id = u'fake ID'
         ext_disc.artist = u'Disc artist'
         ext_disc.title = u'Disc title'
         ext_disc.catalog = u'Catalog'
         ext_disc.barcode = u'Barcode'
-        ext_disc.release_date = u'2010-10-10'
+        ext_disc.date = u'2010-10-10'
         
         self.db.update_disc(ext_disc)
 
@@ -312,11 +313,12 @@ FILE "{0}.cdr" 0 02:54:53
 
         # All disc info should be updated (except ID)
         self.assertEqual(new_disc.disc_id, self.DISC_ID)
+        self.assertEqual(new_disc.mb_id, u'fake ID')
         self.assertEqual(new_disc.artist, u'Disc artist')
         self.assertEqual(new_disc.title, u'Disc title')
         self.assertEqual(new_disc.catalog, u'Catalog')
         self.assertEqual(new_disc.barcode, u'Barcode')
-        self.assertEqual(new_disc.release_date, u'2010-10-10')
+        self.assertEqual(new_disc.date, u'2010-10-10')
 
         # Track should not have changed
         t = new_disc.tracks[0]
@@ -330,7 +332,7 @@ FILE "{0}.cdr" 0 02:54:53
         ext_disc.title = None
         ext_disc.catalog = None
         ext_disc.barcode = None
-        ext_disc.release_date = None
+        ext_disc.date = None
         
         self.db.update_disc(ext_disc)
 
@@ -343,7 +345,7 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertEqual(new_disc2.title, u'Disc title')
         self.assertEqual(new_disc2.catalog, u'Catalog')
         self.assertEqual(new_disc2.barcode, u'Barcode')
-        self.assertEqual(new_disc2.release_date, u'2010-10-10')
+        self.assertEqual(new_disc2.date, u'2010-10-10')
 
 
     def test_update_invalid_track(self):
