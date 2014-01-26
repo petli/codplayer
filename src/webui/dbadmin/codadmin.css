@@ -18,6 +18,12 @@ body {
     padding: 8px 0px;
 }
 
+.detail-row {
+    padding-bottom: 8px;
+    padding-left: 0px;
+    padding-right: 0px;
+}
+
 .track-row {
     padding: 4px 0px;
 }
@@ -28,13 +34,25 @@ body {
 
 .disc-details {
     margin-top: 10px;
-    display: none;
+/*    display: none;  */
 }
 
-/* Edit fields are hidden until shown with jquery */
-.edit-only {
-    display: none;
+.mb-disc-row {
+    margin: 0px 15px;
 }
+
+table.mb-disc {
+    margin-bottom: 0px;
+}
+
+.mb-track-number {
+    text-align: right;
+}
+
+.mb-track-length {
+    text-align: right;
+}
+
 
 /* Alerts are shown in a fixed box at the top */
 #alert-area {
