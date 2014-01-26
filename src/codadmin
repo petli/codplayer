@@ -28,8 +28,8 @@ def cmd_list(args):
                 if disc:
                     sys.stdout.write('{0} {1:2d} tracks {2}/{3}\n'.format(
                             db_id, len(disc.tracks),
-                            disc.artist or '?',
-                            disc.title or '?'
+                            disc.artist.encode('utf-8') if disc.artist else '?',
+                            disc.title.encode('utf-8') if disc.title else '?'
                             ))
             except model.DiscInfoError, e:
                 sys.stderr.write('error reading {0}: {1}\n'.format(db_id, e))
