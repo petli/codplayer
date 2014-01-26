@@ -107,6 +107,13 @@ def rest_app(config):
             bottle.response.content_type = 'application/json'
             return serialize.get_jsons(discs, pretty = False)
             
+        except musicbrainzngs.WebServiceError, e:
+            if e.cause and e.cause.code:
+                # Pass on the response code
+                bottle.abort(e.cause.code, 'Musicbrainz web service error: {0}'.format(e))
+            else:
+                bottle.abort(500, 'Musicbrainz web service error: {0}'.format(e))
+                
         except musicbrainzngs.MusicBrainzError, e:
             bottle.abort(500, 'Musicbrainz web service error: {0}'.format(e))
 
