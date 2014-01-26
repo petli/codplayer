@@ -37,6 +37,25 @@ body {
 /*    display: none;  */
 }
 
+.release-date {
+    margin: 8px 0px;
+}
+
+.cover-image {
+    display: block;
+    margin: 8px 0px;
+}
+
+.edit-date {
+    margin: 8px 0px;
+}
+
+.mb-disc-cover-image {
+    width: 50px;
+    height: 50px;
+    margin: 4px;
+}
+
 .mb-disc-row {
     margin: 0px 15px;
 }

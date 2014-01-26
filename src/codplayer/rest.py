@@ -18,6 +18,7 @@ class DiscOverview(model.Disc):
 
         self.disc_id = disc.disc_id
         self.mb_id = disc.mb_id
+        self.cover_mb_id = disc.cover_mb_id
         self.tracks = len(disc.tracks)
         self.catalog = disc.catalog
         self.title = disc.title

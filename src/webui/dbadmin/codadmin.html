@@ -86,6 +86,13 @@
       </div>
 
       <div class="col-xs-2">
+        <% if (cover_mb_id) { %>
+        <img class="cover-image img-thumbnail img-responsive"
+             src="http://coverartarchive.org/release/<%- cover_mb_id %>/front-250.jpg">
+        <% } %>
+        
+        <div class="release-date"><%- date %></div>
+
         <button type="button"
                 class="edit-disc btn btn-primary btn-block">
           Edit
@@ -152,6 +159,16 @@
         </div>
 
         <div class="col-xs-2">
+          <% if (cover_mb_id) { %>
+          <img class="cover-image img-thumbnail img-responsive"
+               src="http://coverartarchive.org/release/<%- cover_mb_id %>/front-250.jpg">
+          <% } %>
+
+          <input data-edit-field="date"
+                 class="form-control input-sm edit-date"
+                 placeholder="Release date"
+                 value="<%- date %>" >
+
           <button type="button"
                   class="save-edit btn btn-success btn-block"
                   data-loading-text="Saving...">
@@ -184,6 +201,10 @@
 
 
   <script type="text/template" id="mbdisc-template">
+    <% if (cover_mb_id) { %>
+    <img class="pull-left img-thumbnail mb-disc-cover-image"
+         src="http://coverartarchive.org/release/<%- cover_mb_id %>/front-250.jpg">
+    <% } %>
     <div><%- artist %></div>
     <div><%- title %></div>
 

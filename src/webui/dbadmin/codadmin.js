@@ -333,6 +333,7 @@ $(function(){
 
             save.artist = this.$('[data-edit-field="disc-artist"]').val();
             save.title = this.$('[data-edit-field="disc-title"]').val();
+            save.date = this.$('[data-edit-field="date"]').val();
 
             getTrackValues('track-artist', function(track, element) {
                 track.artist = element.value;
@@ -341,6 +342,16 @@ $(function(){
             getTrackValues('track-title', function(track, element) {
                 track.title = element.value;
             });
+
+            // If we got this from a mbDisc, copy the fields that are
+            // not visible in the GUI
+            if (this.mbDisc) {
+                save = _.extend(save, this.mbDisc.pick(
+                    'mb_id', 'cover_mb_id',
+
+                    // These two should really be moved into the GUI:
+                    'catalog', 'barcode'));
+            }
 
             // Do save, but don't update model until we get a response
             // from server.  Also set editing mode to false so that a

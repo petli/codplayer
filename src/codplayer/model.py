@@ -68,6 +68,7 @@ class Disc(serialize.Serializable):
     MAPPING = (
         serialize.Attr('disc_id', str),
         serialize.Attr('mb_id', str, optional = True),
+        serialize.Attr('cover_mb_id', str, optional = True),
         serialize.Attr('catalog', serialize.str_unicode, optional = True),
         serialize.Attr('title', serialize.str_unicode, optional = True),
         serialize.Attr('artist', serialize.str_unicode, optional = True),
@@ -80,6 +81,7 @@ class Disc(serialize.Serializable):
     def __init__(self):
         self.disc_id = None
         self.mb_id = None
+        self.cover_mb_id = None
         
         self.tracks = []
         
@@ -172,6 +174,7 @@ class DbDisc(Disc):
 
     MUTABLE_ATTRS = (
         'mb_id',
+        'cover_mb_id',
         'catalog', 
         'title',
         'artist',
@@ -451,6 +454,7 @@ class ExtDisc(Disc):
             assert isinstance(disc, DbDisc)
             self.disc_id = disc.disc_id
             self.mb_id = disc.mb_id
+            self.cover_mb_id = disc.cover_mb_id
             self.tracks = [ExtTrack(t, disc) for t in disc.tracks]
             self.catalog = disc.catalog
             self.title = disc.title
@@ -514,6 +518,9 @@ def add_mb_ext_disc(discs, cls, disc_id, release, medium):
     disc.date = release.get('date')
     disc.barcode = release.get('barcode')
 
+    disc._cover_count = int(release['cover-art-archive']['count'])
+    disc.cover_mb_id = disc.mb_id if disc._cover_count > 0 else None
+
     for mbtrack in medium['track-list']:
         track = ExtTrack()
         track.number = int(mbtrack['position'])
@@ -534,6 +541,13 @@ def add_mb_ext_disc(discs, cls, disc_id, release, medium):
                 and (other.date is None or disc.date < other.date)):
                 other.date = disc.date
                 other.mb_id = disc.mb_id
+
+            # Keep track of the release with the most artworks
+            if (disc.cover_mb_id is not None
+                and (other.cover_mb_id is None
+                     or other._cover_count < disc._cover_count)):
+                other.cover_mb_id = disc.cover_mb_id
+                other._cover_count = disc._cover_count
 
             # Nothing to add here
             return

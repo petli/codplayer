@@ -21,9 +21,17 @@ Debian/Raspbian/Ubuntu system this should install them all:
 
     apt-get install \
     cdrdao eject libasound2-dev \
-    python-musicbrainz2 python-musicbrainzngs \
+    python-musicbrainz2 \
     python-daemon python-dev \
     python-bottle
+
+The Python musicbrainzngs package is only released as 0.4, but the
+code needs the upcoming 0.5.  Until that is released, install it from
+github (skip --user if you want to install it system-wide):
+
+    git clone https://github.com/alastair/python-musicbrainzngs.git
+    cd python-musicbrainzngs
+    python setup.py install --user
 
 
 Build and install

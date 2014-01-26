@@ -520,6 +520,7 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(d.title, u'Disco Discharge: Classic Disco (disc 2)')
         self.assertEqual(d.artist, u'Various Artists')
         self.assertEqual(d.date, u'2009')
+        self.assertIsNone(d.cover_mb_id)
 
         self.assertEqual(len(d.tracks), 10)
         t = d.tracks[6]
@@ -528,6 +529,7 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(t.length, 618)
         self.assertEqual(t.title, u'Look for Love')
         self.assertEqual(t.artist, u'Cerrone')
+
         
     def test_many_releases(self):
         xml = self.get_test_xml('many-releases.xml')
@@ -544,7 +546,14 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(d.mb_id, u'4d894f37-ca03-38ff-bad2-ef1aaa5ea9c0')
         self.assertEqual(d.title, u'Blonde on Blonde')
         self.assertEqual(d.artist, u'Bob Dylan')
+
+        # Which is the oldest recording.  Nonsense for this one, but
+        # for discs released after the advent of CD this should give
+        # us the actual release date.
         self.assertEqual(d.date, u'1982-05')
+
+        # The release with the most artworks should be used
+        self.assertEqual(d.cover_mb_id, '0e7d283f-a0c9-3355-b978-bc82b9694bb6')
 
         self.assertEqual(len(d.tracks), 14)
         t = d.tracks[2]
@@ -575,12 +584,14 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(orig.title, u'Behaviour')
         self.assertEqual(orig.artist, u'Pet Shop Boys')
         self.assertEqual(orig.date, u'1990-10-22')
+        self.assertEqual(orig.cover_mb_id, '30a9bbd6-e456-3478-9a35-1cf958cf9637')
 
         self.assertEqual(remaster.disc_id, 'GVrNYbjD87B.vpShA1rZHbw3WQo-')
         self.assertEqual(remaster.mb_id, u'd7762dcc-90cc-4c03-9008-624457c40010')
         self.assertEqual(remaster.title, u'Behaviour / Further Listening 1990-1991 (disc 1)')
         self.assertEqual(remaster.artist, u'Pet Shop Boys')
         self.assertEqual(remaster.date, u'2001-06-04')
+        self.assertIsNone(remaster.cover_mb_id)
 
     def test_cdstub(self):
         xml = self.get_test_xml('cdstub.xml')
@@ -596,6 +607,7 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(d.title, u'Ljudet Av Tiden Som Går')
         self.assertEqual(d.artist, u'Mauro Scocco')
         self.assertIsNone(d.date)
+        self.assertIsNone(d.cover_mb_id)
 
         self.assertEqual(len(d.tracks), 11)
         t = d.tracks[2]
@@ -603,4 +615,4 @@ class TestMusicbrainz(unittest.TestCase):
         self.assertEqual(t.number, 3)
         self.assertEqual(t.length, 234)
         self.assertEqual(t.title, u'Taxi')
-        self.assertEqual(t.artist, None)
+        self.assertIsNone(t.artist)
