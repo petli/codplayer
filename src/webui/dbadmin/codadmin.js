@@ -18,13 +18,45 @@ $(function(){
         },
     });
 
+    // Sort empty/missing last, the rest in increasing order
+    var discComparator = function(a, b, key) {
+        a = a.get(key);
+        b = b.get(key);
+
+        if (a && b) {
+            // Prepare both strings for comparison
+            a = a.toLowerCase();
+            b = b.toLowerCase();
+
+            if (/^the /.test(a)) a = a.slice(4);
+            if (/^the /.test(b)) b = b.slice(4);
+
+            if (a < b) return -1;
+            if (a > b) return 1
+            return 0;
+        }
+        if (a) return -1;
+        if (b) return 1;
+        return 0;
+    };
+
     var DiscList = Backbone.Collection.extend({
         model: Disc,
 
-        url: 'discs'
-    });
+        url: 'discs',
 
-    var discs = new DiscList();
+        comparator: function(a, b) {
+            // Primary key: artist
+            // Secondary key: year of release
+            // Tertiary key: title
+            // Fallback: disc ID
+
+            return (discComparator(a, b, 'artist') ||
+                    discComparator(a, b, 'date') ||
+                    discComparator(a, b, 'title') ||
+                    discComparator(a, b, 'disc_id'));
+        }
+    });
 
     //
     // Musicbrainz disc info model and collection
@@ -463,18 +495,19 @@ $(function(){
         },
 
         initialize: function() {
-            this.listenTo(discs, 'add', this.addOne);
-            this.listenTo(discs, 'reset', this.addAll);
             this.discList = this.$('#disc-list');
         },
 
-        addOne: function(disc) {
-            var view = new DiscRowView({model: disc});
-            this.discList.append(view.render().el);
-        },
+        render: function() {
+            var that = this;
 
-        addAll: function() {
-            discs.each(this.addOne, this);
+            this.discList.hide();
+            this.discList.empty();
+            this.collection.each(function(disc) {
+                var view = new DiscRowView({ model: disc });
+                that.discList.append(view.render().el);
+            });
+            this.discList.fadeIn();
         },
 
         onShowAllDiscs: function() {
@@ -497,8 +530,6 @@ $(function(){
             this.discList.find('.disc-without-info').show();
         },
     });
-
-    var discsView = new DiscsView();
 
 
     //
@@ -534,6 +565,15 @@ $(function(){
     // Kick everything off by fetching the list of discs
     //
 
+    var discs = new DiscList();
+    var discsView;
+
     // TODO: provide progress report on this
-    discs.fetch();
+    discs.fetch({
+        success: function(collection) {
+            discsView = new DiscsView({ collection: collection });
+            discsView.render();
+        }
+    });
+
 });
