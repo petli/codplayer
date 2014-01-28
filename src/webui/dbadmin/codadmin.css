@@ -32,6 +32,10 @@ body {
     background-color: #cdf;
 }
 
+.disc-details-view .disc-row div {
+    font-weight: bold;
+}
+
 .disc-details {
     margin-top: 10px;
 /*    display: none;  */

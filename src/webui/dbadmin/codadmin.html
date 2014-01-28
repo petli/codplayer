@@ -83,6 +83,27 @@
            </li>
         <% } %>
         </ul>
+
+        <div class="panel panel-default">
+          <div class="panel-body">
+            <div class="row">
+              <div class="col-xs-4 col-md-3"><strong>Disc ID</strong></div>
+              <div class="col-xs-8 col-md-9"><%- disc_id %></div>
+            </div>
+            <% if (catalog) { %>
+            <div class="row">
+              <div class="col-xs-4 col-md-3"><strong>Catalog</strong></div>
+              <div class="col-xs-8 col-md-9"><%- catalog %></div>
+            </div>
+            <% } %>
+            <% if (barcode) { %>
+            <div class="row">
+              <div class="col-xs-4 col-md-3"><strong>Barcode</strong></div>
+              <div class="col-xs-8 col-md-9"><%- barcode %></div>
+            </div>
+            <% } %>
+          </div>
+        </div>
       </div>
 
       <div class="col-xs-2">

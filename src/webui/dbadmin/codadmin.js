@@ -171,6 +171,7 @@ $(function(){
 
     var DiscDetailsView = Backbone.View.extend({
         tagName: 'div',
+        className: 'disc-details-view',
 
         events: {
             'click .toggle-details': 'onToggleDetails',
