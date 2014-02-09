@@ -58,7 +58,7 @@ class State(serialize.Serializable):
     length: Length of current track in whole seconds, counting
     from index 1.
 
-    ripping: False if not currently ripping a disc, otherwise a number
+    ripping: None if not currently ripping a disc, otherwise a number
     0-100 showing the percentage done.
 
     audio_device_error: A string giving the error state of the audio device, if any.
@@ -91,7 +91,7 @@ class State(serialize.Serializable):
         self.index = 0
         self.position = 0
         self.length = 0
-        self.ripping = False
+        self.ripping = None
         self.error = None
 
 
@@ -110,7 +110,7 @@ class State(serialize.Serializable):
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
         serialize.Attr('position', int),
-        serialize.Attr('ripping', (bool, int)),
+        serialize.Attr('ripping', int),
         serialize.Attr('error', serialize.str_unicode),
         )
 
@@ -225,11 +225,11 @@ class Player(object):
                 assert self.ripping_audio_size > 0
                 try:
                     stat = os.stat(self.ripping_audio_path)
-                    done = int(100 * (float(stat.st_size) / self.ripping_audio_size))
+                    progress = int(100 * (float(stat.st_size) / self.ripping_audio_size))
                 except OSError:
-                    done = 0
+                    progress = 0
 
-                self.transport.set_ripping_progress(done)
+                self.transport.set_ripping_progress(progress)
             else:
                 self.debug('ripping process finished with status {0}', rc)
                 self.rip_process = None
@@ -293,12 +293,13 @@ class Player(object):
                          self.cfg.cdrom_device, e)
                 return
 
+            self.playing_physical_disc = True
+
             # Is this already ripped?
             disc = self.db.get_disc_by_disc_id(mbd.getId())
 
             if disc is None:
                 # No, rip it and get a Disc object good enough for playing 
-                self.playing_physical_disc = True
                 disc = self.rip_disc(mbd)
                 if not disc:
                     return
@@ -411,6 +412,8 @@ class Player(object):
                 self.log("error executing command {0!r}: {1}:", args, e)
             except subprocess.CalledProcessError, e:
                 self.log("{0}", e)
+
+        self.playing_physical_disc = False
 
 
     def rip_disc(self, mbd):
@@ -651,12 +654,12 @@ class Transport(object):
     def next(self):
         pass
 
-    def set_ripping_progress(self, done):
+    def set_ripping_progress(self, progress):
         with self.lock:
-            if done == self.state.ripping:
+            if progress == self.state.ripping:
                 return
             
-            if done is None:
+            if progress is None:
                 self.state.ripping = None
                 self.write_state()
                 
@@ -667,6 +670,8 @@ class Transport(object):
                 # manually go back to NO_DISC.
 
                 if self.state.state == State.WORKING:
+                    self.log('ripping seems to have failed, since state is still WORKING')
+
                     self.context += 1
                     self.source_context_changed.set()
                     self.sink_context_changed.set()
@@ -677,7 +682,7 @@ class Transport(object):
 
             else:
                 # Update progress, but no point logging it
-                self.state.ripping = done
+                self.state.ripping = progress
                 self.write_state(False)
 
                 

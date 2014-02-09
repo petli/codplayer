@@ -91,6 +91,8 @@ class PCMDiscSource(Source):
             except IOError, e:
                 if e.errno == errno.ENOENT and self.is_ripping and self.is_ripping.is_set():
                     time.sleep(1)
+                    # Give transport control 
+                    yield None
                 else:
                     raise SourceError('error opening file {0}: {1}'.format(path, e))
 
