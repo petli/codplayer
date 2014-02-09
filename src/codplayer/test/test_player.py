@@ -686,6 +686,94 @@ class TestTransport(unittest.TestCase):
                          'transport should stop at end of disc')
 
 
+    def test_new_source_while_playing(self):
+        # Single track with lots of packets
+        src1 = DummySource('disc1', 1)
+
+        # Single track with one packet
+        src2 = DummySource('disc2', 1, 1)
+
+        # Wait for test to finish on an event
+        done = threading.Event()
+
+        expects = DummySink(
+            self,
+            Expect('start', 'should call start on first disc',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    self.assertEqual(t.state.disc_id, 'disc1')
+                    ),
+                ),
+
+            Expect('add_packet', 'should add first packet',
+                   checks = lambda packet, offset: (
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should be PLAY when we change the disc'),
+
+                    # Tell the transport to switch to the next source
+                    t.new_source(src2),
+
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING immediately, since this is a disruptive change'),
+                    self.assertEqual(t.state.disc_id, 'disc2'),
+                    self.assertEqual(t.state.no_tracks, 1),
+                    self.assertEqual(t.state.track, 0),
+                    self.assertEqual(t.state.position, 0),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('stop', 'should be told to stop by transport on changing disc'),
+
+            Expect('start', 'should call start on second disc',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    self.assertEqual(t.state.disc_id, 'disc2')
+                    ),
+                ),
+
+            Expect('add_packet', 'should add only packet',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(offset, 0),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('drain', 'final call to be notified that draining is done',
+                   checks = lambda: (
+                    # Allow test to detect that state has updated
+                    t._test_state_written.clear(),
+                    ),
+
+                   # Tell transport that buffer is empty
+                   ret = lambda: None,
+                   ),
+
+            Expect('stop', 'should call stop at end of disc',
+                   checks = lambda: (
+                    # Allow test case to sync the middle of the test
+                    done.set(),
+                    ),
+                ),
+            )
+
+        # Kick off test and wait for it
+        t = TransportForTest(DummyPlayer(self), expects)
+        t.new_source(src1)
+        self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+
+        # Check final state
+        expects.done()
+        self.assertEqual(t.state.state, player.State.STOP)
+        self.assertEqual(t.state.disc_id, 'disc2')
+
+
 # TESTS TODO:
         # new_source_while_playing
         # prev, next

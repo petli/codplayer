@@ -580,6 +580,9 @@ class Transport(object):
             self.debug('new source for disc: {0} state: {1}'.format(
                     source.disc.disc_id, self.state.state.__name__))
 
+            if self.state.state in (State.PLAY, State.PAUSE):
+                self.sink.stop()
+
             self.context += 1
             self.source_context_changed.set()
             self.sink_context_changed.set()
