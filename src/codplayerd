@@ -15,7 +15,7 @@ import argparse
 import daemon
 import lockfile
 
-from codplayer import db, player, config, audio
+from codplayer import db, player, config, sink
 
 def main(args):
     try:
@@ -28,7 +28,8 @@ def main(args):
         cfg = config.PlayerConfig(args.config)
         database = db.Database(cfg.database)
 
-        dev_class = get_audio_device_class(cfg)
+        if cfg.audio_device_type not in sink.SINKS:
+            sys.exit('unknown audio device type: {0}'.format(cfg.audio_device_type))
 
         if args.debug:
             log_file = sys.stderr
@@ -66,17 +67,13 @@ def main(args):
                 sys.exit('error creating and opening fifo {0}: {1}'.format(cfg.control_fifo, e))
 
         # All set, create the player object
-        p = player.Player(cfg, database, log_file, control_fd, dev_class)
+        p = player.Player(cfg, database, log_file, control_fd)
 
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
     except db.DatabaseError, e:
         sys.exit('error opening database:\n{0}'.format(e))
-
-    except audio.DeviceError, e:
-        sys.exit('error opening {0} device: {1}'.format(
-                cfg.audio_device_type, e))
 
     if args.debug:
         # Just run directly without forking off
@@ -98,18 +95,6 @@ def main(args):
             p.run()
 
     
-def get_audio_device_class(cfg):
-    if cfg.audio_device_type == 'alsa':
-        from codplayer import audio_alsa
-        return audio_alsa.AlsaDevice
-        
-    elif cfg.audio_device_type == 'file':
-        from codplayer import audio_file
-        return audio_file.FileDevice
-
-    else:
-        sys.exit('invalid audio device type: {0}'.format(cfg.audio_device_type))
-
 #
 # Set up the command argument parsing
 #

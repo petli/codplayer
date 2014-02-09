@@ -1,6 +1,6 @@
 # codplayer - player state 
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -10,6 +10,7 @@ Classes implementing the player core and it's state.
 The unit of time in all objects is one audio frame.
 """
 
+import sys
 import os
 import pwd
 import grp
@@ -19,11 +20,15 @@ import subprocess
 import time
 import threading
 import Queue
+import traceback
 
 from musicbrainz2 import disc as mb2_disc
 
-from . import db, model, audio, serialize
-
+from . import db
+from . import model
+from . import serialize
+from . import source
+from . import sink
 
 class PlayerError(Exception):
     pass
@@ -87,13 +92,13 @@ class State(serialize.Serializable):
         self.position = 0
         self.length = 0
         self.ripping = False
-        self.audio_device_error = None
+        self.error = None
 
 
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
                 'index: {index} position: {position} length: {length} ripping: {ripping} '
-                'audio_device_error: {audio_device_error}'
+                'error: {error}'
                 .format(**self.__dict__))
 
 
@@ -106,7 +111,7 @@ class State(serialize.Serializable):
         serialize.Attr('index', int),
         serialize.Attr('position', int),
         serialize.Attr('ripping', (bool, int)),
-        serialize.Attr('audio_device_error', serialize.str_unicode),
+        serialize.Attr('error', serialize.str_unicode),
         )
 
     @classmethod
@@ -117,25 +122,21 @@ class State(serialize.Serializable):
 
 class Player(object):
 
-    def __init__(self, cfg, database, log_file, control_fd, dev_class):
+    def __init__(self, cfg, database, log_file, control_fd):
         self.cfg = cfg
         self.db = database
         self.log_file = log_file
         self.log_debug = True
 
-        self.device = dev_class(self, cfg)
+        self.transport = None
         
         self.rip_process = None
+        self.playing_physical_disc = False
 
-        self.streamer = None
-        self.current_disc = None
-        self.current_audio_path = None
-        self.current_audio_size = None
+        self.ripping_audio_path = None
+        self.ripping_audio_size = None
+        self.ripping_source = None
 
-        self.state = State()
-        self.write_state()
-        self.write_disc()
-        
         self.keep_running = True
 
         self.control = CommandReader(control_fd)
@@ -173,7 +174,8 @@ class Player(object):
         
     def run(self):
         try:
-            self.device.start()
+            self.transport = Transport(
+                self, sink.SINKS[self.cfg.audio_device_type](self))
 
             # Now that device is running, drop any privs to get ready
             # for full operation
@@ -190,19 +192,16 @@ class Player(object):
                 else:
                     self.log('not root, not changing uid or gid')
                     
-            self.state.audio_device_error = self.device.get_device_error()
-            self.write_state()
-        
             # Main loop, executing until a quit command is received.
             # However, don't stop if a rip process is currently running.
 
             while self.keep_running or self.rip_process is not None:
-                self.run_once(500)
+                self.run_once(1000)
 
         finally:
-            # Reset state to leave less mess behind
-            self.state = State()
-            self.write_state()
+            # Eject any disc to reset state to leave less mess behind
+            if self.transport:
+                self.transport.eject()
         
 
     #
@@ -223,39 +222,22 @@ class Player(object):
             rc = self.rip_process.poll()
             if rc is None:
                 # Still in progress, just check how far into the disc it is
-                assert self.current_audio_size > 0
+                assert self.ripping_audio_size > 0
                 try:
-                    prev_ripping = self.state.ripping
-                    stat = os.stat(self.current_audio_path)
-                    self.state.ripping = int(100 * (float(stat.st_size) / self.current_audio_size))
-                    if prev_ripping != self.state.ripping:
-                        self.write_state()
+                    stat = os.stat(self.ripping_audio_path)
+                    done = int(100 * (float(stat.st_size) / self.ripping_audio_size))
                 except OSError:
-                    self.state.ripping = 0
+                    done = 0
+
+                self.transport.set_ripping_progress(done)
             else:
                 self.debug('ripping process finished with status {0}', rc)
                 self.rip_process = None
+                self.ripping_audio_path = None
+                self.ripping_audio_size = None
+                self.ripping_source = None
 
-                self.state.ripping = False
-                self.write_state()
-                
-                if self.streamer:
-                    self.streamer.rip_finished()
-
-                    # Special case: if the rip process failed, we
-                    # didn't get any packets from the streamer and
-                    # never got out of the working state.  Handle that
-                    # here by telling that process to stop and
-                    # manually go back to NO_DISC.
-
-                    if self.state.state == State.WORKING:
-                        self.streamer.shutdown()
-                        self.state.state = State.NO_DISC
-                        self.write_state()
-                        self.current_disc = None
-                        self.write_disc()
-            
-        self.update_state()
+                self.transport.set_ripping_progress(None)
 
                     
     #
@@ -268,17 +250,21 @@ class Player(object):
         cmd = cmd_args[0]
         args = cmd_args[1:]
 
-        if cmd in self.state.state.valid_commands:
-            getattr(self, 'cmd_' + cmd)(args)
-        else:
-            self.log('invalid command in state {0}: {1}',
-                     self.state, cmd)
+        try:
+            cmd_func = getattr(self, 'cmd_' + cmd)
+        except AttributeError:
+            self.log('invalid command: {1}', cmd)
+            return
 
+        cmd_func(args)
+        
 
     def cmd_disc(self, args):
         if self.rip_process:
             self.log("already ripping disc, can't rip another one yet")
             return
+
+        self.playing_physical_disc = False
 
         if args:
             # Play disc in database by its ID
@@ -312,6 +298,7 @@ class Player(object):
 
             if disc is None:
                 # No, rip it and get a Disc object good enough for playing 
+                self.playing_physical_disc = True
                 disc = self.rip_disc(mbd)
                 if not disc:
                     return
@@ -320,120 +307,29 @@ class Player(object):
 
 
     def cmd_stop(self, args):
-        if self.streamer:
-            self.streamer.shutdown()
-            self.streamer = None
-
-        # Must resume playing is paused, as device threads may be
-        # hanging not notice that the stream stopped.  This may result
-        # in a brief snipped of sound as data cached in the hardware
-        # buffer is played.  If doing a proper ALSA device, we can
-        # change this to drop the buffered data.
-        if self.state.state == State.PAUSE:
-            self.device.resume()
-            self.state.state = State.PLAY
+        self.transport.stop()
 
 
     def cmd_play(self, args):
-        if self.state.state == State.STOP:
-            # Just restart playing
-            assert self.current_disc is not None
-            self.play_disc(self.current_disc)
-
-        elif self.state.state == State.PAUSE:
-            self.log('resuming audio')
-            self.device.resume()
-
-            self.state.state = State.PLAY
-            self.write_state()
-
-        else:
-            raise PlayerError('unexpected state for cmd_play: {0}', self.state)
+        self.transport.play()
 
 
     def cmd_pause(self, args):
-        if self.state.state == State.PLAY:
-            self.log('pausing audio')
-            self.device.pause()
-
-            self.state.state = State.PAUSE
-            self.write_state()
-
-        else:
-            raise PlayerError('unexpected state for cmd_pause: {0}', self.state)
+        self.transport.pause()
 
 
     def cmd_play_pause(self, args):
-        if self.state.state == State.STOP:
-            # Just restart playing
-            assert self.current_disc is not None
-            self.play_disc(self.current_disc)
-
-        elif self.state.state == State.PAUSE:
-            self.log('resuming audio')
-            self.device.resume()
-
-            self.state.state = State.PLAY
-            self.write_state()
-
-        elif self.state.state == State.PLAY:
-            self.log('pausing audio')
-            self.device.pause()
-
-            self.state.state = State.PAUSE
-            self.write_state()
-
-        else:
-            raise PlayerError('unexpected state for cmd_play_pause: {0}', self.state)
+        self.transport.play_pause()
 
 
     def cmd_next(self, args):
-        if self.state.state == State.STOP:
-            # simply start playing from the first track
-            assert self.current_disc is not None
-            self.play_disc(self.current_disc)
-            return
-
-        # Stop any current streamer
-        if self.streamer:
-            # state.track counts from 1, not 0: set skipped if there will be more tracks
-            self.streamer.shutdown(self.state.track < len(self.current_disc.tracks))
-            self.streamer = None
-
-        # If the player is paused, it must be resumed.  This will
-        # result in the glitch that whatever is queued up in the
-        # hardware buffer will be played, followed by the next track
-        # (see cmd_stop() above).
-
-        if self.state.state == State.PAUSE:
-            self.device.resume()
-            self.state.state = State.PLAY
-            self.write_state()
-
-        if self.state.state == State.PLAY:
-            # Play the next track, if there is one.  If not, the
-            # player will stop thanks to the stream stopping above and
-            # the state updating when the current packet goes to None.
-
-            # state.track counts from 1, not 0
-            if self.state.track < len(self.current_disc.tracks):
-                assert self.state.track >= 1
-                
-                # Start playing the next track (now counting from 0,
-                # not 1, so track does not have to be incremented...)
-                self.streamer = AudioStreamer(self, self.current_disc,
-                                              self.state.track,
-                                              self.rip_process is not None)
-                self.device.play_stream(self.streamer.iter_packets())
-
-                # Don't update state here, wait for the packet update
-                # to do it
-
-        else:
-            raise PlayerError('unexpected state for cmd_next: {0}', self.state)
-
+        self.transport.next()
+        
 
     def cmd_prev(self, args):
+        self.transport.prev()
+        return
+
         if self.state.state == State.STOP:
             # Start playing the last track
             assert self.current_disc is not None
@@ -495,38 +391,15 @@ class Player(object):
             self.log('but letting currently running cdrdao process finish first')
             
         self.keep_running = False
-
-        if self.streamer:
-            self.streamer.shutdown()
-            self.streamer = None
-
+        self.transport.stop()
 
 
     def cmd_eject(self, args):
-        # Shut down any streaming sound
-        if self.streamer:
-            self.streamer.shutdown()
-            self.streamer = None
-
-        # As for cmd_stop() above, must resume the device if paused.
-        if self.state.state == State.PAUSE:
-            self.device.resume()
-            self.state.state = State.PLAY
-
-        if self.rip_process:
-            self.log("ripping disc, can't eject it yet")
-            return
-
-        # Don't wait for state update, reset state directly
-        self.state = State()
-        self.write_state()
-
-        self.current_disc = None
-        self.write_disc()
+        self.transport.eject()
 
         # Eject the disc with the help of an external command. There's
         # far too many ioctls to keep track of to do it ourselves.
-        if self.cfg.eject_command:
+        if self.playing_physical_disc and self.cfg.eject_command:
             args = [self.cfg.eject_command, self.cfg.cdrom_device]
             try:
                 subprocess.check_call(
@@ -591,133 +464,24 @@ class Player(object):
 
         self.log('playing disc: {0}', disc)
 
-        # There shouldn't be a streamer, but if there is stop it
-        if self.streamer:
-            self.streamer.shutdown()
-            self.streamer = None
 
-        # Set up streaming from the start of the selected track
-        self.streamer = AudioStreamer(self, disc, track_number,
-                                      self.rip_process is not None)
-        self.current_disc = disc
-
-        db_id = self.db.disc_to_db_id(disc.disc_id)
-        self.current_audio_path = self.db.get_audio_path(db_id)
-        self.current_audio_size = disc.get_disc_file_size_bytes()
-
-        # Initialise state to new disc and WORKING, i.e. we're waiting
-        # for the device to tell us it's started playing
-        self.state.state = State.WORKING
-        self.state.disc_id = disc.disc_id
-        self.state.track = 0
-        self.state.no_tracks = len(disc.tracks)
-        self.state.index = 0
-        self.state.position = 0
-        self.state.length = 0
         if self.rip_process is not None:
-            self.state.ripping = 0
+            src = source.PCMDiscSource(self, disc, True)
+
+            db_id = self.db.disc_to_db_id(disc.disc_id)
+            self.ripping_audio_path = self.db.get_audio_path(db_id)
+            self.ripping_audio_size = disc.get_disc_file_size_bytes()
+            self.ripping_source = src
+            self.transport.set_ripping_progress(0)
         else:
-            self.state.ripping = False
+            src = source.PCMDiscSource(self, disc, False)
         
-        self.write_state()
-        self.write_disc()
+        self.transport.new_source(src, track_number)
 
-        # Finally tell device to start playing packets from this stream
-        self.device.play_stream(self.streamer.iter_packets())
-
-
-    def update_state(self):
-        """Check what the audio device is doing and update the state
-        according to that.
-        """
-
-        # This really needs improvement, as we need to be able to tell
-        # the difference between a stream that stopped due to reaching
-        # the normal end of the disc, or being aborted.
-
-        p = self.device.get_current_packet()
-
-        old_error = self.state.audio_device_error
-        self.state.audio_device_error = self.device.get_device_error()
-        
-        if p is None or self.current_disc is None:
-            pos = 0
-            length = 0
-        else:
-            # Round down
-            pos = int(p.rel_pos / self.current_disc.audio_format.rate)
-            length = int((p.track.length - p.track.pregap_offset) / self.current_disc.audio_format.rate)
-
-
-        # Waiting for the first packet.  The case when that packet
-        # never arrives is handled above in run_once().
-        if self.state.state == State.WORKING:
-            if p is not None:
-                self.state.state = State.PLAY
-                self.state.track = p.track_number + 1
-                self.state.index = p.index
-                self.state.position = pos
-                self.state.length = length
-                self.write_state()
-                return
-
-        # React to updates from the device in both PLAY and PAUSE,
-        # since it may lag a bit
-
-        elif self.state.state in (State.PLAY, State.PAUSE):
-            # Stream stopped
-            if p is None:
-                self.state.state = State.STOP
-                self.state.track = 0
-                self.state.index = 0
-                self.state.position = 0
-                self.state.length = 0
-                self.write_state()
-                return
-
-            # New track or index
-            elif (self.state.track != p.track.number or
-                  self.state.index != p.index):
-                self.state.track = p.track_number + 1
-                self.state.index = p.index
-                self.state.position = pos
-                self.state.length = length
-                self.write_state()
-                return
-
-            # Moved backward in track
-            elif pos < self.state.position:
-                self.state.position = pos
-                self.write_state()
-                return
-                
-            # Moved a second (not worth logging)
-            elif pos != self.state.position:
-                self.state.position = pos
-                self.write_state(False)
-                return
-
-        if old_error != self.state.audio_device_error:
-            self.write_state(False)
-            return
-
-
-    def write_state(self, log_state = True):
-        serialize.save_json(self.state, self.cfg.state_file)
-
-        if log_state:
-            self.debug('state: {0}', self.state)
-
-
-    def write_disc(self):
-        if self.current_disc:
-            serialize.save_json(model.ExtDisc(self.current_disc), self.cfg.disc_file)
-        else:
-            serialize.save_json(None, self.cfg.disc_file)
-            
 
     def log(self, msg, *args, **kwargs):
-        m = time.strftime('%Y-%m-%d %H:%M:%S ') + msg.format(*args, **kwargs) + '\n'
+        m = (time.strftime('%Y-%m-%d %H:%M:%S ') + threading.current_thread().name + ': '
+             + msg.format(*args, **kwargs) + '\n')
         self.log_file.write(m)
         self.log_file.flush()
 
@@ -726,249 +490,427 @@ class Player(object):
         if self.log_debug:
             self.log(msg, *args, **kwargs)
 
-    
 
-class AudioStreamer(object):
-    """Streamer for audio samples.  Encapsulates a thread reading from
-    the file (to handle any IO waits) and a queue for passing samples
-    with meta data to the player.  The player can ask the thread to
-    stop, typically used when stopping playing or skipping forward or
-    backward.
+class Transport(object):
     """
-    # Special objects to signal the end of the stream
-    class STREAM_ERROR: pass
-    class END_OF_STREAM: pass
+    The Transport moves samples from a Source to a Sink, i.e. in this
+    context primarily from a disc to an audio device.  All the while
+    it is responsible for updating the state of the player, as well as
+    implementing the commands from the Player.
+
+    There are two threads managed by this class.  The source thread
+    gets audio packets from a Source iterator and pushes them onto a
+    Queue, which is then read by the sink thread which sends them to
+    the audio sink and updates the state according to the current
+    played position.
+
+    To coordinate everything, the transport runs in contexts,
+    identified by a simple increasing integer.  Each command that that
+    may require that the source is changed or repositioned bumps up
+    the context count, so the threads can determine that they must now
+    reset stuff.
+
+    On such disruptive changes, the state is updated immediately by
+    the method that bumps up the context.  During normal play,
+    including stopping at the end of the disc, the sink thread is
+    responsible for updating the state.
+
+    The unit tests in test/test_player.py serve as pretty good
+    documentation on how this class works.
+    """
 
     # Perhaps make this configurable sometime
     MAX_BUFFER_SECS = 20
     PACKETS_PER_SECOND = 5
 
-    def __init__(self, player, disc, track_number, is_ripping):
-        """Set up an audio stream from DISC, starting at TRACK_NUMBER.
-        """
 
-        self.player = player
+    # Minimal packet-ish thing to signal end of stream from source
+    # thread to sink thread
+    class END_OF_STREAM:
+        def __init__(self, context):
+            self.context = context
+
+
+    def __init__(self, player, sink):
         self.log = player.log
         self.debug = player.debug
-        
-        # Due to the Big Interpreter Lock we probably don't need any
-        # thread signalling at all for these simple flags, but let's
-        # play it nice.
-        
-        self.is_ripping = threading.Event()
-        if is_ripping:
-            self.is_ripping.set()
-            
-        self.stop_streamer = threading.Event()
-        self.stop_on_skip = threading.Event()
+        self.cfg = player.cfg
 
-        self.disc = disc
-        self.first_track_number = track_number
+        self.sink = sink
 
         self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
+
+        # The following members can only be accessed when holding the lock
+        self.lock = threading.Lock()
+        self.context = 0
+        self.source = None
+        self.start_track = 0
+        self.state = State()
+
+        # Event objects to tell the source and sink threads that the
+        # context has changed to allow them to react faster
+        self.source_context_changed = threading.Event()
+        self.sink_context_changed = threading.Event()
+
+        # End of self.lock protected members
+
+        # Write NO_DISC state at startup
+        self.write_state()
+        self.write_disc()
+
+        # Kick off the threads
+        source_thread = threading.Thread(target = self.source_thread,
+                                         name = 'transport source')
+        sink_thread = threading.Thread(target = self.sink_thread,
+                                       name = 'transport sink')
         
-        self.thread = threading.Thread(target = self.run_thread,
-                                       name = 'stream ' + db.Database.disc_to_db_id(disc.disc_id)[:8])
-        self.thread.daemon = True
-        self.thread.start()
+        source_thread.daemon = True
+        sink_thread.daemon = True
+
+        source_thread.start()
+        sink_thread.start()
 
 
-    def iter_packets(self):
-        """Return an iterator over all the packets in the stream.
-        There should only be one iterator per stream, otherwise you'll
-        get some interesting effects.
-        """
+    #
+    # Commands changing transport state
+    # 
 
-        while True:
-            if self.stop_streamer.is_set():
-                # Empty the queue to ensure that the streamer thread
-                # isn't blocking on us and also detects the flag
-                try:
-                    while True:
-                        self.queue.get_nowait()
-                except Queue.Empty:
-                    pass
+    def new_source(self, source, track = 0):
+        with self.lock:
+            self.debug('new source for disc: {0} state: {1}'.format(
+                    source.disc.disc_id, self.state.state.__name__))
 
-                # Inform audio device about the unexpected stop
-                if self.stop_on_skip.is_set():
-                    raise audio.StreamSkipAbort('skipping tracks')
-                else:
-                    raise audio.StreamAbort('streamer shutdown by player')
+            self.context += 1
+            self.source_context_changed.set()
+            self.sink_context_changed.set()
+
+            self.source = source
+            self.start_track = track
+            self.set_state_working()
+            
+            self.write_disc()
 
 
-            # Normal case: wait for a packet and output it
-            p = self.queue.get()
-
-            # Special values signalling the end of the stream
-            if p == self.END_OF_STREAM:
-                self.debug('end of audio stream')
+    def eject(self):
+        with self.lock:
+            if self.state.state == State.NO_DISC:
                 return
             
-            elif p == self.STREAM_ERROR:
-                self.debug('error in audio stream')
-                raise audio.StreamAbort('error in audio stream')
+            self.log('transport ejecting source')
+            self.sink.stop()
+            self.context += 1
+            self.source_context_changed.set()
+            self.sink_context_changed.set()
+
+            self.source = None
+            self.start_track = None
+            self.set_state_no_disc()
+
+            self.write_disc()
+
+            
+    def play(self):
+        with self.lock:
+            if self.state.state == State.STOP:
+                self.log('transport playing from STOP')
+                self.context += 1
+                self.start_track = 0
+                self.source_context_changed.set()
+                self.sink_context_changed.set()
+                self.set_state_working()
+
+
+    def pause(self):
+        pass
+    
+    def play_pause(self):
+        pass
+
+    
+    def stop(self):
+        with self.lock:
+            if self.state.state == State.STOP:
+                return
+            
+            self.log('transport stopping')
+            self.sink.stop()
+            self.context += 1
+            self.source_context_changed.set()
+            self.sink_context_changed.set()
+
+            self.start_track = None
+            self.set_state_stop()
+
+
+    def prev(self):
+        pass
+
+    def next(self):
+        pass
+
+    def set_ripping_progress(self, done):
+        with self.lock:
+            if done == self.state.ripping:
+                return
+            
+            if done is None:
+                self.state.ripping = None
+                self.write_state()
+                
+                # Special case: if the rip process failed, we
+                # didn't get any packets from the streamer and
+                # never got out of the working state.  Handle that
+                # here by telling that process to stop and
+                # manually go back to NO_DISC.
+
+                if self.state.state == State.WORKING:
+                    self.context += 1
+                    self.source_context_changed.set()
+                    self.sink_context_changed.set()
+
+                    self.source = None
+                    self.start_track = None
+                    self.set_state_no_disc()
 
             else:
-                yield p
-            
+                # Update progress, but no point logging it
+                self.state.ripping = done
+                self.write_state(False)
 
-
-    def shutdown(self, skipping = False):
-        """Shut down the streamer thread.
-
-        If SKIPPING is true, the stream is shut down due to skpping
-        among tracks.
-        """
-
-        if skipping:
-            self.stop_on_skip.set()
-            
-        self.stop_streamer.set()
-
-
-    def rip_finished(self):
-        """Call to inform that the any concurrent ripping process is finished."""
-
-        self.is_ripping.clear()
-
-
-    def run_thread(self):
-        end_of_stream = self.STREAM_ERROR
-        try:
-            self.debug('{0}: streamer started for {1} track {2}',
-                       self.thread.name, self.disc, self.first_track_number)
-
-
-            # Construct full path to data file and open it
-
-            db_id = self.player.db.disc_to_db_id(self.disc.disc_id)
-            path = os.path.join(
-                self.player.db.get_disc_dir(db_id),
-                self.disc.data_file_name)
-                    
-            self.debug('{0}: opening file {1}',
-                       self.thread.name, path)
-                    
-
-            self.audio_file = None
-
-            # Retry opening file if the ripping process is in progress
-            # and might not have had time to create it yet
-
-            while self.audio_file is None:
-                # Obey commands to stop - typically this could only
-                # happen if the ripping process dies without managing
-                # to read anything
-                if self.stop_streamer.is_set():
-                    return
-
-                try:
-                    self.audio_file = open(path, 'rb')
-                except IOError, e:
-                    if e.errno == errno.ENOENT and self.is_ripping:
-                        self.debug('{0}: retrying opening file {1}',
-                                   self.thread.name, path)
-                        time.sleep(1)
-                    else:
-                        self.log('{0}: error opening file {1}: {2}',
-                                 self.thread.name, path, e)
-                        return
-
-
-            # Iterate over all packets, reading data into them
-
-            for p in audio.AudioPacket.iterate(self.disc,
-                                               self.first_track_number,
-                                               self.PACKETS_PER_SECOND):
-
-                # Obey commands to stop, treating this as a normal end
-                # of stream
-                if self.stop_streamer.is_set():
-                    end_of_stream = self.END_OF_STREAM
-                    return
-
-                try:
-                    self.read_data_into_packet(p)
-                except IOError, e:
-                    self.log('{0}: error reading from file {1}: {2}',
-                             self.thread.name, path, e)
-                    return
-
-                # Finally send out packet to consumer
-                self.queue.put(p)
-
-            # end of loop, handle next packet
-
-            # If we got here, then all streamed fine
-            end_of_stream = self.END_OF_STREAM
-
-        finally:
-            self.queue.put(end_of_stream)
-            self.debug('{0}: streamer shutting down on {1}',
-                       self.thread.name, end_of_stream.__name__)
-            self.player = None
-            self.log = None
-            self.player = None
-
-
-    def read_data_into_packet(self, p):
-        """Thread helper method for populating data into packet P."""
-
-        perf_log = self.player.audio_streamer_perf_log
-
-        length = p.length * self.disc.audio_format.bytes_per_frame
-
-        if p.file_pos is None:
-            # Silence, so send on null bytes to player
-            p.data = '\0' * length
-
-        else:
-            file_pos = p.file_pos * self.disc.audio_format.bytes_per_frame
-
-            if perf_log:
-                start_read = time.time()
-            
-            self.audio_file.seek(file_pos)
-            p.data = self.audio_file.read(length)
-
-            if perf_log:
-                now = time.time()
-                perf_log.write(
-                    '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(p.data)))
-
-            length -= len(p.data)
-            file_pos += len(p.data)
-            
-            # If we didn't get all data, iterate with a timeout until
-            # it's all been read or the ripping process has stopped.
-            # This is not very efficient, and there's a small race
-            # condition at the end of the disc, but this should be
-            # very rare so keep it unoptimised for now.
-
-            while length > 0 and self.is_ripping:
-                time.sleep(1)
                 
-                if perf_log:
-                    start_read = time.time()
+    #
+    # State updating methods.  self.lock must be held when calling these
+    #
 
-                self.audio_file.seek(file_pos)
-                d = self.audio_file.read(length)
-
-                if perf_log:
-                    now = time.time()
-                    perf_log.write(
-                        '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(d)))
-
-                length -= len(d)
-                file_pos += len(d)
-
-                p.data += d
-                        
-            # Still didn't get all data, treat it as an exception
-            if length > 0:
-                raise IOError('unexpected end of file, expected at least {0} bytes'
-                              .format(length))
+    def set_state_no_disc(self):
+        self.state = State()
+        self.write_state()
         
+
+    def set_state_working(self):
+        self.state.state = State.WORKING
+        self.state.disc_id = self.source.disc.disc_id
+        self.state.track = 0
+        self.state.no_tracks = len(self.source.disc.tracks)
+        self.state.index = 0
+        self.state.position = 0
+        self.state.length = 0
+        self.write_state()
+
+                
+    def set_state_stop(self):
+        self.state.state = State.STOP
+        self.state.track = 0
+        self.state.index = 0
+        self.state.position = 0
+        self.state.length = 0
+        self.write_state()
+    
+
+    def write_state(self, log_state = True):
+        if log_state:
+            self.debug('state: {0}', self.state)
+
+        # TODO: should this be done by a helper thread instead?
+        serialize.save_json(self.state, self.cfg.state_file)
+
+
+    def write_disc(self):
+        if self.source:
+            serialize.save_json(model.ExtDisc(self.source.disc), self.cfg.disc_file)
+        else:
+            serialize.save_json(None, self.cfg.disc_file)
+
+    #
+    # Source thread
+    #
+
+    def source_thread(self):
+        try:
+            self.source_loop()
+        except:
+            traceback.print_exc()
+            sys.exit(1)
+
+
+    def source_loop(self):
+        while True:
+            # Wait until there's something to play
+            self.source_context_changed.wait()
+            with self.lock:
+                context = self.context
+                src = self.source
+                start_track = self.start_track
+                self.source_context_changed.clear()
+
+            if src and start_track is not None:
+                self.debug('starting source: {0} at track {1}'.format(src.disc, start_track))
+
+                # Packet loop: get packets from the source until we're told
+                # to do something else or reaches the end
+
+                try:
+                    for packet in src.iter_packets(start_track, self.PACKETS_PER_SECOND):
+                        if self.source_context_changed.is_set():
+                            break
+
+                        if packet is not None:
+                            packet.context = context
+                            self.queue.put(packet)
+
+                    else:
+                        self.debug('reached end of disc')
+                        self.queue.put(self.END_OF_STREAM(context))
+
+                except source.SourceError, e:
+                    self.log('source error for disc {0}: {1}'.format(src.disc, e))
+
+
+    #
+    # Sink thread
+    #
+
+    def sink_thread(self):
+        try:
+            self.sink_loop()
+        except:
+            traceback.print_exc()
+            sys.exit(1)
+
+    def sink_loop(self):
+        class IDLE: pass
+        class ADDING_PACKETS: pass
+        class DRAINING: pass
+        state = IDLE
+
+        context = 0
+
+        while True:
+            packet = self.queue.get()
+
+            with self.lock:
+                # If something's changed while not idle, go back to
+                # IDLE state to wait for first packet of new stream
+                if context != self.context:
+                    if state != IDLE:
+                        state = IDLE
+                    context = self.context
+                    self.sink_context_changed.clear()
+
+            # Discard packets for an older context
+            if packet.context != context:
+                packet = None
+
+            if isinstance(packet, self.END_OF_STREAM):
+                if state == ADDING_PACKETS:
+                    state = DRAINING
+                else:
+                    self.sink_stopped(packet.context)
+                packet = None
+
+            if packet:
+                if state == IDLE:
+                    self.sink_start_playing(packet)
+                    state = ADDING_PACKETS
+
+                assert state == ADDING_PACKETS
+                self.sink_packet(packet)
+
+            if state == DRAINING:
+                self.sink_drain(context)
+                state = IDLE
+
+
+    def sink_start_playing(self, packet):
+        self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
+        
+        with self.lock:
+            self.sink.start(packet.format)
+            if packet.context == self.context:
+                self.state.state = State.PLAY
+                self.state.disc_id = packet.disc.disc_id
+                self.state.no_tracks = len(packet.disc.tracks)
+                self.state.track = packet.track_number + 1
+                self.state.index = packet.index
+                self.state.position = int(packet.rel_pos / packet.format.rate)
+                self.state.length = int((packet.track.length - packet.track.pregap_offset)
+                                        / packet.format.rate)
+                self.write_state()
+
+
+    def sink_stopped(self, context):
+        with self.lock:
+            if context == self.context:
+                # if context had changed, then stop would already have
+                # been called
+                self.sink.stop()
+                self.set_state_stop()
+
+
+    def sink_packet(self, packet):
+        offset = 0
+        while offset < len(packet.data):
+            if self.sink_context_changed.is_set():
+                return
+            
+            sunk, playing_packet, error = self.sink.add_packet(packet, offset)
+            offset += sunk
+            if playing_packet:
+                self.sink_update_state(playing_packet)
+
+
+    def sink_drain(self, context):
+        while True:
+            if self.sink_context_changed.is_set():
+                return
+
+            res = self.sink.drain()
+            if res is None:
+                self.sink_stopped(context)
+                return
+            else:
+                playing_packet, error = res                
+                if playing_packet:
+                    self.sink_update_state(playing_packet)
+
+
+    def sink_update_state(self, packet):
+        with self.lock:
+            # If the context of this packet is no longer valid, just ignore it
+            if packet.context != self.context:
+                return
+            
+            pos = int(packet.rel_pos / packet.format.rate)
+
+            if self.state.disc_id != packet.disc.disc_id:
+                self.state.disc_id = packet.disc.disc_id
+                self.state.no_tracks = len(packet.disc.tracks)
+                self.state.track = packet.track_number + 1
+                self.state.index = packet.index
+                self.state.position = pos
+                self.state.length = int((packet.track.length - packet.track.pregap_offset)
+                                        / packet.format.rate)
+                self.write_state()
+
+            elif (self.state.track != packet.track.number
+                or self.state.index != packet.index):
+                self.state.track = packet.track_number + 1
+                self.state.index = packet.index
+                self.state.position = pos
+                self.state.length = int((packet.track.length - packet.track.pregap_offset)
+                                        / packet.format.rate)
+                self.write_state()
+
+            # Moved backward in track
+            elif pos < self.state.position:
+                self.state.position = pos
+                self.write_state()
+
+            # Moved a second (not worth logging)
+            elif pos != self.state.position:
+                self.state.position = pos
+                self.write_state(False)
+
 
 class CommandReader(object):
     """Wrapper around the file object for the command channel.
