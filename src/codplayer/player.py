@@ -329,61 +329,6 @@ class Player(object):
 
     def cmd_prev(self, args):
         self.transport.prev()
-        return
-
-        if self.state.state == State.STOP:
-            # Start playing the last track
-            assert self.current_disc is not None
-            self.play_disc(self.current_disc, len(self.current_disc.tracks) - 1)
-            return
-
-        # Calcualte which track is next (first track is 1)
-        assert self.state.track >= 1
-            
-        # If the track position is within the first two seconds or
-        # the pregap, skip to the previous track.  Otherwise replay
-        # this track from the start
-
-        if self.state.position < 2:
-            tn = self.state.track - 1
-        else:
-            tn = self.state.track
-
-        # Stop any current streamer, setting skipped flag if this will
-        # not stop playback.
-        if self.streamer:
-            self.streamer.shutdown(tn != 0)
-            self.streamer = None
-
-        # If the player is paused, it must be resumed.  This will
-        # result in the glitch that whatever is queued up in the
-        # hardware buffer will be played, followed by the previous
-        # track (see cmd_stop() above).
-
-        if self.state.state == State.PAUSE:
-            self.device.resume()
-            self.state.state = State.PLAY
-            self.write_state()
-
-        if self.state.state == State.PLAY:
-
-            # If this reaches the start of the disc, just stop.
-            # Nothing has to be done for that, as update_state()
-            # below will react to the stop of the stream.
-            if tn == 0:
-                return
-
-            # Start playing the selected track (now counting from 0,
-            # not 1...)
-            self.streamer = AudioStreamer(self, self.current_disc, tn - 1,
-                                          self.rip_process is not None)
-            self.device.play_stream(self.streamer.iter_packets())
-
-            # Don't update state here, wait for the packet update
-            # to do it
-
-        else:
-            raise PlayerError('unexpected state for cmd_prev: {0}', self.state)
 
 
     def cmd_quit(self, args):
@@ -586,10 +531,7 @@ class Transport(object):
             if self.state.state in (State.PLAY, State.PAUSE):
                 self.sink.stop()
 
-            self.context += 1
-            self.source_context_changed.set()
-            self.sink_context_changed.set()
-
+            self.new_context()
             self.source = source
             self.start_track = track
             self.set_state_working()
@@ -604,10 +546,8 @@ class Transport(object):
             
             self.log('transport ejecting source')
             self.sink.stop()
-            self.context += 1
-            self.source_context_changed.set()
-            self.sink_context_changed.set()
 
+            self.new_context()
             self.source = None
             self.start_track = None
             self.set_state_no_disc()
@@ -619,10 +559,8 @@ class Transport(object):
         with self.lock:
             if self.state.state == State.STOP:
                 self.log('transport playing from STOP')
-                self.context += 1
+                self.new_context()
                 self.start_track = 0
-                self.source_context_changed.set()
-                self.sink_context_changed.set()
                 self.set_state_working()
 
 
@@ -640,19 +578,77 @@ class Transport(object):
             
             self.log('transport stopping')
             self.sink.stop()
-            self.context += 1
-            self.source_context_changed.set()
-            self.sink_context_changed.set()
 
+            self.new_context()
             self.start_track = None
             self.set_state_stop()
 
 
     def prev(self):
-        pass
+        with self.lock:
+            if self.state.state == State.STOP:
+                self.log('transport playing from STOP on command prev')
+                self.new_context()
+                self.start_track = self.state.no_tracks - 1
+                self.set_state_working()
+
+            elif self.state.state == State.PLAY:
+                # Calcualte which track is next (first track in state is 1)
+                assert self.state.track >= 1
+
+                # If the track position is within the first two seconds or
+                # the pregap, skip to the previous track.  Otherwise replay
+                # this track from the start
+
+                if self.state.position < 2:
+                    self.log('transport skipping to previous track')
+                    tn = self.state.track - 1
+                else:
+                    self.log('transport restarting current track')
+                    tn = self.state.track
+
+                if tn > 0:
+                    self.sink.stop()
+                    self.new_context()
+                    self.start_track = tn - 1
+                    self.set_state_working()
+                else:
+                    self.log('transport stopping on skipping past first track')
+                    self.sink.stop()
+                    self.new_context()
+                    self.start_track = None
+                    self.set_state_stop()
+
+            # TODO: handle pause
+
 
     def next(self):
-        pass
+        with self.lock:
+            if self.state.state == State.STOP:
+                self.log('transport playing from STOP on command next')
+                self.new_context()
+                self.start_track = 0
+                self.set_state_working()
+
+            elif self.state.state == State.PLAY:
+                # Since state.track is 1-based, comparison and next
+                # track here don't need to add 1
+                if self.state.track < self.state.no_tracks:
+                    self.log('transport skipping to next track')
+                    self.sink.stop()
+                    self.new_context()
+                    self.start_track = self.state.track
+                    self.set_state_working()
+                else:
+                    self.log('transport stopping on skipping past last track')
+                    self.sink.stop()
+                    self.new_context()
+                    self.start_track = None
+                    self.set_state_stop()
+
+            # TODO: handle pause
+
+
 
     def set_ripping_progress(self, progress):
         with self.lock:
@@ -672,10 +668,7 @@ class Transport(object):
                 if self.state.state == State.WORKING:
                     self.log('ripping seems to have failed, since state is still WORKING')
 
-                    self.context += 1
-                    self.source_context_changed.set()
-                    self.sink_context_changed.set()
-
+                    self.new_context()
                     self.source = None
                     self.start_track = None
                     self.set_state_no_disc()
@@ -690,6 +683,11 @@ class Transport(object):
     # State updating methods.  self.lock must be held when calling these
     #
 
+    def new_context(self):
+        self.context += 1
+        self.source_context_changed.set()
+        self.sink_context_changed.set()
+
     def set_state_no_disc(self):
         self.state = State()
         self.write_state()
@@ -698,7 +696,7 @@ class Transport(object):
     def set_state_working(self):
         self.state.state = State.WORKING
         self.state.disc_id = self.source.disc.disc_id
-        self.state.track = 0
+        self.state.track = self.start_track + 1
         self.state.no_tracks = len(self.source.disc.tracks)
         self.state.index = 0
         self.state.position = 0

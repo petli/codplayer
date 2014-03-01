@@ -46,7 +46,7 @@ class Sink(object):
 
     def start(self, format):
         """(Re)start the sink to play new audio of type FORMAT
-        (typically model.PCM).  This i always called before the first
+        (typically model.PCM).  This is always called before the first
         add_packet() after creating the sink or a call to stop().
 
         This method is only called from the Transport sink thread, and

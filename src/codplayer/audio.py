@@ -232,6 +232,11 @@ class AudioPacket(object):
 
         self.data = None
 
+
+    def __repr__(self):
+        return '<AudioPacket: {0.disc.disc_id} track {0.track_number} abs_pos {0.abs_pos}>'.format(self)
+
+
     @classmethod
     def iterate(cls, disc, track_number, packets_per_second):
         """Iterate over DISC, splitting it into packets starting at
