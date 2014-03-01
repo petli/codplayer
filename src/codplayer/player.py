@@ -525,6 +525,10 @@ class Transport(object):
 
     def new_source(self, source, track = 0):
         with self.lock:
+            if self.state.state == State.WORKING:
+                self.debug('ignoring new_source while WORKING')
+                return
+
             self.debug('new source for disc: {0} state: {1}'.format(
                     source.disc.disc_id, self.state.state.__name__))
 
@@ -562,6 +566,8 @@ class Transport(object):
                 self.new_context()
                 self.start_track = 0
                 self.set_state_working()
+            else:
+                self.debug('ignoring play() in state {0}'.format(self.state.state))
 
 
     def pause(self):
@@ -573,7 +579,8 @@ class Transport(object):
     
     def stop(self):
         with self.lock:
-            if self.state.state == State.STOP:
+            if self.state.state not in (State.PLAY, State.PAUSE):
+                self.debug('ignoring stop() in state {0}'.format(self.state.state))
                 return
             
             self.log('transport stopping')
@@ -618,6 +625,8 @@ class Transport(object):
                     self.new_context()
                     self.start_track = None
                     self.set_state_stop()
+            else:
+                self.debug('ignoring prev() in state {0}'.format(self.state.state))
 
             # TODO: handle pause
 
@@ -645,6 +654,8 @@ class Transport(object):
                     self.new_context()
                     self.start_track = None
                     self.set_state_stop()
+            else:
+                self.debug('ignoring next() in state {0}'.format(self.state.state))
 
             # TODO: handle pause
 
