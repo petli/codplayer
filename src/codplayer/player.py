@@ -535,11 +535,9 @@ class Transport(object):
             if self.state.state in (State.PLAY, State.PAUSE):
                 self.sink.stop()
 
-            self.new_context()
             self.source = source
-            self.start_track = track
-            self.set_state_working()
-            
+            self.start_new_track(track)
+
             self.write_disc()
 
 
@@ -563,20 +561,64 @@ class Transport(object):
         with self.lock:
             if self.state.state == State.STOP:
                 self.log('transport playing from STOP')
-                self.new_context()
-                self.start_track = 0
-                self.set_state_working()
+                self.start_new_track(0)
+
+            elif self.state.state == State.PAUSE:
+                self.log('resuming paused transport')
+
+                # This is not a new context, we want to keep playing buffered packets
+                self.sink.resume()
+                self.state.state = State.PLAY
+                self.write_state()
+
             else:
                 self.debug('ignoring play() in state {0}'.format(self.state.state))
 
 
     def pause(self):
-        pass
-    
-    def play_pause(self):
-        pass
+        with self.lock:
+            if self.state.state == State.PLAY:
+                self.log('transport pausing')
 
-    
+                # this is not a new context, the sink just pauses packet playback
+                if self.sink.pause():
+                    self.state.state = State.PAUSE
+                    self.write_state()
+                else:
+                    self.log('sink refused to pause, keeping PLAY')
+
+            else:
+                self.debug('ignoring pause() in state {0}'.format(self.state.state))
+
+
+    def play_pause(self):
+        with self.lock:
+            if self.state.state == State.STOP:
+                self.log('transport playing from STOP')
+                self.start_new_track(0)
+
+            elif self.state.state == State.PLAY:
+                self.log('transport pausing')
+
+                # this is not a new context, the sink just pauses packet playback
+                if self.sink.pause():
+                    self.state.state = State.PAUSE
+                    self.write_state()
+                else:
+                    self.log('sink refused to pause, keeping PLAY')
+
+            elif self.state.state == State.PAUSE:
+                self.log('resuming paused transport')
+
+                # This is not a new context, we want to keep playing buffered packets
+                self.sink.resume()
+                self.state.state = State.PLAY
+                self.write_state()
+
+            else:
+                self.debug('ignoring play() in state {0}'.format(self.state.state))
+
+
     def stop(self):
         with self.lock:
             if self.state.state not in (State.PLAY, State.PAUSE):
@@ -595,11 +637,11 @@ class Transport(object):
         with self.lock:
             if self.state.state == State.STOP:
                 self.log('transport playing from STOP on command prev')
-                self.new_context()
-                self.start_track = self.state.no_tracks - 1
-                self.set_state_working()
+                self.start_new_track(self.state.no_tracks - 1)
 
-            elif self.state.state == State.PLAY:
+            elif self.state.state in (State.PLAY, State.PAUSE):
+                self.sink.stop()
+
                 # Calcualte which track is next (first track in state is 1)
                 assert self.state.track >= 1
 
@@ -615,50 +657,37 @@ class Transport(object):
                     tn = self.state.track
 
                 if tn > 0:
-                    self.sink.stop()
-                    self.new_context()
-                    self.start_track = tn - 1
-                    self.set_state_working()
+                    self.start_new_track(tn - 1)
                 else:
                     self.log('transport stopping on skipping past first track')
-                    self.sink.stop()
                     self.new_context()
                     self.start_track = None
                     self.set_state_stop()
             else:
                 self.debug('ignoring prev() in state {0}'.format(self.state.state))
 
-            # TODO: handle pause
-
 
     def next(self):
         with self.lock:
             if self.state.state == State.STOP:
                 self.log('transport playing from STOP on command next')
-                self.new_context()
-                self.start_track = 0
-                self.set_state_working()
+                self.start_new_track(0)
 
-            elif self.state.state == State.PLAY:
+            elif self.state.state in (State.PLAY, State.PAUSE):
+                self.sink.stop()
+
                 # Since state.track is 1-based, comparison and next
                 # track here don't need to add 1
                 if self.state.track < self.state.no_tracks:
                     self.log('transport skipping to next track')
-                    self.sink.stop()
-                    self.new_context()
-                    self.start_track = self.state.track
-                    self.set_state_working()
+                    self.start_new_track(self.state.track)
                 else:
                     self.log('transport stopping on skipping past last track')
-                    self.sink.stop()
                     self.new_context()
                     self.start_track = None
                     self.set_state_stop()
             else:
                 self.debug('ignoring next() in state {0}'.format(self.state.state))
-
-            # TODO: handle pause
-
 
 
     def set_ripping_progress(self, progress):
@@ -693,6 +722,11 @@ class Transport(object):
     #
     # State updating methods.  self.lock must be held when calling these
     #
+
+    def start_new_track(self, track):
+        self.new_context()
+        self.start_track = track
+        self.set_state_working()
 
     def new_context(self):
         self.context += 1

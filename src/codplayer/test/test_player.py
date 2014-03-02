@@ -1061,7 +1061,198 @@ class TestTransport(unittest.TestCase):
         self.assertEqual(t.state.state, player.State.STOP)
 
 
-# TESTS TODO:
-        # pause/resume
-        # stop while paused
-        
+    def test_pause_and_resume(self):
+        # Single track with lots of packets
+        src = DummySource('disc1', 1)
+
+        # Wait for test to finish on an event
+        done = threading.Event()
+
+        expects = DummySink(
+            self,
+            Expect('start', 'should call start on new disc',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    ),
+                ),
+
+            Expect('add_packet', 'should add first packet',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 0, 'should be first packet'),
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should be PLAY when we pause()'),
+
+                    # Tell the transport to pause
+                    t.pause(),
+
+                    self.assertIs(t.state.state, player.State.PAUSE,
+                                  'state should be PAUSE immediately, since the sink "paused" itself'),
+                    self.assertEqual(t.state.position, 0, 'should be paused on first packet'),
+                    ),
+
+                   # Accept packet despite pause - let's pretend it's buffered
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('pause', 'should be told to pause by transport',
+                   checks = lambda: (
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should still be PLAY, since this is called within pause()'),
+                    ),
+
+                   # Tell transport that we are "paused"
+                   ret = lambda: True
+                   ),
+
+            Expect('add_packet', 'should add second packet while paused',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 1 * model.PCM.rate, 'should be second packet'),
+                    self.assertIs(t.state.state, player.State.PAUSE),
+
+                    # Tell transport to resume again
+                    t.play(),
+
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should be PLAY immediately'),
+                    self.assertEqual(t.state.position, 0, 'position should still be first packet'),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('resume', 'should be told to resume by transport',
+                   checks = lambda: (
+                    self.assertIs(t.state.state, player.State.PAUSE,
+                                  'state should still be PAUSE, since this is called within play()'),
+                    ),
+                   ),
+
+            Expect('add_packet', 'should add third packet after resume',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 2 * model.PCM.rate, 'should be third packet'),
+                    self.assertIs(t.state.state, player.State.PLAY),
+
+                    # Tell transport to stop the test
+                    t.stop(),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('stop', 'should be told to stop by transport',
+                   checks = lambda: (
+                    # Allow test case to sync the end of the test
+                    done.set(),
+                    ),
+                   ),
+            )
+
+        # Kick off test and wait for it
+        t = TransportForTest(self, expects)
+        t.new_source(src)
+        self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+
+        # Check final state
+        expects.done()
+        self.assertEqual(t.state.state, player.State.STOP)
+
+
+    def test_play_pause_command(self):
+        # Single track with lots of packets
+        src = DummySource('disc1', 1)
+
+        # Wait for test to finish on an event
+        done = threading.Event()
+
+        expects = DummySink(
+            self,
+            Expect('start', 'should call start on new disc',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    ),
+                ),
+
+            Expect('add_packet', 'should add first packet',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 0, 'should be first packet'),
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should be PLAY when we play_pause()'),
+
+                    # Tell the transport to toggle into pause
+                    t.play_pause(),
+
+                    self.assertIs(t.state.state, player.State.PAUSE,
+                                  'state should be PAUSE immediately, since the sink "paused" itself'),
+                    self.assertEqual(t.state.position, 0, 'should be paused on first packet'),
+                    ),
+
+                   # Accept packet despite pause - let's pretend it's buffered
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('pause', 'should be told to pause by transport',
+                   checks = lambda: (
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should still be PLAY, since this is called within play_pause()'),
+                    ),
+
+                   # Tell transport that we are "paused"
+                   ret = lambda: True
+                   ),
+
+            Expect('add_packet', 'should add second packet while paused',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 1 * model.PCM.rate, 'should be second packet'),
+                    self.assertIs(t.state.state, player.State.PAUSE),
+
+                    # Tell transport to resume again
+                    t.play_pause(),
+
+                    self.assertIs(t.state.state, player.State.PLAY,
+                                  'state should be PLAY immediately'),
+                    self.assertEqual(t.state.position, 0, 'position should still be first packet'),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('resume', 'should be told to resume by transport',
+                   checks = lambda: (
+                    self.assertIs(t.state.state, player.State.PAUSE,
+                                  'state should still be PAUSE, since this is called within play_pause()'),
+                    ),
+                   ),
+
+            Expect('add_packet', 'should add third packet after resume',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(packet.abs_pos, 2 * model.PCM.rate, 'should be third packet'),
+                    self.assertIs(t.state.state, player.State.PLAY),
+
+                    # Tell transport to stop the test
+                    t.stop(),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('stop', 'should be told to stop by transport',
+                   checks = lambda: (
+                    # Allow test case to sync the end of the test
+                    done.set(),
+                    ),
+                   ),
+            )
+
+        # Kick off test and wait for it
+        t = TransportForTest(self, expects)
+        t.new_source(src)
+        self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+
+        # Check final state
+        expects.done()
+        self.assertEqual(t.state.state, player.State.STOP)
+

@@ -101,22 +101,30 @@ class FileSink(Sink):
         self.file_paused = False
 
     def stop(self):
+        self.file_paused = False
         self.file = None
-        
+        self.format = None
+
     def start(self, format):
         self.file = open('stream_{0}.cdr'.format(time.time()), 'wb')
         self.format = format
         
     def add_packet(self, packet, offset):
+        f = self.file
+        format = self.format
+        if not (f and format):
+            # stopped in flight
+            return 0, packet, None
+
         # Simulate pausing
         while self.file_paused:
             time.sleep(1)
                 
-        self.file.write(buffer(packet.data, offset))
+        f.write(buffer(packet.data, offset))
 
         if self.file_play_speed > 0:
             # Simulate real playing by sleeping 
-            time.sleep(float(packet.length) / (self.format.rate
+            time.sleep(float(packet.length) / (format.rate
                                                * self.file_play_speed))
 
         return len(packet.data), packet, None
