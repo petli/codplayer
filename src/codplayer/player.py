@@ -876,8 +876,8 @@ class Transport(object):
         self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
         
         with self.lock:
-            self.sink.start(packet.format)
             if packet.context == self.context:
+                self.sink.start(packet.format)
                 self.state.state = State.PLAY
                 self.state.disc_id = packet.disc.disc_id
                 self.state.no_tracks = len(packet.disc.tracks)

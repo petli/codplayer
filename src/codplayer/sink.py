@@ -10,6 +10,8 @@ Classes implementing various audio packet sinks.
 
 import time
 
+class SinkError(Exception): pass
+
 class Sink(object):
     """Abstract base class for audio sinks (i.e. typically sound devices).
     """
@@ -129,9 +131,41 @@ class FileSink(Sink):
 
         return len(packet.data), packet, None
 
-        
+
+class AlsaSink(Sink):
+    """ALSA sink, relying on a C or Python implementation behind it.
+    It unpacks the objects passed in somewhat to make the C
+    implementation simpler.
+    """
+
+    def __init__(self, player):
+        from .py_alsa_sink import PyAlsaSink as AlsaSinkImpl
+
+        self.impl = AlsaSinkImpl(player,
+                                 player.cfg.alsa_card,
+                                 player.cfg.start_without_device,
+                                 player.cfg.log_performance)
+
+    def pause(self):
+        return self.impl.pause()
+
+    def resume(self):
+        self.impl.resume()
+
+    def stop(self):
+        self.impl.stop()
+
+    def start(self, format):
+        self.impl.start(format.channels, format.bytes_per_sample, format.rate, format.big_endian)
+
+    def add_packet(self, packet, offset):
+        return self.impl.add_packet(buffer(packet.data, offset), packet)
+
+    def drain(self):
+        return self.impl.drain()
+
+
 SINKS = {
     'file': FileSink,
+    'alsa': AlsaSink,
     }
-
-
