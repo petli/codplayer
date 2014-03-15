@@ -19,6 +19,10 @@ class PyAlsaSink(sink.Sink):
     separate thread to ensure that the device play loop runs without
     interferance from the Python GC or Big Interpreter Lock, but we
     don't gain anything from that here.
+
+    There may be some race conditions around pause/resume if things go
+    haywire in the sink thread at the same time, but this code does
+    not attempt to fix that.
     """
 
     # Run on approx 10 Hz.  pyalsaaudio will hardcode the hardware buffer to

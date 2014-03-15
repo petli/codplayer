@@ -61,7 +61,7 @@ class State(serialize.Serializable):
     ripping: None if not currently ripping a disc, otherwise a number
     0-100 showing the percentage done.
 
-    audio_device_error: A string giving the error state of the audio device, if any.
+    error: A string giving the error state of the player, if any.
     """
 
     class NO_DISC:
@@ -253,7 +253,7 @@ class Player(object):
         try:
             cmd_func = getattr(self, 'cmd_' + cmd)
         except AttributeError:
-            self.log('invalid command: {1}', cmd)
+            self.log('invalid command: {0}', cmd)
             return
 
         cmd_func(args)
@@ -906,8 +906,8 @@ class Transport(object):
             
             sunk, playing_packet, error = self.sink.add_packet(packet, offset)
             offset += sunk
-            if playing_packet:
-                self.sink_update_state(playing_packet)
+            if playing_packet or error:
+                self.sink_update_state(playing_packet, error)
 
 
     def sink_drain(self, context):
@@ -921,12 +921,17 @@ class Transport(object):
                 return
             else:
                 playing_packet, error = res                
-                if playing_packet:
-                    self.sink_update_state(playing_packet)
+                if playing_packet or error:
+                    self.sink_update_state(playing_packet, error)
 
 
-    def sink_update_state(self, packet):
+    def sink_update_state(self, packet, error):
         with self.lock:
+            # Always update the device error, regardless of context
+            if error != self.state.error:
+                self.state.error = error
+                self.write_state()
+
             # If the context of this packet is no longer valid, just ignore it
             if packet.context != self.context:
                 return

@@ -139,7 +139,11 @@ class AlsaSink(Sink):
     """
 
     def __init__(self, player):
-        from .py_alsa_sink import PyAlsaSink as AlsaSinkImpl
+        try:
+            from .c_alsa_sink import CAlsaSink as AlsaSinkImpl
+        except ImportError, e:
+            player.debug('error importing c_alsa_sink: {0}', e)
+            from .py_alsa_sink import PyAlsaSink as AlsaSinkImpl
 
         self.impl = AlsaSinkImpl(player,
                                  player.cfg.alsa_card,
