@@ -249,7 +249,7 @@ static int alsa_debug2(alsa_thread_t *self, const char *msg, const char *value)
     return 1;
 }
 
-/*
+
 static int alsa_debugi(alsa_thread_t *self, const char *msg, int value)
 {
     PyObject *res = PyObject_CallFunction(
@@ -261,7 +261,7 @@ static int alsa_debugi(alsa_thread_t *self, const char *msg, int value)
     Py_DECREF(res);
     return 1;
 }
-*/
+
 
 /*
  * Functions for passing messages out of the playing thread
@@ -513,6 +513,7 @@ alsa_sink_start(alsa_thread_t *self, PyObject *args)
 
         if (self->state == SINK_CLOSED)
         {
+            alsa_debug1(self, "starting sink");
             self->state = SINK_STARTING;
             self->paused = 0;
             self->channels = channels;
@@ -586,15 +587,18 @@ alsa_sink_stop(alsa_thread_t *self, PyObject *args)
         self->data_end = 0;
         self->data_size = 0;
 
-        /* No reason to notify here, as the player thread won't have
-         * anything to do until start() is called.
+        alsa_debug1(self, "sink stopped");
+
+        /* Notify the other threads - not so much the player thread as
+         * the transport sink thread that's waiting in
+         * playing_once().
          */
+        NOTIFY(self);
 
         END_LOCK(self);
     }
 
-    Py_INCREF(Py_None);
-    return Py_None;
+    Py_RETURN_NONE;
 }
     
 
@@ -626,6 +630,10 @@ playing_once(
         if (self->state == SINK_STARTING)
         {
             /* Wait for thread to open the device */
+            Py_BLOCK_THREADS;
+            alsa_debug1(self, "starting, waiting for sink to be ready");
+            Py_UNBLOCK_THREADS;
+
             WAIT(self);
         }
             
@@ -690,9 +698,11 @@ playing_once(
                     /* Tell playing thread about the new data */
                     NOTIFY(self);
                 }
-
-                /* Wait for updates to playing_packet etc */
-                WAIT(self);
+                else
+                {
+                    /* Wait for updates to playing_packet etc */
+                    WAIT(self);
+                }
             }
         }
 
@@ -721,7 +731,7 @@ playing_once(
 
         /* Reset the log message now that we got it */
         self->log_message = NULL;
-        self->log_param = NULL;;
+        self->log_param = NULL;
 
         END_LOCK(self);
         Py_END_ALLOW_THREADS;
@@ -838,6 +848,8 @@ alsa_sink_add_packet(alsa_thread_t *self, PyObject *args)
 
     if (stored < 0)
     {
+        alsa_debug1(self, "add_packet: sink closed");
+
         /* Used by playing_once when state is CLOSED, translate into
          * add_packet() API.
          */
@@ -867,11 +879,15 @@ alsa_sink_drain(alsa_thread_t *self, PyObject *args)
 
         if (self->state == SINK_PLAYING)
         {
+            alsa_debug1(self, "drain: switching to state draining");
+
             self->state = SINK_DRAINING;
             NOTIFY(self);
         }
         else if (self->state != SINK_DRAINING)
         {
+            alsa_debugi(self, "drain: draining finished in state %d", self->state);
+
             // Already stopped
             stored = -1;
         }
@@ -899,6 +915,8 @@ alsa_sink_drain(alsa_thread_t *self, PyObject *args)
 
     if (stored < 0)
     {
+        alsa_debug1(self, "drain: sink closed");
+
         /* Now closed, tell Transport we're done */
         Py_RETURN_NONE;
     }
@@ -967,6 +985,9 @@ alsa_sink_resume(alsa_thread_t *self, PyObject *args)
 
             /* Always consider ourselves resumed */
             self->paused = 0;
+
+            /* Wake up player thread again */
+            NOTIFY(self);
         }
 
         END_LOCK(self);
