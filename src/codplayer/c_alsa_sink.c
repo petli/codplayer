@@ -1,10 +1,11 @@
-/* c_alsa_sink - ALSA thread implementation, based on pyalsaaudio
- * but now heavily modified.
+/* c_alsa_sink - C implementation with high-priority player thread
  *
- * Original module info:
+ * Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
  *
- * alsaaudio -- Python interface to ALSA (Advanced Linux Sound Architecture).
- *              The standard audio API for Linux since kernel 2.6
+ *
+ * This was originally based on pyalsaaudio, but by now there's
+ * nothing left of that code but the module setup at the very end.
+ * Still, that code had this attribution:
  *
  * Contributed by Unispeed A/S (http://www.unispeed.com)
  * Author: Casper Wilstup (cwi@aves.dk)
@@ -12,7 +13,6 @@
  * Bug fixes and maintenance by Lars Immisch <lars@ibp.de>
  * 
  * License: Python Software Foundation License
- *
  */
 
 #define PY_SSIZE_T_CLEAN
@@ -269,15 +269,12 @@ static int alsa_debugi(alsa_thread_t *self, const char *msg, int value)
 
 static void set_device_error(alsa_thread_t *self, const char *error)
 {
-    {/* LOCK SCOPE */
-        BEGIN_LOCK(self);
+    /* LOCK SCOPE: only to be called while mutex is locked */
 
-        self->device_error = error;
-        NOTIFY(self);
-
-        END_LOCK(self);
-    }
+    self->device_error = error;
+    NOTIFY(self);
 }
+
 
 static void set_log_message(alsa_thread_t *self, const char *message, const char *param)
 {
@@ -1218,10 +1215,16 @@ static int thread_open_device(alsa_thread_t *self)
             if (res >= 0)
             {
                 self->handle = handle;
-                self->log_message = "reopened device";
-                self->log_param = (self->swap_bytes ?
-                                   "swapping bytes" : "not swapping bytes");
                 self->device_error = NULL;
+
+                if (self->log_message == NULL)
+                {
+                    self->log_message =
+                        (self->state == SINK_STARTING ?
+                         "opened device" : "reopened device");
+                    self->log_param = (self->swap_bytes ?
+                                       "swapping bytes" : "not swapping bytes");
+                }
 
                 if (self->state == SINK_STARTING)
                 {
@@ -1229,7 +1232,6 @@ static int thread_open_device(alsa_thread_t *self)
                      * into the buffer.
                      */
                     self->state = SINK_PLAYING;
-                    self->log_message = "opened device";
                 }
 
                 NOTIFY(self);
@@ -1325,7 +1327,8 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
         res = snd_pcm_hw_params_current(handle, hwparams);
         if (res < 0)
         {
-            set_log_message(self, "error querying params", snd_strerror(res));
+            self->log_message = "error querying params";
+            self->log_param = snd_strerror(res);
             return 0;
         }
 
