@@ -2,7 +2,7 @@
 #
 # Hey Emacs, this is -*-python-*-
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -79,10 +79,6 @@ def main(args):
         # Just run directly without forking off
         p.run()
     else:
-
-        # Keep audio device open, if relevant
-        preserve_files += p.device.get_fds()
-
         context = daemon.DaemonContext(
             files_preserve = preserve_files,
             pidfile = lockfile.FileLock(cfg.pid_file),
