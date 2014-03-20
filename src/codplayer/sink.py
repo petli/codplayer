@@ -9,6 +9,7 @@ Classes implementing various audio packet sinks.
 """
 
 import time
+import threading
 
 class SinkError(Exception): pass
 
@@ -149,6 +150,13 @@ class AlsaSink(Sink):
                                  player.cfg.alsa_card,
                                  player.cfg.start_without_device,
                                  player.cfg.log_performance)
+
+        if hasattr(self.impl, 'log_helper'):
+            # Kick off a thread that helps the C thread to log through
+            # the Python env
+            t = threading.Thread(target = self.impl.log_helper, name = 'alsa thread')
+            t.daemon = True
+            t.start()
 
     def pause(self):
         return self.impl.pause()

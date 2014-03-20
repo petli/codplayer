@@ -36,12 +36,46 @@
 #define BUFFER_SECONDS 5
 #define MAX_PERIODS_PER_SECOND 40
 
+/* States in which add_packet() should try to put stuff into the
+ * buffer has this bit set.
+ */
+#define BUFFER_STATE 0x10
+
 typedef enum {
-    SINK_CLOSED,
-    SINK_STARTING,
-    SINK_PLAYING,
-    SINK_DRAINING,
-    SINK_SHUTDOWN,
+    /* Sink is currently closed.  Set by player thread when reaching
+     * the end of the buffer in state DRAINING or when detecting
+     * CLOSING. */
+    SINK_CLOSED		= 0,
+
+    /* Sink is starting, waiting for device to be opened.  Set by
+     * start() in state CLOSED. */
+    SINK_STARTING	= 1,
+
+    /* Sink is currently playing normally.  Set by player thread upon
+     * successfully opening the device in state STARTING. */
+    SINK_PLAYING	= 2 | BUFFER_STATE,
+
+    /* Sink should pause.  Set by pause() in state PLAYING or
+     * DRAINING. */
+    SINK_PAUSING	= 3 | BUFFER_STATE,
+
+    /* Sink is paused.  Set by player thread in state PAUSING when
+     * pause takes effect. */
+    SINK_PAUSED		= 4 | BUFFER_STATE,
+
+    /* Sink should be resumed.  Set by resume() in state PAUSED. */
+    SINK_RESUME		= 5 | BUFFER_STATE,
+
+    /* Sink is currently draining the buffers.  Set by drain() in
+     * state PLAYING. */
+    SINK_DRAINING	= 6 | BUFFER_STATE,
+
+    /* Sink should be closed.  Set by stop() in any state except
+     * CLOSED and SHUTDOWN */
+    SINK_CLOSING	= 7,
+
+    /* Sink is shutting down.  Set by destructor. */
+    SINK_SHUTDOWN	= 8,
 } sink_state_t;
 
 
@@ -65,8 +99,10 @@ typedef struct {
     pthread_cond_t cond;
 
     sink_state_t state;
-    int paused;
-    snd_pcm_t *handle;         /* NULL if closed */
+
+    /* This is used to remember if resume should go back to PLAYING or
+     * DRAINING */
+    sink_state_t paused_in_state;
 
     /* Current sound format, set by start() */
     int channels;
@@ -106,7 +142,8 @@ typedef struct {
 
     /* Thread private data */
 
-    /* Parameters for what HW does */
+    snd_pcm_t *handle;         /* NULL if closed */
+
 
     /* Performanace logging */
     FILE *thread_perf_log;
@@ -126,6 +163,7 @@ static PyObject* alsa_sink_add_packet(alsa_thread_t *self, PyObject *args);
 static PyObject* alsa_sink_drain(alsa_thread_t *self, PyObject *args);
 static PyObject* alsa_sink_pause(alsa_thread_t *self, PyObject *args);
 static PyObject* alsa_sink_resume(alsa_thread_t *self, PyObject *args);
+static PyObject* alsa_sink_log_helper(alsa_thread_t *self, PyObject *args);
 
 static void copy_and_swap(unsigned char *dest, int pos,
                           const unsigned char *src, int length);
@@ -210,7 +248,6 @@ static int alsa_log2(alsa_thread_t *self, const char *msg, const char *value)
 }
 
 
-/*
 static int alsa_logi(alsa_thread_t *self, const char *msg, int value)
 {
     PyObject *res = PyObject_CallFunction(
@@ -222,7 +259,7 @@ static int alsa_logi(alsa_thread_t *self, const char *msg, int value)
     Py_DECREF(res);
     return 1;
 }
-*/
+
 
 static int alsa_debug1(alsa_thread_t *self, const char *msg)
 {
@@ -341,7 +378,6 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     pthread_cond_init(&(self->cond), NULL);
 
     self->state = SINK_CLOSED;
-    self->paused = 0;
     self->handle = 0;
 
     self->channels = 0;
@@ -373,8 +409,7 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     alsa_debug2(self, "opening card", self->cardname);
 	
     Py_BEGIN_ALLOW_THREADS
-    res = snd_pcm_open(&handle, self->cardname,
-                       SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+    res = snd_pcm_open(&handle, self->cardname, SND_PCM_STREAM_PLAYBACK, 0);
     Py_END_ALLOW_THREADS
     
     if (res < 0) 
@@ -453,8 +488,10 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
 static void alsa_thread_dealloc(alsa_thread_t *self) 
 {
-    // stop is safe to call in all states to get rid of the pcm handle
-    alsa_sink_stop(self, Py_BuildValue("()"));
+    /* This object is never really GCd, so let's not worry about
+     * trying to free the memory.  The risk is just that we dump core.
+     * Give the player thread a chance to shut down cleanly, though.
+     */
 
     {/* LOCK SCOPE */
         BEGIN_LOCK(self);
@@ -465,20 +502,9 @@ static void alsa_thread_dealloc(alsa_thread_t *self)
         END_LOCK(self);
     }
 
-    if (pthread_join(self->thread, NULL) == 0)
+    if (pthread_join(self->thread, NULL) != 0)
     {
-        free(self->cardname);
-        free(self->buffer);
-
-        // TODO: decref the packet buffer
-
-        Py_XDECREF(self->log);
-        Py_XDECREF(self->debug);
-        PyObject_Del(self);
-    }
-    else
-    {
-        fprintf(stderr, "c_alsa_sink: couldn't join player thread, not freeing memory\n");
+        fprintf(stderr, "c_alsa_sink: couldn't join player thread\n");
     }
 }
 
@@ -491,6 +517,7 @@ alsa_sink_start(alsa_thread_t *self, PyObject *args)
     int rate = 0;
     int big_endian = 0;
     const char *error = NULL;
+    sink_state_t state = -1;
 
     if (!PyArg_ParseTuple(args, "iiii:CAlsaSink.start",
                           &channels, &bytes_per_sample, &rate, &big_endian))
@@ -512,20 +539,16 @@ alsa_sink_start(alsa_thread_t *self, PyObject *args)
         {
             alsa_debug1(self, "starting sink");
             self->state = SINK_STARTING;
-            self->paused = 0;
             self->channels = channels;
             self->rate = rate;
             self->big_endian = big_endian;
-
-            // TODO: given the state sync we could open the device
-            // here and thus get an exception back into python
-            // directly, but for now let the player thread do that.
 
             NOTIFY(self);
         }
         else
         {
             error = "invalid state";
+            state = self->state;
         }
 
         END_LOCK(self);
@@ -533,7 +556,7 @@ alsa_sink_start(alsa_thread_t *self, PyObject *args)
 
     if (error)
     {
-        return PyErr_Format(CAlsaSinkError, "start: %s", error);
+        return PyErr_Format(CAlsaSinkError, "start: %s (state 0x%x)", error, state);
     }
 
     Py_RETURN_NONE;
@@ -549,50 +572,22 @@ alsa_sink_stop(alsa_thread_t *self, PyObject *args)
     }
 
     {/* LOCK SCOPE */
+        Py_BEGIN_ALLOW_THREADS;
         BEGIN_LOCK(self);
 
-        /* Whenever there's a PCM handle, we drop its buffer and
-         * closes it regardless of other state.
-         */
-        if (self->handle)
+        if (self->state != SINK_CLOSED && self->state != SINK_SHUTDOWN)
         {
-            int res;
-
-            alsa_debug1(self, "stop: dropping PCM buffer");
-            res = snd_pcm_drop(self->handle);
-            if (res < 0)
-            {
-                alsa_log2(self, "stop: error dropping pcm buffer: %s",
-                          strerror(-res));
-            }
-
-            alsa_debug1(self, "stop: closing PCM handle");
-            snd_pcm_close(self->handle);
-            self->handle = 0;
+            self->state = SINK_CLOSING;
+            NOTIFY(self);
         }
 
-        /* Reset state */
-        self->state = SINK_CLOSED;
-        self->paused = 0;
-        self->channels = 0;
-        self->rate = 0;
-        self->big_endian = 0;
-
-        self->device_error = NULL;
-
-        self->play_pos = 0;
-        self->data_end = 0;
-        self->data_size = 0;
-
-        alsa_debug1(self, "sink stopped");
-
-        /* Notify the other threads - not so much the player thread as
-         * the transport sink thread that's waiting in
-         * playing_once().
-         */
-        NOTIFY(self);
+        while (self->state == SINK_CLOSING)
+        {
+            WAIT(self);
+        }
 
         END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
 
     Py_RETURN_NONE;
@@ -608,8 +603,6 @@ playing_once(
     PyObject **playing_packet, const char **device_error)
 {
     int stored = 0;
-    const char *log_message = NULL;
-    const char *log_param = NULL;
     int first_data_period = -1;
     int last_data_period = -1;
     int play_period = -1;
@@ -627,14 +620,13 @@ playing_once(
         if (self->state == SINK_STARTING)
         {
             /* Wait for thread to open the device */
-            Py_BLOCK_THREADS;
-            alsa_debug1(self, "starting, waiting for sink to be ready");
-            Py_UNBLOCK_THREADS;
-
             WAIT(self);
         }
             
-        if (self->state == SINK_PLAYING || self->state == SINK_DRAINING)
+        /* Most states allow us to put data into the buffer, in some
+         * states the sink is no longer accepting data.
+         */
+        if ((self->state & BUFFER_STATE) != 0)
         {
             if (data != NULL)
             {
@@ -644,7 +636,7 @@ playing_once(
                     WAIT(self);
                 }
 
-                if (self->state != SINK_CLOSED && self->data_size < self->buffer_size)
+                if ((self->state & BUFFER_STATE) != 0 && self->data_size < self->buffer_size)
                 {
                     /* Can fit more data */
 
@@ -679,38 +671,19 @@ playing_once(
             }
             else
             {
-                /* Reached the end of the stream.  Pad out to a whole
-                 * period, if necessary.  We know this will fit, since
-                 * the play thread always reads in whole periods.
-                 */
-                int partial = self->data_end % self->period_size;
-
-                if (partial > 0)
-                {
-                    memset(self->buffer + self->data_end, 0,
-                           self->period_size - partial);
-                    self->data_end = (self->data_end + self->period_size - partial) % self->buffer_size;
-                    self->data_size += self->period_size - partial;
-
-                    /* Tell playing thread about the new data */
-                    NOTIFY(self);
-                }
-                else
-                {
-                    /* Wait for updates to playing_packet etc */
-                    WAIT(self);
-                }
+                /* Draining, so wait for updates to playing_packet etc */
+                WAIT(self);
             }
         }
 
-        /* Bring the return parameters out of the lock and into Python land
-         */
-
-        if (self->state == SINK_CLOSED)
+        if ((self->state & BUFFER_STATE) == 0)
         {
             /* Tell add_packet()/drain() to return early */
             stored = -1;
         }
+
+        /* Bring the return parameters out of the lock and into Python land
+         */
 
         if (self->data_size > 0)
         {
@@ -723,12 +696,6 @@ playing_once(
         }
 
         *device_error = self->device_error;
-        log_message = self->log_message;
-        log_param = self->log_param;
-
-        /* Reset the log message now that we got it */
-        self->log_message = NULL;
-        self->log_param = NULL;
 
         END_LOCK(self);
         Py_END_ALLOW_THREADS;
@@ -769,18 +736,9 @@ playing_once(
     
     if (*playing_packet == NULL)
     {
-        // TODO: is this really necessary?
         *playing_packet = Py_None;
     }
     
-    if (log_message)
-    {
-        if (log_param)
-            alsa_log2(self, log_message, log_param);
-        else
-            alsa_log1(self, log_message);
-    }
-
     return stored;
 }    
     
@@ -847,8 +805,8 @@ alsa_sink_add_packet(alsa_thread_t *self, PyObject *args)
     {
         alsa_debug1(self, "add_packet: sink closed");
 
-        /* Used by playing_once when state is CLOSED, translate into
-         * add_packet() API.
+        /* Used by playing_once when no longer in a BUFFER_STATE,
+         * translate into add_packet() API.
          */
         stored = 0;
     }
@@ -876,14 +834,31 @@ alsa_sink_drain(alsa_thread_t *self, PyObject *args)
 
         if (self->state == SINK_PLAYING)
         {
+            int partial;
+
             alsa_debug1(self, "drain: switching to state draining");
 
             self->state = SINK_DRAINING;
+
+            /* Zero out the end of the last period, if that one is
+             * only partially filled. We know this will fit, since the
+             * play thread always reads in whole periods.
+             */
+            partial = self->data_end % self->period_size;
+
+            if (partial > 0)
+            {
+                memset(self->buffer + self->data_end, 0,
+                       self->period_size - partial);
+                self->data_end = (self->data_end + self->period_size - partial) % self->buffer_size;
+                self->data_size += self->period_size - partial;
+            }
+
             NOTIFY(self);
         }
-        else if (self->state != SINK_DRAINING)
+        else if ((self->state & BUFFER_STATE) == 0)
         {
-            alsa_debugi(self, "drain: draining finished in state %d", self->state);
+            alsa_debugi(self, "drain: draining finished in state 0x%x", self->state);
 
             // Already stopped
             stored = -1;
@@ -929,74 +904,146 @@ alsa_sink_drain(alsa_thread_t *self, PyObject *args)
 static PyObject *
 alsa_sink_pause(alsa_thread_t *self, PyObject *args)
 {
-    int res = 0;
+    const char *error = NULL;
+    int state = 0;
 
     if (!PyArg_ParseTuple(args,":CAlsaSink.pause"))
         return NULL;
 
     { /* LOCK SCOPE */
+        Py_BEGIN_ALLOW_THREADS;
         BEGIN_LOCK(self);
 
-        if (self->state != SINK_CLOSED)
+        if (self->state == SINK_PLAYING || self->state == SINK_DRAINING)
         {
-            if (!self->paused && self->handle)
+            self->paused_in_state = self->state;
+            self->state = SINK_PAUSING;
+            NOTIFY(self);
+
+            while (self->state == SINK_PAUSING)
             {
-                res = snd_pcm_pause(self->handle, 1);
+                WAIT(self);
             }
 
-            if (res == 0)
+            if (self->state != SINK_PAUSED)
             {
-                self->paused = 1;
+                error = "sink didn't pause, state:";
+                state = self->state;
             }
+        }
+        else
+        {
+            error = "pausing in invalid state:";
+            state = self->state;
         }
 
         END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
   
-    if (res < 0) 
+    if (error)
     {
-        alsa_log2(self, "error pausing pcm: %s", snd_strerror(res));
+        alsa_logi(self, error, state);
     }
 
-    return PyBool_FromLong(res == 0);
+    return PyBool_FromLong(error == NULL);
 }
 
 
 static PyObject *
 alsa_sink_resume(alsa_thread_t *self, PyObject *args)
 {
-    int res = 0;
+    const char *error = NULL;
+    int state = 0;
 
     if (!PyArg_ParseTuple(args,":CAlsaSink.resume"))
         return NULL;
 
     { /* LOCK SCOPE */
+        Py_BEGIN_ALLOW_THREADS;
         BEGIN_LOCK(self);
 
-        if (self->state != SINK_CLOSED)
+        if (self->state == SINK_PAUSED)
         {
-            if (self->paused && self->handle)
+            self->state = SINK_RESUME;
+            NOTIFY(self);
+
+            while (self->state == SINK_RESUME)
             {
-                res = snd_pcm_pause(self->handle, 0);
+                WAIT(self);
             }
 
-            /* Always consider ourselves resumed */
-            self->paused = 0;
-
-            /* Wake up player thread again */
-            NOTIFY(self);
+            /* We'll accept any state here, since we might stop while
+             * paused. */
+        }
+        else
+        {
+            error = "resuming in invalid state:";
+            state = self->state;
         }
 
         END_LOCK(self);
+        Py_END_ALLOW_THREADS;
     }
 
-    if (res < 0)
+    if (error)
     {
-        alsa_log2(self, "error resuming pcm: %s", snd_strerror(res));
+        alsa_logi(self, error, state);
     }
 
     Py_RETURN_NONE;
 }
+
+
+static PyObject *
+alsa_sink_log_helper(alsa_thread_t *self, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args,":CAlsaSink.log_helper"))
+    {
+        return NULL;
+    }
+
+    /* This thread makes a best-effort at logging whatever the C
+     * thread says, but might lose some messages.
+     */
+
+    while (1)
+    {
+        const char *msg;
+        const char *param;
+
+        {/* LOCK SCOPE */
+            Py_BEGIN_ALLOW_THREADS;
+            BEGIN_LOCK(self);
+
+            while (self->log_message == NULL)
+            {
+                WAIT(self);
+            }
+
+            msg = self->log_message;
+            param = self->log_param;
+
+            self->log_message = NULL;
+            self->log_param = NULL;
+
+            END_LOCK(self);
+            Py_END_ALLOW_THREADS;
+        }
+
+        if (param)
+        {
+            alsa_log2(self, msg, param);
+        }
+        else
+        {
+            alsa_log1(self, msg);
+        }
+    }
+
+    Py_RETURN_NONE;
+}
+
 
 
 static void* thread_main(void *arg)
@@ -1034,13 +1081,13 @@ static void* thread_main(void *arg)
 
 
 static void thread_loop(alsa_thread_t *self)
-{
+{ /* LOCK SCOPE */
+    BEGIN_LOCK(self);
+
     int keep_running = 1;
 
     while (keep_running)
-    { /* LOCK SCOPE */
-        BEGIN_LOCK(self);
-
+    {
         switch (self->state)
         {
         case SINK_CLOSED:
@@ -1050,53 +1097,130 @@ static void thread_loop(alsa_thread_t *self)
 
         case SINK_STARTING:
         case SINK_PLAYING:
-            if (self->paused)
-            {
-                /* Don't push stuff into the device when it is paused.
-                 * Though it shouldn't accept it, let's not provoke it.
-                 * Just wait for state to change.
-                 */
-                WAIT(self);
-            }
-            else
-            {
-                thread_play_once(self);
-            }
+            thread_play_once(self);
             break;
 
-        case SINK_DRAINING:
-            if (self->paused)
+        case SINK_PAUSING:
+        {
+            int res = 0;
+
+            if (self->handle)
             {
-                WAIT(self);
+                /* UNLOCKED CONTEXT */
+                END_LOCK(self);
+                res = snd_pcm_pause(self->handle, 1);
+                BEGIN_LOCK(self);
             }
-            else if (self->data_size > 0)
+
+            if (res < 0)
             {
-                thread_play_once(self);
+                self->log_message = "error pausing device";
+                self->log_param = snd_strerror(-res);
+            }
+
+            /* Even if that fails, go into PAUSED so we at least stop
+             * pushing samples into the device.
+             */
+            self->state = SINK_PAUSED;
+            NOTIFY(self);
+            break;
+        }
+
+        case SINK_PAUSED:
+            WAIT(self);
+            break;
+
+
+        case SINK_RESUME:
+        {
+            int res = 0;
+
+            if (self->handle)
+            {
+                /* UNLOCKED CONTEXT */
+                END_LOCK(self);
+                res = snd_pcm_pause(self->handle, 0);
+                BEGIN_LOCK(self);
+            }
+
+            if (res < 0)
+            {
+                self->log_message = "error resuming device, closing it";
+                self->log_param = snd_strerror(-res);
+                self->device_error = "error resuming device, closed it";
+                self->state = SINK_CLOSING;
             }
             else
             {
-                /* All our buffered data is done, so drain the stuff
-                 * in the PCM buffer.  Wonder how this works when
-                 * we're in non-blocking mode?
+                self->state = self->paused_in_state;
+            }
+
+            NOTIFY(self);
+            break;
+        }
+
+        case SINK_DRAINING:
+            if (self->data_size > 0)
+            {
+                thread_play_once(self);
+                break;
+            }
+            /* FALL-THROUGH */
+
+        case SINK_CLOSING:
+        case SINK_SHUTDOWN:
+            if (self->handle)
+            {
+                int res;
+                int drain = self->state == SINK_DRAINING;
+
+                /* This message has a fair chance of getting to the log
+                 * helper thread, unless we get an error.
                  */
-                if (self->handle)
-                {
-                    int res;
-                    res = snd_pcm_drain(self->handle);
-                    if (res < 0)
+                self->log_message = "closing pcm device";
+                self->log_param = drain ? "draining" : "dropping";
+                NOTIFY(self);
+
+                { /* UNLOCKED CONTEXT */
+                    END_LOCK(self);
+
+                    if (drain)
                     {
-                        self->log_message = "error draining device";
-                        self->log_param = snd_strerror(res);
+                        res = snd_pcm_drain(self->handle);
+                    }
+                    else
+                    {
+                        res = snd_pcm_drop(self->handle);
                     }
 
-                    /* Whatever happens, we're done and can close the
-                     * device */
                     snd_pcm_close(self->handle);
-                    self->handle = NULL;
+                    self->handle = 0;
+
+                    BEGIN_LOCK(self);
                 }
 
+                if (res < 0)
+                {
+                    self->log_message = drain ?
+                        "error draining pcm buffer when closing" :
+                        "error dropping pcm buffer when closing";
+                    self->log_param = strerror(-res);
+                }
+            }
+            else
+            {
+                self->log_message = "pcm device not open when closing sink";
+                self->log_param = NULL;
+            }
+
+            if (self->state == SINK_SHUTDOWN)
+            {
+                keep_running = 0;
+            }
+            else
+            {
+                /* Reset state */
                 self->state = SINK_CLOSED;
-                self->paused = 0;
                 self->channels = 0;
                 self->rate = 0;
                 self->big_endian = 0;
@@ -1109,15 +1233,12 @@ static void thread_loop(alsa_thread_t *self)
 
                 NOTIFY(self);
             }
-            break;
 
-        case SINK_SHUTDOWN:
-            keep_running = 0;
             break;
         }
-
-        END_LOCK(self);
     }
+
+    END_LOCK(self);
 }
 
 
@@ -1144,34 +1265,34 @@ static void thread_play_once(alsa_thread_t *self)
         WAIT(self);
     }
 
-    /* Put as many periods as possible into the pcm device */
-    while (self->data_size >= self->period_size)
+    /* Just put one period into the device to ensure state changes are
+     * promptly handled.  We'll loop around without releasing the lock
+     * anyway if there's data.
+     */
+    if (self->data_size >= self->period_size)
     {
-        struct timespec ts;
         unsigned char *data;
         int res;
 
         data = self->buffer + self->play_pos;
 
-        /* Suddenly the size argument is frames, not bytes... */
-        res = snd_pcm_writei(self->handle, data, self->period_frames);
+        { /* UNLOCKED CONTEXT */
+            END_LOCK(self);
+
+            /* Suddenly the size argument is frames, not bytes... */
+            res = snd_pcm_writei(self->handle, data, self->period_frames);
+            BEGIN_LOCK(self);
+        }
 
         switch (res)
         {
-        case 0: /* might get this on paused streams? */
-        case -EAGAIN:
-            /* PCM buffer is full, so sleep about a period and go back
-             * to the main loop.
-             */
-            ts.tv_sec = 0;
-            ts.tv_nsec = PERIOD_MSECS * 1000000;
-            pthread_cond_timedwait(&self->cond, &self->mutex, &ts);
-            return;
-
         case -EINTR:
         case -EPIPE:
         case -ESTRPIPE:
+            /* UNLOCKED CONTEXT */
+            END_LOCK(self);
             res = snd_pcm_recover(self->handle, res, 1);
+            BEGIN_LOCK(self);
             break;
         }
 
@@ -1189,7 +1310,6 @@ static void thread_play_once(alsa_thread_t *self)
             self->log_param = snd_strerror(res);
             self->device_error = snd_strerror(res);
             NOTIFY(self);
-            return;
         }
     }
 }
@@ -1197,51 +1317,46 @@ static void thread_play_once(alsa_thread_t *self)
 
 static int thread_open_device(alsa_thread_t *self)
 {
-    snd_pcm_t *handle = NULL;
+    /* LOCK SCOPE: self->mutex is already locked when this function is
+     * called.
+     */
 
-    int res = snd_pcm_open(&handle, self->cardname,
-                           SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+    snd_pcm_t *handle = NULL;
+    int res = 0;
+
+    {
+        /* UNLOCKED CONTEXT */
+        END_LOCK(self);
+        res = snd_pcm_open(&handle, self->cardname, SND_PCM_STREAM_PLAYBACK, 0);
+        BEGIN_LOCK(self);
+    }
 
     if (res >= 0)
     {
         if (thread_set_format(self, handle))
         {
-            if (self->paused)
+            self->handle = handle;
+            self->device_error = NULL;
+
+            if (self->log_message == NULL)
             {
-                /* Restart device in paused state */
-                res = snd_pcm_pause(handle, 1);
+                self->log_message =
+                    (self->state == SINK_STARTING ?
+                     "opened device" : "reopened device");
+                self->log_param = (self->swap_bytes ?
+                                   "swapping bytes" : "not swapping bytes");
             }
 
-            if (res >= 0)
+            if (self->state == SINK_STARTING)
             {
-                self->handle = handle;
-                self->device_error = NULL;
-
-                if (self->log_message == NULL)
-                {
-                    self->log_message =
-                        (self->state == SINK_STARTING ?
-                         "opened device" : "reopened device");
-                    self->log_param = (self->swap_bytes ?
-                                       "swapping bytes" : "not swapping bytes");
-                }
-
-                if (self->state == SINK_STARTING)
-                {
-                    /* Now we know the transport thread can put frames
-                     * into the buffer.
-                     */
-                    self->state = SINK_PLAYING;
-                }
-
-                NOTIFY(self);
-
-                return 1;
+                /* Now we know the transport thread can put frames
+                 * into the buffer.
+                 */
+                self->state = SINK_PLAYING;
             }
-            else
-            {
-                set_device_error(self, snd_strerror(res));
-            }
+
+            NOTIFY(self);
+            return 1;
         }
     }
     else
@@ -1251,23 +1366,25 @@ static int thread_open_device(alsa_thread_t *self)
 
     /* We only get here on errors */
 
-    if (handle != NULL)
-    {
-        snd_pcm_close(handle);
-    }
-
-    /* Sleep to avoid busy-looping on a bad device */
-
-    END_LOCK(self);
     {
         /* UNLOCKED CONTEXT */
+        END_LOCK(self);
+
+        if (handle != NULL)
+        {
+            snd_pcm_close(handle);
+        }
+
+        /* Sleep to avoid busy-looping on a bad device */
+
         struct timespec ts;
         ts.tv_sec = 3;
         ts.tv_nsec = 0;
         while (nanosleep(&ts, &ts) < 0 && errno == EINTR)
         { }
+
+        BEGIN_LOCK(self);
     }
-    BEGIN_LOCK(self);
 
     return 0;
 }
@@ -1315,20 +1432,26 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
         snd_pcm_hw_params_set_periods(handle, hwparams, periods, 0);
     
         /* Write it to the device */
-        res = snd_pcm_hw_params(handle, hwparams);
-        if (res < 0)
         {
-            set_device_error(self, snd_strerror(res));
-            return 0;
+            /* UNLOCKED CONTEXT */
+            END_LOCK(self);
+            res = snd_pcm_hw_params(handle, hwparams);
+
+            if (res >= 0)
+            {
+                /* Check if the card accepted our settings */
+                res = snd_pcm_hw_params_current(handle, hwparams);
+            }
+
+            BEGIN_LOCK(self);
         }
 
-        
-        /* Check if the card accepted our settings */
-        res = snd_pcm_hw_params_current(handle, hwparams);
         if (res < 0)
         {
-            self->log_message = "error querying params";
+            self->log_message = "error setting or querying params";
             self->log_param = snd_strerror(res);
+            self->device_error = snd_strerror(res);
+            NOTIFY(self);
             return 0;
         }
 
@@ -1406,6 +1529,7 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle)
             self->log_message = "out of memory allocating buffer";
             self->log_param = "";
             self->device_error = "out of memory allocating buffer";
+            NOTIFY(self);
             return 0;
         }
 
@@ -1429,6 +1553,7 @@ static PyMethodDef alsa_thread_methods[] = {
     { "drain", (PyCFunction) alsa_sink_drain, METH_VARARGS },
     { "pause", (PyCFunction) alsa_sink_pause, METH_VARARGS },
     { "resume", (PyCFunction) alsa_sink_resume, METH_VARARGS },
+    { "log_helper", (PyCFunction) alsa_sink_log_helper, METH_VARARGS },
     {NULL, NULL}
 };
 
