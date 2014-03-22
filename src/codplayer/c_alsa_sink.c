@@ -144,6 +144,9 @@ typedef struct {
 
     snd_pcm_t *handle;         /* NULL if closed */
 
+    /* Transport sink thread private data */
+    PyObject *prev_playing_packet;
+    const char *prev_device_error;
 
     /* Performanace logging */
     FILE *thread_perf_log;
@@ -403,6 +406,8 @@ alsa_thread_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (self->packets == NULL)
         return PyErr_NoMemory();
 
+    self->prev_playing_packet = NULL;
+    self->prev_device_error = NULL;
 
     /* Try to open card straight away to verify access rights etc */
 
@@ -617,9 +622,15 @@ playing_once(
          * the interaction with the play thread.
          */
 
-        if (self->state == SINK_STARTING)
+        /* In these two transitional phases we must wait for things to
+         * change.  STARTING means that the buffer isn't set up yet.
+         * CLOSING means that the sink has been told to close, but
+         * might not have reacted to that yet.  If we don't wait here,
+         * the transport sink will loop around hitting CLOSING a
+         * number of times until the sink finally closes.
+         */
+        if (self->state == SINK_STARTING || self->state == SINK_CLOSING)
         {
-            /* Wait for thread to open the device */
             WAIT(self);
         }
             
@@ -768,10 +779,8 @@ alsa_sink_add_packet(alsa_thread_t *self, PyObject *args)
     Py_ssize_t data_size = 0;
     PyObject *packet = NULL;
     int stored = 0;
-    PyObject *prev_playing_packet = NULL;
-    PyObject *playing_packet = NULL;
-    const char *prev_device_error = NULL;
-    const char *device_error = NULL;
+    PyObject *playing_packet = self->prev_playing_packet;
+    const char *device_error = self->prev_device_error;
 
     if (!PyArg_ParseTuple(args, "s#O:CAlsaSink.add_packet",
                           &data, &data_size, &packet))
@@ -787,19 +796,16 @@ alsa_sink_add_packet(alsa_thread_t *self, PyObject *args)
      * - The device error has changed
      */
 
-    do
+    while (stored == 0
+           && (self->prev_playing_packet == playing_packet)
+           && (self->prev_device_error == device_error))
     {
-        prev_playing_packet = playing_packet;
-        prev_device_error = device_error;
-
         stored = playing_once(self, packet, data, data_size,
                               &playing_packet, &device_error);
     }
-    while (stored == 0
-           && (prev_playing_packet == NULL || prev_playing_packet == playing_packet)
-           && (prev_device_error == NULL || prev_device_error == device_error));
 
-    // TODO: should remember prev_playing_packet/prev_device_error in self across calls
+    self->prev_playing_packet = playing_packet;
+    self->prev_device_error = device_error;
 
     if (stored < 0)
     {
@@ -821,10 +827,8 @@ static PyObject *
 alsa_sink_drain(alsa_thread_t *self, PyObject *args)
 {
     int stored = 0;
-    PyObject *prev_playing_packet = NULL;
-    PyObject *playing_packet = NULL;
-    const char *prev_device_error = NULL;
-    const char *device_error = NULL;
+    PyObject *playing_packet = self->prev_playing_packet;
+    const char *device_error = self->prev_device_error;
 
     if (!PyArg_ParseTuple(args, ":CAlsaSink.drain"))
         return NULL;
@@ -873,17 +877,16 @@ alsa_sink_drain(alsa_thread_t *self, PyObject *args)
         Py_RETURN_NONE;
     }
 
-    do
+    while (stored == 0
+           && (self->prev_playing_packet == playing_packet)
+           && (self->prev_device_error == device_error))
     {
-        prev_playing_packet = playing_packet;
-        prev_device_error = device_error;
-
         stored = playing_once(self, NULL, NULL, 0,
                               &playing_packet, &device_error);
     }
-    while (stored == 0
-           && (prev_playing_packet == NULL || prev_playing_packet == playing_packet)
-           && (prev_device_error == NULL || prev_device_error == device_error));
+
+    self->prev_playing_packet = playing_packet;
+    self->prev_device_error = device_error;
 
     if (stored < 0)
     {
