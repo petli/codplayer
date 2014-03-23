@@ -22,7 +22,7 @@ setup(
                  ],
 
     ext_modules = [
-        Extension('codplayer.cod_alsa_device',
-                  ['src/codplayer/cod_alsa_device.c'],
+        Extension('codplayer.c_alsa_sink',
+                  ['src/codplayer/c_alsa_sink.c'],
                   libraries = ['asound'])],
     )
