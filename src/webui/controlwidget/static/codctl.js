@@ -13,6 +13,14 @@ $(function(){
 	STOP:    '\u25a0'
     };
 
+    var titleStateSymbols = {
+        NO_DISC: '',
+        WORKING: '...',
+        PLAY:    '\u25b6',
+        PAUSE:   '\u2016',
+        STOP:    '\u25a0'
+    };
+
     var showingRipping = false;
 
     var formatTime = function(seconds) {
@@ -38,13 +46,18 @@ $(function(){
 	socket.on('cod-state', function(data) {
 	    // TODO: should probably be paranoid about what we get in data
 
-	    var stateSymbol = stateSymbols[data.state.toString()];
-	    
-	    $('#state').text(stateSymbol || data.state.toString());
+            var state = data.state.toString();
+            var stateSymbol = stateSymbols[state] || state;
+            var titleState = titleStateSymbols[state] || state;
+            var position = formatTime(data.position);
+            var length = formatTime(data.length);
+            var title = '';
+
+            $('#state').text(stateSymbol);
 	    $('#track').text(data.track.toString());
-	    $('#no_tracks').text(data.no_tracks.toString());
-	    $('#position').text(formatTime(data.position));
-	    $('#length').text(formatTime(data.length));
+            $('#no_tracks').text(data.no_tracks.toString());
+            $('#position').text(position);
+            $('#length').text(length);
 
 	    if (typeof data.ripping !== 'number') {
                 if (showingRipping) {
@@ -60,8 +73,23 @@ $(function(){
                 }
 	    }
 
-	    document.title = data.track.toString() + '/' + data.no_tracks.toString() + ' ' + data.state.toString();
-	});
+            if (state !== 'NO_DISC') {
+                title = (titleState + ' ' +
+                         data.track.toString() + '/' + data.no_tracks.toString() + ' ' +
+                         position + '/' + length);
+            }
+
+            document.title = title || 'codplayer';
+
+
+            // If we're embedded in an iframe, send the state update to the parent too
+            if (window.parent != window) {
+                window.parent.postMessage(JSON.stringify({
+                    codState: data,
+                    codStateString: title,
+                }), "*");
+            }
+        });
 
 	socket.on('cod-disc', function(disc) {
 	    var template = $('#album-template').html();
