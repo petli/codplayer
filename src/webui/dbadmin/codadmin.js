@@ -84,6 +84,18 @@ $(function(){
     var currentAlert = new Alert();
     
     //
+    // Player instances
+    //
+
+    var Player = Backbone.Model.extend({
+    });
+
+    var PlayerList = Backbone.Collection.extend({
+        url: 'players',
+        model: Player,
+    });
+
+    //
     // List view of a disc.  This consists of a master view holding
     // the position in the list of discs, and a specialised view for
     // the kind of information displayed.
@@ -173,7 +185,7 @@ $(function(){
         },
 
         onToggleDetails: function() {
-            var that = this;
+            var self = this;
 
             if (typeof this.model.get('tracks') === 'number') {
                 // We only have the partial disc info, so fetch
@@ -183,7 +195,7 @@ $(function(){
 
                 this.model.fetch({
                     success: function() {
-                        that.trigger('disc-view:details');
+                        self.trigger('disc-view:details');
                     },
 
                     error: function(model, response) {
@@ -195,7 +207,7 @@ $(function(){
                 });
             }
             else {
-                that.trigger('disc-view:details');
+                self.trigger('disc-view:details');
             }
         },
     });
@@ -239,7 +251,7 @@ $(function(){
 
         onFetchMusicbrainz: function() {
             var mbDiscs;
-            var that = this;
+            var self = this;
             
             mbDiscs = new MBDiscList();
             mbDiscs.url = this.model.url() + '/musicbrainz';
@@ -251,11 +263,11 @@ $(function(){
 
             mbDiscs.fetch({
                 success: function(collection) {
-                    that.fetchMusicbrainzSuccess(collection);
+                    self.fetchMusicbrainzSuccess(collection);
                 },
 
                 error: function(collection, response) {
-                    that.fetchMusicbrainzError(response);
+                    self.fetchMusicbrainzError(response);
                 },
             });
         },
@@ -342,11 +354,11 @@ $(function(){
             // map so we can call model.save() and have them all
             // stashed to the server atomically(ish)
 
-            var that = this;
+            var self = this;
             var save = {};
 
             var getTrackValues = function(field, func) {
-                that.$('[data-edit-field="' + field + '"]').each(function(elementIndex, element) {
+                self.$('[data-edit-field="' + field + '"]').each(function(elementIndex, element) {
                     var i = parseInt(element.dataset.editTrackIndex, 10);
                     
                     if (!_.isNaN(i) && i >= 0 && i < save.tracks.length) {
@@ -394,12 +406,12 @@ $(function(){
                 wait: true,
 
                 success: function() {
-                    that.trigger('disc-view:details');
+                    self.trigger('disc-view:details');
                 },
 
                 error: function(model, xhr) {
                     // Unlock fields so the user can cancel or retry save
-                    that.$('fieldset').prop('disabled', false);
+                    self.$('fieldset').prop('disabled', false);
 
                     // Show alert
                     currentAlert.set({
@@ -425,17 +437,17 @@ $(function(){
         template: _.template($('#disc-mbinfo-template').html()),
 
         render: function() {
-            var that = this;
+            var self = this;
             var row = null;
             
             this.$el.html(this.template(this.model.toJSON()));
             this.collection.each(function(model) {
                 var view = new MBDiscView({ model: model });
-                that.listenTo(view, 'disc-view:edit', that.onSelect);
+                self.listenTo(view, 'disc-view:edit', self.onSelect);
 
                 if (row === null) {
                     row = $('<div class="row mb-disc-row">');
-                    that.$('div.mb-discs').append(row);
+                    self.$('div.mb-discs').append(row);
                     row.append(view.render().el);
                 } else
                 {
@@ -499,13 +511,13 @@ $(function(){
         },
 
         render: function() {
-            var that = this;
+            var self = this;
 
             this.discList.hide();
             this.discList.empty();
             this.collection.each(function(disc) {
                 var view = new DiscRowView({ model: disc });
-                that.discList.append(view.render().el);
+                self.discList.append(view.render().el);
             });
             this.discList.fadeIn();
         },
@@ -561,8 +573,80 @@ $(function(){
 
     var alertView = new AlertView({ model: currentAlert });
 
+
     //
-    // Kick everything off by fetching the list of discs
+    // Player views
+    //
+
+    var PlayerView = Backbone.View.extend({
+        tagName: 'div',
+
+        events: {
+            'click .panel-heading': 'onToggleView',
+        },
+
+        initialize: function() {
+            var self = this;
+
+            this.expanded = false;
+            this.iframe = null;
+            this.headingState = null;
+
+            $(window).on('message', function(event) {
+                var ev = event.originalEvent;
+                var data;
+
+                if (self.iframe && ev.source === self.iframe.contentWindow) {
+                    data = JSON.parse(ev.data);
+                    self.headingState.text(data.codStateString);
+                }
+            });
+        },
+
+        template: _.template($('#player-template').html()),
+
+        render: function() {
+            this.$el.html(this.template(this.model.toJSON()));
+            this.iframe = this.$('iframe.player').get(0);
+            this.headingState = this.$('.player-state');
+            return this;
+        },
+
+        onToggleView: function() {
+            if (this.expanded) {
+                this.headingState.fadeIn();
+                this.$('.panel-collapse').collapse('hide');
+            }
+            else
+            {
+                // fadeOut doesn't look good together with the expanding panel
+                this.headingState.hide();
+                this.$('.panel-collapse').collapse('show');
+            }
+
+            this.expanded = !this.expanded;
+        },
+    });
+
+    var PlayersView = Backbone.View.extend({
+        el: $('#players'),
+
+        render: function() {
+            var self = this;
+
+            this.$el.hide();
+            this.$el.empty();
+            this.collection.each(function(player) {
+                var view = new PlayerView({ model: player });
+                self.$el.append(view.render().el);
+            });
+            this.$el.fadeIn();
+        },
+    });
+
+
+    //
+    // Kick everything off by fetching the list of discs and the players
     //
 
     var discs = new DiscList();
@@ -576,4 +660,13 @@ $(function(){
         }
     });
 
+    var players = new PlayerList();
+    var playersView;
+
+    players.fetch({
+        success: function(collection) {
+            playersView = new PlayersView({ collection: collection });
+            playersView.render();
+        }
+    });
 });

@@ -47,7 +47,7 @@ def rest_app(config):
                 pass
 
         bottle.response.content_type = 'application/json'
-        return serialize.get_jsons(discs, pretty = True)
+        return serialize.get_jsons(discs, pretty = False)
 
 
     @app.get('/discs/<disc_id>')
@@ -63,7 +63,7 @@ def rest_app(config):
             bottle.abort(404, 'Unknown disc_id')
             
         bottle.response.content_type = 'application/json'
-        return serialize.get_jsons(model.ExtDisc(disc), pretty = False)
+        return serialize.get_jsons(model.ExtDisc(disc), pretty = True)
 
 
     @app.put('/discs/<disc_id>')
@@ -86,8 +86,9 @@ def rest_app(config):
         db_disc = mydb.update_disc(input_disc)
 
         bottle.response.content_type = 'application/json'
-        return serialize.get_jsons(model.ExtDisc(db_disc), pretty = False)
-            
+        return serialize.get_jsons(model.ExtDisc(db_disc), pretty = True)
+
+
     @app.get('/discs/<disc_id>/musicbrainz')
     def server_disc_musicbrainz(disc_id):
         """Return an array of model.ExtDisc JSON objects containing
@@ -117,6 +118,15 @@ def rest_app(config):
                 
         except musicbrainzngs.MusicBrainzError, e:
             bottle.abort(500, 'Musicbrainz web service error: {0}'.format(e))
+
+
+    @app.route('/players')
+    def server_players():
+        """Return an array of JSON objects for all configured players.
+        """
+        bottle.response.content_type = 'application/json'
+        return serialize.get_jsons(config.players, pretty = True)
+
 
     if config.static_dir:
         # Support simple setups where the web UI is provided by this

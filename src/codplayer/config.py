@@ -81,5 +81,6 @@ class RestConfig(Config):
         serialize.Attr('host', str),
         serialize.Attr('port', int),
         serialize.Attr('static_dir', str),
+        serialize.Attr('players', list),
         )
-    
+

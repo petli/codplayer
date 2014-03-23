@@ -42,6 +42,9 @@
     </div>
   </div>
 
+  <div id="players">
+  </div>
+
   <script type="text/template" id="disc-row-template">
     <div class="hover-row row disc-row toggle-details">
 
@@ -254,6 +257,18 @@
       </div>
     </div>
     <% } %>
+  </script>
+
+  <script type="text/template" id="player-template">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <%- name %> <span class="player-state pull-right"></span>
+      </div>
+      <div class="panel-collapse collapse">
+        <iframe class="player" src="<%- url %>">
+        </iframe>
+      </div>
+    </div>
   </script>
 </body>
 </html>
