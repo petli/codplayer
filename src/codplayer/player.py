@@ -71,15 +71,15 @@ class State(serialize.Serializable):
         valid_commands = ('quit', )
 
     class PLAY:
-        valid_commands = ('quit', 'pause', 'play_pause',
+        valid_commands = ('quit', 'disc', 'pause', 'play_pause',
                           'next', 'prev', 'stop', 'eject')
 
     class PAUSE:
-        valid_commands = ('quit', 'play', 'play_pause',
+        valid_commands = ('quit', 'disc', 'play', 'play_pause',
                           'next', 'prev', 'stop', 'eject')
 
     class STOP:
-        valid_commands = ('quit', 'play', 'play_pause',
+        valid_commands = ('quit', 'disc', 'play', 'play_pause',
                           'next', 'prev', 'eject')
 
 
@@ -131,7 +131,6 @@ class Player(object):
         self.transport = None
         
         self.rip_process = None
-        self.playing_physical_disc = False
 
         self.ripping_audio_path = None
         self.ripping_audio_size = None
@@ -174,11 +173,9 @@ class Player(object):
         
     def run(self):
         try:
-            self.transport = Transport(
-                self, sink.SINKS[self.cfg.audio_device_type](self))
-
-            # Now that device is running, drop any privs to get ready
-            # for full operation
+            # Drop any privs to get ready for full operation.  Do this
+            # before opening the sink, since we generally need to be
+            # able to reopen it with the reduced privs anyway
             if self.uid and self.gid:
                 if os.geteuid() == 0:
                     try:
@@ -192,6 +189,9 @@ class Player(object):
                 else:
                     self.log('not root, not changing uid or gid')
                     
+            self.transport = Transport(
+                self, sink.SINKS[self.cfg.audio_device_type](self))
+
             # Main loop, executing until a quit command is received.
             # However, don't stop if a rip process is currently running.
 
@@ -199,7 +199,7 @@ class Player(object):
                 self.run_once(1000)
 
         finally:
-            # Eject any disc to reset state to leave less mess behind
+            # "Eject" any disc to reset state to leave less mess behind
             if self.transport:
                 self.transport.eject()
         
@@ -264,8 +264,6 @@ class Player(object):
             self.log("already ripping disc, can't rip another one yet")
             return
 
-        self.playing_physical_disc = False
-
         if args:
             # Play disc in database by its ID
             did = args[0]
@@ -292,8 +290,6 @@ class Player(object):
                 self.log('error reading disc in {0}: {1}',
                          self.cfg.cdrom_device, e)
                 return
-
-            self.playing_physical_disc = True
 
             # Is this already ripped?
             disc = self.db.get_disc_by_disc_id(mbd.getId())
@@ -345,7 +341,7 @@ class Player(object):
 
         # Eject the disc with the help of an external command. There's
         # far too many ioctls to keep track of to do it ourselves.
-        if self.playing_physical_disc and self.cfg.eject_command:
+        if self.cfg.eject_command:
             args = [self.cfg.eject_command, self.cfg.cdrom_device]
             try:
                 subprocess.check_call(
@@ -357,8 +353,6 @@ class Player(object):
                 self.log("error executing command {0!r}: {1}:", args, e)
             except subprocess.CalledProcessError, e:
                 self.log("{0}", e)
-
-        self.playing_physical_disc = False
 
 
     def rip_disc(self, mbd):
