@@ -14,6 +14,17 @@ body {
     padding: 0px 15px;
 }
 
+/*
+ * Common hover stuff
+ */
+.hover-row:hover {
+    background-color: #cdf;
+}
+
+
+/*
+ * Unexpanded single disc row
+ */
 .disc-row {
     padding: 8px 0px;
 }
@@ -28,9 +39,28 @@ body {
     padding: 4px 0px;
 }
 
-.hover-row:hover {
-    background-color: #cdf;
+
+/* Normally display the number of tracks, but on hover show a play button instead */
+.disc-row .play-disc {
+    display: none;
 }
+
+.disc-row:hover .play-disc {
+    display: inline;
+}
+
+.disc-row .num-tracks {
+    display: inline;
+}
+
+.disc-row:hover .num-tracks {
+    display: none;
+}
+ 
+
+/*
+ * Disc details view
+ */
 
 .disc-details-view .disc-row div {
     font-weight: bold;
@@ -38,7 +68,6 @@ body {
 
 .disc-details {
     margin-top: 10px;
-/*    display: none;  */
 }
 
 .release-date {
@@ -54,6 +83,10 @@ body {
     margin: 8px 0px;
 }
 
+
+/*
+ * Musicbrainz details view
+ */
 .mb-disc-cover-image {
     width: 50px;
     height: 50px;

@@ -170,6 +170,7 @@ $(function(){
         tagName: 'div',
 
         events: {
+            'click .play-disc': 'onPlayDisc',
             'click .disc-row': 'onToggleDetails',
         },
 
@@ -184,8 +185,17 @@ $(function(){
             return this;
         },
 
-        onToggleDetails: function() {
+        onPlayDisc: function() {
+            Backbone.trigger('play-disc', this.model.get('disc_id'));
+        },
+
+        onToggleDetails: function(event) {
             var self = this;
+
+            if (event.target.tagName.toUpperCase() === 'BUTTON') {
+                /* Ignore clicks on the play button */
+                return;
+            }
 
             if (typeof this.model.get('tracks') === 'number') {
                 // We only have the partial disc info, so fetch
@@ -218,6 +228,7 @@ $(function(){
         className: 'disc-details-view',
 
         events: {
+            'click .play-disc': 'onPlayDisc',
             'click .toggle-details': 'onToggleDetails',
             'click .edit-disc': 'onStartEdit',
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
@@ -241,7 +252,16 @@ $(function(){
             return this;
         },
 
-        onToggleDetails: function() {
+        onPlayDisc: function() {
+            Backbone.trigger('play-disc', this.model.get('disc_id'));
+        },
+
+        onToggleDetails: function(event) {
+            if (event.target.tagName.toUpperCase() === 'BUTTON') {
+                /* Ignore clicks on the play button */
+                return;
+            }
+
             this.trigger('disc-view:overview');
         },
 
@@ -590,6 +610,7 @@ $(function(){
 
             this.expanded = false;
             this.iframe = null;
+            this.activeRadio = null;
             this.headingState = null;
 
             $(window).on('message', function(event) {
@@ -598,9 +619,19 @@ $(function(){
 
                 if (self.iframe && ev.source === self.iframe.contentWindow) {
                     data = JSON.parse(ev.data);
-                    self.headingState.text(data.codStateString);
+                    if (data && data.codplayer
+                        && data.codplayer.state
+                        && data.codplayer.state.summary
+                        && self.headingState) {
+                        self.headingState.text(data.codplayer.state.summary);
+                    }
+                    else {
+                        console.warning('unexpected message: %j', data);
+                    }
                 }
             });
+
+            this.listenTo(Backbone, 'play-disc', this.onPlayDisc);
         },
 
         template: _.template($('#player-template').html()),
@@ -608,11 +639,22 @@ $(function(){
         render: function() {
             this.$el.html(this.template(this.model.toJSON()));
             this.iframe = this.$('iframe.player').get(0);
+            this.activeRadio = this.$('input.active-player');
             this.headingState = this.$('.player-state');
+
+            if (this.model.get('default')) {
+                this.activeRadio.prop('checked', true);
+            }
+
             return this;
         },
 
-        onToggleView: function() {
+        onToggleView: function(event) {
+            if (event.target.tagName.toUpperCase() === 'INPUT') {
+                /* Ignore clicks on the radio button */
+                return;
+            }
+
             if (this.expanded) {
                 this.headingState.fadeIn();
                 this.$('.panel-collapse').collapse('hide');
@@ -625,6 +667,27 @@ $(function(){
             }
 
             this.expanded = !this.expanded;
+        },
+
+        onPlayDisc: function(discID) {
+            if (this.activeRadio && this.activeRadio.prop('checked')) {
+                // This is the target, so send a message to the
+                // control widget in the iframe
+                if (this.iframe && this.iframe.contentWindow) {
+                    console.log('Telling %s to play %s', this.iframe.src, discID);
+                    this.iframe.contentWindow.postMessage(
+                        JSON.stringify({
+                            codplayer: {
+                                play: {
+                                    disc: discID,
+                                },
+                            }
+                        }), "*");
+                }
+                else {
+                    console.warning('should send play message, but there is no iframe or window in it');
+                }
+            }
         },
     });
 

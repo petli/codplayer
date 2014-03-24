@@ -51,17 +51,16 @@
     <% if (artist || title) { %>
       <div class="col-xs-5"><%- artist %></div>
       <div class="col-xs-7"><%- title %>
-        <span class="badge pull-right">
-          <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
-        </span>
-      </div>
     <% } else { %>
-      <div class="col-xs-12">(<%- disc_id %>)
-        <span class="badge pull-right">
-          <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
+      <div class="col-xs-12">Disc ID: <%- disc_id %>
+    <% } %>
+        <span class="pull-right">
+          <span class="num-tracks badge">
+            <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
+          </span>
+          <button type="button" class="play-disc btn btn-default btn-xs">&nbsp;&#x25b6;&nbsp;</button>
         </span>
       </div>
-    <% } %>
     </div>
   </script>
   
@@ -149,9 +148,6 @@
         </div>
         
         <div class="col-xs-2">
-          <span class="badge pull-right">
-            <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
-          </span>
         </div>
       </div>
 
@@ -262,6 +258,8 @@
   <script type="text/template" id="player-template">
     <div class="panel panel-default">
       <div class="panel-heading">
+        <input type="radio" class="active-player radio-inline"
+               name="active-player">
         <%- name %> <span class="player-state pull-right"></span>
       </div>
       <div class="panel-collapse collapse">

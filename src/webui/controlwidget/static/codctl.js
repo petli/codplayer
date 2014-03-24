@@ -80,14 +80,16 @@ $(function(){
             }
 
             document.title = title || 'codplayer';
-
+            data.summary = title;
 
             // If we're embedded in an iframe, send the state update to the parent too
             if (window.parent != window) {
-                window.parent.postMessage(JSON.stringify({
-                    codState: data,
-                    codStateString: title,
-                }), "*");
+                window.parent.postMessage(
+                    JSON.stringify({
+                        codplayer: {
+                            state: data,
+                        }
+                    }), "*");
             }
         });
 
@@ -120,5 +122,27 @@ $(function(){
 
     $('button.command').on('click', function(event) {
 	socket.emit('cod-command', { command: this.id });
+    });
+
+    /* Accept messages from a containing window to play a disc */
+    $(window).on('message', function(event) {
+        var ev = event.originalEvent;
+        var data = JSON.parse(ev.data);
+        var cmd;
+
+        if (ev.source === window.parent
+            && data && data.codplayer) {
+            if (data.codplayer.play && typeof data.codplayer.play.disc === 'string') {
+                cmd = 'disc ' + data.codplayer.play.disc;
+                console.log('Got message from parent, issuing command: %s', cmd);
+                socket.emit('cod-command', { command: cmd });
+            }
+            else {
+                console.error('malformed codplayer message: %j', data);
+            }
+        }
+        else {
+            console.warning('unexpected message from %j: %j', ev.source, data);
+        }
     });
 });
