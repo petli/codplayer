@@ -72,7 +72,7 @@
         <ul class="list-group disc-tracks">
         <% var i; for (i = 0; i < tracks.length; i++) { %>
            <li class="list-group-item">
-             <div class="track-row hover-row row">
+             <div class="track-row hover-row row <%- tracks[i].skip ? 'skipped-track' : '' %>">
                <div class="col-xs-1 track-number"><%- tracks[i].number %></div>
                <div class="col-xs-1 track-length"><%- tracks[i].length %></div>
                <div class="col-xs-10">
@@ -157,20 +157,37 @@
             <% var i; for (i = 0; i < tracks.length; i++) { %>
                <li class="list-group-item">
                  <div class="track-row row">
-                   <div class="col-xs-1 track-number"><%- tracks[i].number %></div>
-                   <div class="col-xs-1 track-length"><%- tracks[i].length %></div>
-                   <div class="col-xs-10">
+                   <div class="col-xs-12">
+                     <div class="row">
+                       <div class="col-xs-1 track-number"><%- tracks[i].number %></div>
+                       <div class="col-xs-1 track-length"><%- tracks[i].length %></div>
+                       <div class="col-xs-10">
+                         <input data-edit-field="track-title"
+                                data-edit-track-index="<%- i %>"
+                                class="form-control input-sm"
+                                placeholder="Track title"
+                                value="<%- tracks[i].title %>" >
+                       </div>
+                     </div>
 
-                     <input data-edit-field="track-title"
-                            data-edit-track-index="<%- i %>"
-                            class="form-control input-sm"
-                            placeholder="Track title"
-                            value="<%- tracks[i].title %>" >
-                     <input data-edit-field="track-artist"
-                            data-edit-track-index="<%- i %>"
-                            class="form-control input-sm"
-                            placeholder="Track artist (if different to disc artist)"
-                            value="<%- tracks[i].artist %>" >
+                     <div class="row">
+                       <div class="col-xs-2">
+                         <input data-edit-field="track-skip"
+                                data-edit-track-index="<%- i %>"
+                                type="checkbox"
+                                class="skipped-checkbox checkbox-inline"
+                                name="skipped-track"
+                                <%- tracks[i].skip ? 'checked' : '' %> >
+                         <label for="skipped-track">Skip</label>
+                       </div>
+                       <div class="col-xs-10">
+                         <input data-edit-field="track-artist"
+                                data-edit-track-index="<%- i %>"
+                                class="form-control input-sm"
+                                placeholder="Track artist (if different to disc artist)"
+                                value="<%- tracks[i].artist %>" >
+                       </div>
+                     </div>
                    </div>
                  </div>
                </li>

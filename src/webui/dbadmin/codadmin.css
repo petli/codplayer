@@ -83,6 +83,10 @@ body {
     margin: 8px 0px;
 }
 
+.skipped-track {
+    /* TODO: look up strike-over parameter */
+    color: #aaa;
+}
 
 /*
  * Musicbrainz details view

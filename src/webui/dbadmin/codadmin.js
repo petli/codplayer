@@ -408,6 +408,11 @@ $(function(){
                 track.title = element.value;
             });
 
+            getTrackValues('track-skip', function(track, element) {
+                track.skip = element.checked;
+            });
+
+
             // If we got this from a mbDisc, copy the fields that are
             // not visible in the GUI
             if (this.mbDisc) {

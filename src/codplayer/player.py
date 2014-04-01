@@ -406,6 +406,8 @@ class Player(object):
 
         self.log('playing disc: {0}', disc)
 
+        # Filter out skipped tracks
+        disc.tracks = [t for t in disc.tracks if not t.skip]
 
         if self.rip_process is not None:
             src = source.PCMDiscSource(self, disc, True)
@@ -942,7 +944,7 @@ class Transport(object):
                                         / packet.format.rate)
                 self.write_state()
 
-            elif (self.state.track != packet.track.number
+            elif (self.state.track != packet.track_number + 1
                 or self.state.index != packet.index):
                 self.state.track = packet.track_number + 1
                 self.state.index = packet.index

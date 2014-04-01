@@ -106,6 +106,9 @@ class Track(serialize.Serializable):
         serialize.Attr('artist', serialize.str_unicode, optional = True),
 
         # Length fields are added by the subclasses
+
+        # Edit fields
+        serialize.Attr('skip', bool, optional = True),
         )
 
     def __init__(self):
@@ -122,7 +125,10 @@ class Track(serialize.Serializable):
         self.isrc = None
         self.title = None
         self.artist = None
-        
+
+        # Edit information
+        self.skip = False
+
 
 #
 # Database versions of disc and track classes
@@ -147,6 +153,7 @@ class DbTrack(Track):
         'isrc',
         'title',
         'artist',
+        'skip',
         )
 
     def __init__(self):
@@ -436,6 +443,7 @@ class ExtTrack(Track):
             self.isrc = track.isrc
             self.title = track.title
             self.artist = track.artist
+            self.skip = track.skip
 
 
 class ExtDisc(Disc):
