@@ -166,9 +166,42 @@ $(function(){
         },
     });
 
-    var DiscOverView = Backbone.View.extend({
+    var DiscViewBase = Backbone.View.extend({
         tagName: 'div',
 
+        render: function() {
+            this.$el.html(this.template(this.model.toJSON()));
+            return this;
+        },
+
+        formatTime: function(seconds) {
+            var sign = '';
+            if (seconds < 0) {
+                sign = '-';
+                seconds = -seconds;
+            }
+
+            var minPart = Math.floor(seconds / 60).toString();
+            var secPart = (seconds % 60).toString();
+
+            if (secPart.length == 1) {
+                secPart = '0' + secPart;
+            }
+
+            return sign + minPart + ':' + secPart;
+        },
+
+        onCancel: function() {
+            this.trigger('disc-view:details');
+        },
+
+        onPlayDisc: function() {
+            Backbone.trigger('play-disc', this.model.get('disc_id'));
+        },
+    });
+
+
+    var DiscOverView = DiscViewBase.extend({
         events: {
             'click .play-disc': 'onPlayDisc',
             'click .disc-row': 'onToggleDetails',
@@ -178,15 +211,6 @@ $(function(){
 
         initialize: function() {
             this.listenTo(this.model, 'change', this.render);
-        },
-
-        render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
-            return this;
-        },
-
-        onPlayDisc: function() {
-            Backbone.trigger('play-disc', this.model.get('disc_id'));
         },
 
         onToggleDetails: function(event) {
@@ -223,8 +247,7 @@ $(function(){
     });
 
 
-    var DiscDetailsView = Backbone.View.extend({
-        tagName: 'div',
+    var DiscDetailsView = DiscViewBase.extend({
         className: 'disc-details-view',
 
         events: {
@@ -234,26 +257,11 @@ $(function(){
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
         },
 
-        rowTemplate: _.template($('#disc-row-template').html()),
-        detailTemplate: _.template($('#disc-detail-template').html()),
-        
-        template: function(obj) {
-            var html = this.rowTemplate(obj);
-            html += this.detailTemplate(obj);
-            return html;
-        },
+        template: _.template($('#disc-row-template').html()
+                             + $('#disc-detail-template').html()),
 
         initialize: function() {
             this.listenTo(this.model, 'change', this.render);
-        },
-
-        render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
-            return this;
-        },
-
-        onPlayDisc: function() {
-            Backbone.trigger('play-disc', this.model.get('disc_id'));
         },
 
         onToggleDetails: function(event) {
@@ -330,12 +338,10 @@ $(function(){
         },
     });
 
-    var DiscEditView = Backbone.View.extend({
-        tagName: 'div',
-
+    var DiscEditView = DiscViewBase.extend({
         events: {
             'click .save-edit': 'onSaveEdit',
-            'click .cancel-edit': 'onCancelEdit',
+            'click .cancel-edit': 'onCancel',
         },
 
         
@@ -446,15 +452,9 @@ $(function(){
                 },
             });
         },
-
-        onCancelEdit: function() {
-            this.trigger('disc-view:details');
-        },
     });
 
-    var DiscMBInfoView = Backbone.View.extend({
-        tagName: 'div',
-
+    var DiscMBInfoView = DiscViewBase.extend({
         events: {
             'click .cancel-mbinfo': 'onCancel',
         },
@@ -487,15 +487,10 @@ $(function(){
         onSelect: function(mbDisc) {
             this.trigger('disc-view:edit', mbDisc);
         },
-
-        onCancel: function() {
-            this.trigger('disc-view:details');
-        },
     });
 
 
-    var MBDiscView = Backbone.View.extend({
-        tagName: 'div',
+    var MBDiscView = DiscViewBase.extend({
         className: 'mb-disc col-xs-12 col-md-6 hover-row',
         
         events: {
@@ -503,14 +498,6 @@ $(function(){
         },
         
         template: _.template($('#mbdisc-template').html()),
-
-        initialize: function() {
-        },
-
-        render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
-            return this;
-        },
 
         onSelect: function() {
             this.trigger('disc-view:edit', this.model);
