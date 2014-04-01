@@ -90,5 +90,15 @@ interfaces.  E.g.:
 Database administration
 -----------------------
 
-A web GUI will eventually be provided to manage the discs in the
-database and allow the editing envisioned in the introduction.
+A web GUI for administering the discs in the database is provided in
+`src/webui/dbadmin`, which accesses the database through the REST
+interface provided by `codrestd`.  Current features:
+
+* Browse discs, show track listings
+* Edit disc and track details
+* Fetch disc and track details from Musicbrainz
+* Play discs in a codplayer deamon (which may be on another computer)
+
+Low-level administration is also possible with `codadmin`, run it with
+`--help` to see available commands.
+
