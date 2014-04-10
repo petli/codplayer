@@ -109,6 +109,7 @@ class Track(serialize.Serializable):
 
         # Edit fields
         serialize.Attr('skip', bool, optional = True),
+        serialize.Attr('pause_after', bool, optional = True),
         )
 
     def __init__(self):
@@ -128,6 +129,7 @@ class Track(serialize.Serializable):
 
         # Edit information
         self.skip = False
+        self.pause_after = False
 
 
 #
@@ -154,6 +156,7 @@ class DbTrack(Track):
         'title',
         'artist',
         'skip',
+        'pause_after',
         )
 
     def __init__(self):
@@ -444,6 +447,7 @@ class ExtTrack(Track):
             self.title = track.title
             self.artist = track.artist
             self.skip = track.skip
+            self.pause_after = track.pause_after
 
 
 class ExtDisc(Disc):

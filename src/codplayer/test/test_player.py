@@ -92,7 +92,9 @@ class DummySource(source.Source):
     TRACK_LENGTH_SECS = 1000
     TRACK_LENGTH_FRAMES = TRACK_LENGTH_SECS * model.PCM.rate
     
-    def __init__(self, disc_id, num_tracks, num_packets = None):
+    def __init__(self, disc_id, num_tracks, num_packets = None,
+                 pause_after_track_number = None):
+
         disc = model.DbDisc()
         disc.disc_id = disc_id
         disc.audio_format = model.PCM
@@ -101,6 +103,8 @@ class DummySource(source.Source):
             track = model.DbTrack()
             track.number = i + 1
             track.length = self.TRACK_LENGTH_FRAMES
+            if pause_after_track_number == track.number:
+                track.pause_after = True
             disc.tracks.append(track)
 
         super(DummySource, self).__init__(disc)
@@ -108,16 +112,24 @@ class DummySource(source.Source):
         # Inifinite isn't really that, so we know the test eventually stops
         self.num_packets = num_packets or self.TRACK_LENGTH_SECS
 
-        
-    def iter_packets(self, track_number, packet_rate):
-        track = self.disc.tracks[track_number]
 
-        for i in xrange(self.num_packets):
-            packet = audio.AudioPacket(self.disc, track, track_number,
-                                       i * model.PCM.rate, 1)
-            packet.data = '0123456789abcdef'
-            yield packet
-            
+    def iter_packets(self, track_number, packet_rate):
+        while track_number < len(self.disc.tracks):
+            track = self.disc.tracks[track_number]
+
+            for i in xrange(self.num_packets):
+                if track.pause_after and i + 1 == self.num_packets:
+                    flags = audio.AudioPacket.PAUSE_AFTER
+                else:
+                    flags = 0
+
+                packet = audio.AudioPacket(self.disc, track, track_number,
+                                           i * model.PCM.rate, 1, flags)
+                packet.data = '0123456789abcdef'
+                yield packet
+
+            track_number += 1
+
 
 class DummySink(sink.Sink):
     def __init__(self, test, *expect):
@@ -1256,3 +1268,136 @@ class TestTransport(unittest.TestCase):
         expects.done()
         self.assertEqual(t.state.state, player.State.STOP)
 
+
+    def test_pause_after_track(self):
+        # Two tracks of two packets each, pause after the first one
+        src = DummySource('disc1', 2, 2, 1)
+
+        # Wait for test to finish on an event
+        done = threading.Event()
+
+        expects = DummySink(
+            self,
+            Expect('start', 'should call start on new disc',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    ),
+                ),
+
+            Expect('add_packet', 'should add first packet',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(offset, 0),
+
+                    self.assertIs(t.state.state, player.State.PLAY),
+                    self.assertEqual(t.state.track, 1),
+                    self.assertEqual(t.state.position, 0),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('add_packet', 'should add second packet',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(offset, 0),
+                    self.assertEqual(packet.abs_pos, 1 * model.PCM.rate, 'should be second packet'),
+                    self.assertEqual(packet.flags, packet.PAUSE_AFTER,
+                                     'packet should tell transport to pause'),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('drain', 'drain should be called when pausing after track',
+                   checks = lambda: (
+                    self.assertIs(t.state.state, player.State.PLAY),
+                    self.assertEqual(t.state.track, 1),
+                    self.assertEqual(t.state.position, 1, "position should be second packet"),
+
+                    # Allow test to detect that state has updated
+                    t._test_state_written.clear(),
+                    ),
+
+                   # Tell transport that buffer is empty
+                   ret = lambda: None,
+                   ),
+
+            Expect('stop', 'should call stop when pausing after track',
+                   checks = lambda: (
+                    # Allow test case to sync the middle of the test
+                    done.set(),
+                    ),
+                ),
+
+            Expect('start', 'should call start on play',
+                   checks = lambda format: (
+                    self.assertIs(format, model.PCM),
+                    self.assertIs(t.state.state, player.State.WORKING,
+                                  'state should be WORKING before any packets have been read'),
+                    self.assertEqual(t.state.track, 2, 'should start playing second track'),
+                    ),
+                ),
+
+            Expect('add_packet', 'should add first packet in second track',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(offset, 0),
+
+                    # State should have been updated
+                    self.assertIs(t.state.state, player.State.PLAY),
+                    self.assertEqual(t.state.track, 2),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('add_packet', 'should add second packet in second track',
+                   checks = lambda packet, offset: (
+                    self.assertEqual(offset, 0),
+                    self.assertEqual(packet.abs_pos, 1 * model.PCM.rate, 'should be second packet'),
+                    ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+                   ),
+
+            Expect('drain', 'drain final track',
+                   checks = lambda: (
+                    # Allow test to detect that state has updated
+                    t._test_state_written.clear(),
+                    ),
+
+                   # Tell transport that buffer is empty
+                   ret = lambda: None,
+                   ),
+
+            Expect('stop', 'should call stop at end of disc',
+                   checks = lambda: (
+                    # Allow test case to sync the end of the test
+                    done.set(),
+                    ),
+                ),
+            )
+
+        # Kick off test and wait for it
+        t = TransportForTest(self, expects)
+        t.new_source(src)
+        self.assertTrue(done.wait(5), 'timeout waiting for first run to finish')
+        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for first run state to update')
+
+        self.assertEqual(t.state.state, player.State.PAUSE,
+                         'transport should be paused at end of first track')
+        self.assertEqual(t.state.track, 1),
+        self.assertEqual(t.state.position, 1, "position should be second packet"),
+
+        # Now hit play to keep playing second track
+        done.clear()
+        t.play()
+
+        # Wait for second run to finish
+        self.assertTrue(done.wait(5), 'timeout waiting for second run to finish')
+        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for second run state to update')
+
+        # Check final state
+        expects.done()
+        self.assertEqual(t.state.state, player.State.STOP,
+                         'transport should stop at end of disc')

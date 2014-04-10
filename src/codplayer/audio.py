@@ -33,9 +33,14 @@ class AudioPacket(object):
     data: sample data
 
     format: the sample format, typically model.PCM
+
+    flags: currently only one possible:
+      - PAUSE_AFTER
     """
 
-    def __init__(self, disc, track, track_number, abs_pos, length):
+    PAUSE_AFTER = 0x01
+
+    def __init__(self, disc, track, track_number, abs_pos, length, flags = 0):
         self.disc = disc
         self.track = track
         self.track_number = track_number
@@ -57,6 +62,7 @@ class AudioPacket(object):
         self.abs_pos = abs_pos
         self.rel_pos = abs_pos - track.pregap_offset
         self.length = length
+        self.flags = flags
 
         if abs_pos < track.pregap_silence:
             # In silent part of pregap that's not in the audio file
@@ -126,7 +132,13 @@ class AudioPacket(object):
 
             else:
                 # Generate next packet
-                p = cls(disc, track, track_number, abs_pos, length)
+                flags = 0
+                if (track.pause_after
+                    and abs_pos + length == track.length
+                    and track_number + 1 < len(disc.tracks)):
+                    flags |= p.PAUSE_AFTER
+
+                p = cls(disc, track, track_number, abs_pos, length, flags)
                 yield p
 
     

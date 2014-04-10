@@ -490,6 +490,7 @@ class Transport(object):
         self.source = None
         self.start_track = 0
         self.state = State()
+        self.paused_by_user = False
 
         # Event objects to tell the source and sink threads that the
         # context has changed to allow them to react faster
@@ -560,12 +561,7 @@ class Transport(object):
                 self.start_new_track(0)
 
             elif self.state.state == State.PAUSE:
-                self.log('resuming paused transport')
-
-                # This is not a new context, we want to keep playing buffered packets
-                self.sink.resume()
-                self.state.state = State.PLAY
-                self.write_state()
+                self.do_resume()
 
             else:
                 self.debug('ignoring play() in state {0}'.format(self.state.state))
@@ -574,15 +570,7 @@ class Transport(object):
     def pause(self):
         with self.lock:
             if self.state.state == State.PLAY:
-                self.log('transport pausing')
-
-                # this is not a new context, the sink just pauses packet playback
-                if self.sink.pause():
-                    self.state.state = State.PAUSE
-                    self.write_state()
-                else:
-                    self.log('sink refused to pause, keeping PLAY')
-
+                self.do_pause()
             else:
                 self.debug('ignoring pause() in state {0}'.format(self.state.state))
 
@@ -594,22 +582,10 @@ class Transport(object):
                 self.start_new_track(0)
 
             elif self.state.state == State.PLAY:
-                self.log('transport pausing')
-
-                # this is not a new context, the sink just pauses packet playback
-                if self.sink.pause():
-                    self.state.state = State.PAUSE
-                    self.write_state()
-                else:
-                    self.log('sink refused to pause, keeping PLAY')
+                self.do_pause()
 
             elif self.state.state == State.PAUSE:
-                self.log('resuming paused transport')
-
-                # This is not a new context, we want to keep playing buffered packets
-                self.sink.resume()
-                self.state.state = State.PLAY
-                self.write_state()
+                self.do_resume()
 
             else:
                 self.debug('ignoring play() in state {0}'.format(self.state.state))
@@ -719,6 +695,36 @@ class Transport(object):
     # State updating methods.  self.lock must be held when calling these
     #
 
+    def do_pause(self):
+        self.log('transport pausing')
+
+        # this is not a new context, the sink just pauses packet playback
+        if self.sink.pause():
+            self.state.state = State.PAUSE
+            self.write_state()
+            self.paused_by_user = True
+        else:
+            self.log('sink refused to pause, keeping PLAY')
+
+
+    def do_resume(self):
+        if self.paused_by_user:
+            self.log('resuming paused transport')
+
+            # This is not a new context, we want to keep
+            # playing buffered packets
+            self.sink.resume()
+            self.state.state = State.PLAY
+            self.write_state()
+
+        else:
+            self.log('paused after track, playing')
+
+            # New context - we've lost everything in
+            # the buffer anyway (see sink_stopped())
+            self.start_new_track(self.state.track)
+
+
     def start_new_track(self, track):
         self.new_context()
         self.start_track = track
@@ -728,6 +734,7 @@ class Transport(object):
         self.context += 1
         self.source_context_changed.set()
         self.sink_context_changed.set()
+        self.log('setting new context: {0}'.format(self.context))
 
     def set_state_no_disc(self):
         self.state = State()
@@ -788,7 +795,14 @@ class Transport(object):
                 context = self.context
                 src = self.source
                 start_track = self.start_track
+
+                # start_track behaves like a command to us on context
+                # changes, so reset it to avoid stale information
+                # influencing future contexts
+                self.start_track = None
+
                 self.source_context_changed.clear()
+                self.log('using new context: {0}'.format(context))
 
             if src and start_track is not None:
                 self.debug('starting source: {0} at track {1}'.format(src.disc, start_track))
@@ -843,10 +857,13 @@ class Transport(object):
                         state = IDLE
                     context = self.context
                     self.sink_context_changed.clear()
+                    self.log('using new context: {0}'.format(context))
 
             # Discard packets for an older context
             if packet.context != context:
                 packet = None
+
+            pause_when_drained = False
 
             if isinstance(packet, self.END_OF_STREAM):
                 if state == ADDING_PACKETS:
@@ -857,22 +874,26 @@ class Transport(object):
 
             if packet:
                 if state == IDLE:
-                    self.sink_start_playing(packet)
-                    state = ADDING_PACKETS
+                    if self.sink_start_playing(packet):
+                        state = ADDING_PACKETS
 
-                assert state == ADDING_PACKETS
-                self.sink_packet(packet)
+                if state == ADDING_PACKETS:
+                    self.sink_packet(packet)
+
+                    if packet.flags & packet.PAUSE_AFTER:
+                        state = DRAINING
+                        pause_when_drained = True
 
             if state == DRAINING:
-                self.sink_drain(context)
+                self.sink_drain(context, pause_when_drained)
                 state = IDLE
 
 
     def sink_start_playing(self, packet):
-        self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
-        
         with self.lock:
             if packet.context == self.context:
+                self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
+
                 self.sink.start(packet.format)
                 self.state.state = State.PLAY
                 self.state.disc_id = packet.disc.disc_id
@@ -884,14 +905,31 @@ class Transport(object):
                                         / packet.format.rate)
                 self.write_state()
 
+                return True
+            else:
+                return False
 
-    def sink_stopped(self, context):
+
+    def sink_stopped(self, context, paused_after_track = False):
         with self.lock:
             if context == self.context:
                 # if context had changed, then stop would already have
                 # been called
                 self.sink.stop()
-                self.set_state_stop()
+
+                if paused_after_track:
+                    self.state.state = State.PAUSE
+                    self.write_state()
+                    self.paused_by_user = False
+
+                    # Usually this is signalled from the main thread,
+                    # but here we are applying a command on behalf of
+                    # the user.  That needs a new context to get the
+                    # sink thread to stop playing buffered packets and
+                    # the source thread to stop generating them.
+                    self.new_context()
+                else:
+                    self.set_state_stop()
 
 
     def sink_packet(self, packet):
@@ -906,14 +944,14 @@ class Transport(object):
                 self.sink_update_state(playing_packet, error)
 
 
-    def sink_drain(self, context):
+    def sink_drain(self, context, pause_when_drained):
         while True:
             if self.sink_context_changed.is_set():
                 return
 
             res = self.sink.drain()
             if res is None:
-                self.sink_stopped(context)
+                self.sink_stopped(context, pause_when_drained)
                 return
             else:
                 playing_packet, error = res                

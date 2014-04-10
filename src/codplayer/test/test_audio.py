@@ -28,6 +28,7 @@ class TestAudioPacket(unittest.TestCase):
         self.assertEqual(p.rel_pos, 2000)
         self.assertEqual(p.length, 1000)
         self.assertEqual(p.file_pos, 5000 + 2000)
+        self.assertEqual(p.flags, 0)
 
         
     def test_pregap_and_index(self):
@@ -148,6 +149,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, 0)
         self.assertEqual(p.length, ftos(25))
         self.assertEqual(p.file_pos, 0)
+        self.assertEqual(p.flags, 0)
 
         p = splitter.next()
         self.assertIsNotNone(p)
@@ -158,6 +160,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, ftos(25))
         self.assertEqual(p.length, ftos(25))
         self.assertEqual(p.file_pos, ftos(25))
+        self.assertEqual(p.flags, 0)
 
         p = splitter.next()
         self.assertIsNotNone(p)
@@ -168,6 +171,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, ftos(50))
         self.assertEqual(p.length, ftos(25))
         self.assertEqual(p.file_pos, ftos(50))
+        self.assertEqual(p.flags, 0)
 
 
         # Second track will result in 25+5 frames pregap packet and
@@ -184,6 +188,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, ftos(-30))
         self.assertEqual(p.length, ftos(25))
         self.assertEqual(p.file_pos, ftos(75))
+        self.assertEqual(p.flags, 0)
 
         p = splitter.next()
         self.assertIsNotNone(p)
@@ -194,6 +199,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, ftos(-5))
         self.assertEqual(p.length, ftos(5))
         self.assertEqual(p.file_pos, ftos(75 + 25))
+        self.assertEqual(p.flags, 0)
 
         p = splitter.next()
         self.assertIsNotNone(p)
@@ -204,6 +210,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, 0)
         self.assertEqual(p.length, ftos(25))
         self.assertEqual(p.file_pos, ftos(75 + 30))
+        self.assertEqual(p.flags, 0)
 
         p = splitter.next()
         self.assertIsNotNone(p)
@@ -214,6 +221,7 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, ftos(25))
         self.assertEqual(p.length, ftos(20))
         self.assertEqual(p.file_pos, ftos(75 + 55))
+        self.assertEqual(p.flags, 0)
 
 
         # Third track will just be a 17 frame packet
@@ -228,7 +236,58 @@ FILE "data.cdr" 00:02:00 00:00:17
         self.assertEqual(p.rel_pos, 0)
         self.assertEqual(p.length, ftos(17))
         self.assertEqual(p.file_pos, ftos(150))
+        self.assertEqual(p.flags, 0)
 
         # Reached end of disc
         with self.assertRaises(StopIteration):
             splitter.next()
+
+
+    def test_pause_after_track(self):
+        # Simple disc with two tracks, pause after first
+        disc = model.DbDisc()
+        disc.audio_format = model.PCM
+
+        t1 = model.DbTrack()
+        t1.number = 1
+        t1.length = t1.file_length = model.PCM.rate * 2
+        t1.pause_after = True
+        disc.tracks.append(t1)
+
+        t2 = model.DbTrack()
+        t2.number = 2
+        t2.length = t2.file_length = model.PCM.rate
+        t2.pause_after = True
+        disc.tracks.append(t2)
+
+        # Run 1s per packet
+        splitter = audio.AudioPacket.iterate(disc, 0, 1)
+
+        p = splitter.next()
+        self.assertIsNotNone(p)
+        self.assertIs(p.track, t1)
+        self.assertEqual(p.abs_pos, 0)
+        self.assertEqual(p.length, model.PCM.rate)
+        self.assertEqual(p.flags, 0,
+                         'should not pause in middle of track')
+
+        p = splitter.next()
+        self.assertIsNotNone(p)
+        self.assertIs(p.track, t1)
+        self.assertEqual(p.abs_pos, model.PCM.rate)
+        self.assertEqual(p.length, model.PCM.rate)
+        self.assertEqual(p.flags, p.PAUSE_AFTER,
+                         'should pause after first track')
+
+        p = splitter.next()
+        self.assertIsNotNone(p)
+        self.assertIs(p.track, t2)
+        self.assertEqual(p.abs_pos, 0)
+        self.assertEqual(p.length, model.PCM.rate)
+        self.assertEqual(p.flags, 0,
+                         'should not pause after last track')
+
+        # Reached end of disc
+        with self.assertRaises(StopIteration):
+            splitter.next()
+
