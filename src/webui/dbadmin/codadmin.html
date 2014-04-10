@@ -23,6 +23,9 @@
   <div id="alert-area">
   </div>
   
+  <!--
+    -- Navigation and holder for the disc list
+    -->
   <div id="discs">
     <div class="row">
       <div class="col-xs-12 col-md-offset-2 col-md-8">
@@ -42,9 +45,13 @@
     </div>
   </div>
 
+  <!-- Holder for player elements -->
   <div id="players">
   </div>
 
+  <!--
+    -- TEMPLATE: disc row for folded or expanded discs
+    -->
   <script type="text/template" id="disc-row-template">
     <div class="hover-row row disc-row toggle-details">
 
@@ -58,12 +65,15 @@
           <span class="num-tracks badge">
             <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
           </span>
-          <button type="button" class="play-disc btn btn-default btn-xs">&nbsp;&#x25b6;&nbsp;</button>
+          <button type="button" class="play-disc btn btn-default btn-xs symbol">&#x25b6;</button>
         </span>
       </div>
     </div>
   </script>
   
+  <!--
+    -- TEMPLATE: disc details, added under the disc row
+    -->
   <script type="text/template" id="disc-detail-template">
     <div class="disc-details row detail-row">
       <fieldset>
@@ -83,6 +93,15 @@
                </div>
              </div>
            </li>
+           <% if (tracks[i].pause_after) { %>
+           <li class="list-group-item">
+             <div class="row">
+               <div class="pause-after col-xs-12 symbol">
+                 &#x2016;
+               </div>
+             </div>
+           </li>
+           <% } %>
         <% } %>
         </ul>
 
@@ -131,6 +150,9 @@
     </div>
   </script>
 
+  <!--
+    -- TEMPLATE: disc edit view, replaces the standard disc row
+    -->
   <script type="text/template" id="disc-edit-template">
     <fieldset>
       <div class="row disc-row">
@@ -172,14 +194,22 @@
 
                      <div class="row">
                        <div class="col-xs-2">
-                         <input data-edit-field="track-skip"
-                                data-edit-track-index="<%- i %>"
-                                type="checkbox"
-                                class="skipped-checkbox checkbox-inline"
-                                name="skipped-track"
-                                <%- tracks[i].skip ? 'checked' : '' %> >
-                         <label for="skipped-track">Skip</label>
+                         <div class="btn-group" data-toggle="buttons">
+                           <label class="btn btn-default btn-xs symbol <%=
+                                           tracks[i].skip ? 'active' : '' %>"
+                                  data-edit-field="track-skip"
+                                  data-edit-track-index="<%- i %>">
+                             <input type="checkbox"> &#x23ed;
+                           </label>
+                           <label class="btn btn-default btn-xs symbol <%=
+                                           tracks[i].pause_after ? 'active' : '' %>"
+                                  data-edit-field="track-pause-after"
+                                  data-edit-track-index="<%- i %>">
+                             <input type="checkbox"> &#x2016;
+                           </label>
+                         </div>
                        </div>
+                       
                        <div class="col-xs-10">
                          <input data-edit-field="track-artist"
                                 data-edit-track-index="<%- i %>"
@@ -220,6 +250,10 @@
     </fieldset>
   </script>
 
+
+  <!--
+    -- TEMPLATE: Musicbrainz info view, replaces the standard disc row
+    -->
   <script type="text/template" id="disc-mbinfo-template">
     <div class="row disc-row">
       <h4 class="col-xs-12">Select a record <small>(you will be able to edit it before saving)</small></h4>
@@ -237,6 +271,9 @@
   </script>
 
 
+  <!--
+    -- TEMPLATE: Individual Musicbrainz disc instances shown in the info view
+    -->
   <script type="text/template" id="mbdisc-template">
     <% if (cover_mb_id) { %>
     <img class="pull-left img-thumbnail mb-disc-cover-image"
@@ -261,6 +298,10 @@
     </table>
   </script>
 
+
+  <!--
+    -- TEMPLATE: Alert box at the top
+    -->
   <script type="text/template" id="alert-template">
     <% if (header || message) { %>
     <div class="row">
@@ -272,6 +313,10 @@
     <% } %>
   </script>
 
+
+  <!--
+    -- TEMPLATE: Player container
+    -->
   <script type="text/template" id="player-template">
     <div class="panel panel-default">
       <div class="panel-heading">

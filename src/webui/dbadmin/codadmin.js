@@ -415,7 +415,11 @@ $(function(){
             });
 
             getTrackValues('track-skip', function(track, element) {
-                track.skip = element.checked;
+                track.skip = $(element).hasClass('active');
+            });
+
+            getTrackValues('track-pause-after', function(track, element) {
+                track.pause_after = $(element).hasClass('active');
             });
 
 
