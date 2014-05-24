@@ -11,7 +11,10 @@ import os
 import errno
 import argparse
 
-from codplayer import player, config, serialize, db
+from codplayer import player
+from codplayer import config
+from codplayer import db
+from codplayer.state import StateError
 
 def main(args):
     try:
@@ -22,11 +25,17 @@ def main(args):
     # Try to read player state for outputting state and to provide
     # better error handling to caller.
 
-    try:
-        state = player.State.from_file(cfg.state_file)
-    except serialize.LoadError, e:
-        sys.stderr.write('error reading state: {0}\n'.format(e))
-        state = None
+    for p in cfg.publishers:
+        pg = p.getter()
+        if pg:
+            try:
+                state = pg.get_state()
+            except StateError, e:
+                sys.stderr.write('error reading state: {0}\n'.format(e))
+                state = None
+
+            if state:
+                break
 
     if args.command == 'state':
         print state

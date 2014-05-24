@@ -12,6 +12,7 @@ import traceback
 import os
 
 from .. import player
+from .. import state
 from .. import source
 from .. import sink
 from .. import model
@@ -67,22 +68,28 @@ class TestCommandReader(unittest.TestCase):
 # Transport test and helper classes
 #
 
-class TransportForTest(player.Transport):
+class TestPublisher(state.StatePublisher):
     """Some synchronisation to let the test cases detect when the
     Transport has updated the state.
     """
     
-    def __init__(self, test, *args):
-        self._test_id = test.id()
-        self._test_state_written = threading.Event()
-        super(TransportForTest, self).__init__(DummyPlayer(test), *args)
-        
-    def write_state(self, *args):
-        if debug in self._test_id:
-            sys.stderr.write('{0._test_id}: {0.state}\n'.format(self))
-        self._test_state_written.set()
+    def __init__(self, test):
+        super(TestPublisher, self).__init__()
+        self.test_id = test.id()
+        self.updated = threading.Event()
 
-    def write_disc(self, *args):
+    def clear(self):
+        self.updated.clear()
+
+    def wait(self, timeout):
+        return self.updated.wait(timeout)
+
+    def update_state(self, state):
+        if debug in self.test_id:
+            sys.stderr.write('{0.test_id}: {1}\n'.format(self, state))
+        self.updated.set()
+
+    def update_disc(self, disc):
         pass
         
 
@@ -205,6 +212,12 @@ class DummyPlayer:
     debug = log
     cfg = None
 
+
+def create_transport(test, sink):
+    publisher = TestPublisher(test)
+    return player.Transport(DummyPlayer(test), sink, [publisher]), publisher
+
+
 # Actual test cases follow
     
 class TestTransport(unittest.TestCase):
@@ -316,7 +329,7 @@ class TestTransport(unittest.TestCase):
                                      'state should show third packet'),
 
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -333,10 +346,10 @@ class TestTransport(unittest.TestCase):
             )
         
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for state to update')
 
         # Check final state
         expects.done()
@@ -383,7 +396,7 @@ class TestTransport(unittest.TestCase):
             Expect('drain', 'final call to be notified that draining is done',
                    checks = lambda: (
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -399,10 +412,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for state to update')
 
         # Check final state
         expects.done()
@@ -432,6 +445,9 @@ class TestTransport(unittest.TestCase):
                     self.assertIs(t.state.state, player.State.PLAY,
                                   'state should be PLAY when we stop()'),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell the transport to stop
                     t.stop(),
 
@@ -454,9 +470,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -485,6 +502,9 @@ class TestTransport(unittest.TestCase):
                     self.assertIs(t.state.state, player.State.PLAY,
                                   'state should be PLAY when we stop()'),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell the transport to eject the disc
                     t.eject(),
 
@@ -509,9 +529,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -546,7 +567,7 @@ class TestTransport(unittest.TestCase):
             Expect('drain', 'final call to be notified that draining is done',
                    checks = lambda: (
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -580,7 +601,7 @@ class TestTransport(unittest.TestCase):
             Expect('drain', 'final call to be notified that draining is done',
                    checks = lambda: (
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -596,10 +617,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for first run to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for first run state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for first run state to update')
 
         self.assertEqual(t.state.state, player.State.STOP,
                          'transport should stop at end of disc')
@@ -610,7 +631,7 @@ class TestTransport(unittest.TestCase):
 
         # Wait for second run to finish
         self.assertTrue(done.wait(5), 'timeout waiting for second run to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for second run state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -680,6 +701,9 @@ class TestTransport(unittest.TestCase):
                     self.assertIs(t.state.state, player.State.PLAY,
                                   'state should be PLAY when we stop()'),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell the transport to stop
                     t.stop(),
 
@@ -702,9 +726,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for first run to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Now play it again
         done.clear()
@@ -712,6 +737,7 @@ class TestTransport(unittest.TestCase):
 
         # Wait for second run to finish
         self.assertTrue(done.wait(5), 'timeout waiting for second run to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -782,7 +808,7 @@ class TestTransport(unittest.TestCase):
             Expect('drain', 'final call to be notified that draining is done',
                    checks = lambda: (
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -798,9 +824,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src1)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -873,6 +900,9 @@ class TestTransport(unittest.TestCase):
                     self.assertIs(t.state.state, player.State.PLAY,
                                   'state should be PLAY when we next()'),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell the transport to move to the next track (which will stop)
                     t.next(),
 
@@ -894,9 +924,10 @@ class TestTransport(unittest.TestCase):
            )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -1043,6 +1074,9 @@ class TestTransport(unittest.TestCase):
                                   'state should be PLAY when we prev()'),
                     self.assertEqual(t.state.track, 1, 'track should be the first track when we prev()'),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell the transport to move to the previous track, which will stop on start of disc
                     t.prev(),
 
@@ -1064,9 +1098,10 @@ class TestTransport(unittest.TestCase):
            )
 
         # Kick off test on second track and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src, 1)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -1146,6 +1181,9 @@ class TestTransport(unittest.TestCase):
                     self.assertEqual(packet.abs_pos, 2 * model.PCM.rate, 'should be third packet'),
                     self.assertIs(t.state.state, player.State.PLAY),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell transport to stop the test
                     t.stop(),
                     ),
@@ -1162,9 +1200,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -1244,6 +1283,9 @@ class TestTransport(unittest.TestCase):
                     self.assertEqual(packet.abs_pos, 2 * model.PCM.rate, 'should be third packet'),
                     self.assertIs(t.state.state, player.State.PLAY),
 
+                    # Allow test to detect that state has updated
+                    p.clear(),
+
                     # Tell transport to stop the test
                     t.stop(),
                     ),
@@ -1260,9 +1302,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()
@@ -1316,7 +1359,7 @@ class TestTransport(unittest.TestCase):
                     self.assertEqual(t.state.position, 1, "position should be second packet"),
 
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -1363,7 +1406,7 @@ class TestTransport(unittest.TestCase):
             Expect('drain', 'drain final track',
                    checks = lambda: (
                     # Allow test to detect that state has updated
-                    t._test_state_written.clear(),
+                    p.clear(),
                     ),
 
                    # Tell transport that buffer is empty
@@ -1379,10 +1422,10 @@ class TestTransport(unittest.TestCase):
             )
 
         # Kick off test and wait for it
-        t = TransportForTest(self, expects)
+        t, p = create_transport(self, expects)
         t.new_source(src)
         self.assertTrue(done.wait(5), 'timeout waiting for first run to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for first run state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for first run state to update')
 
         self.assertEqual(t.state.state, player.State.PAUSE,
                          'transport should be paused at end of first track')
@@ -1395,7 +1438,7 @@ class TestTransport(unittest.TestCase):
 
         # Wait for second run to finish
         self.assertTrue(done.wait(5), 'timeout waiting for second run to finish')
-        self.assertTrue(t._test_state_written.wait(5), 'timeout waiting for second run state to update')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
 
         # Check final state
         expects.done()

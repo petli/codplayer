@@ -1,11 +1,11 @@
-# codplayer - player state 
+# codplayer - player core
 #
 # Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 """
-Classes implementing the player core and it's state.
+Classes implementing the player core.
 
 The unit of time in all objects is one audio frame.
 """
@@ -26,99 +26,13 @@ from musicbrainz2 import disc as mb2_disc
 
 from . import db
 from . import model
-from . import serialize
 from . import source
 from . import sink
+from .state import State
 
 class PlayerError(Exception):
     pass
 
-class State(serialize.Serializable):
-    """Player state as visible to external users.  Attributes:
-
-    state: One of the state identifiers:
-      NO_DISC: No disc is loaded in the player
-      WORKING: Disc has been loaded, waiting for streaming to start
-      PLAY:    Playing disc normally
-      PAUSE:   Disc is currently paused
-      STOP:    Playing finished, but disc is still loaded
-
-    disc_id: The Musicbrainz disc ID of the currently loaded disc, or None
-
-    track: Current track being played, counting from 1. 0 if
-                  stopped or no disc is loaded.
-
-    no_tracks: Number of tracks on the disc to be played. 0 if no disc is loaded.
-
-    index: Track index currently played. 0 for pre_gap, 1+ for main sections.
-
-    position: Current position in track in whole seconds, counting
-    from index 1 (so the pregap is negative).
-
-    length: Length of current track in whole seconds, counting
-    from index 1.
-
-    ripping: None if not currently ripping a disc, otherwise a number
-    0-100 showing the percentage done.
-
-    error: A string giving the error state of the player, if any.
-    """
-
-    class NO_DISC:
-        valid_commands = ('quit', 'disc', 'eject')
-
-    class WORKING:
-        valid_commands = ('quit', )
-
-    class PLAY:
-        valid_commands = ('quit', 'disc', 'pause', 'play_pause',
-                          'next', 'prev', 'stop', 'eject')
-
-    class PAUSE:
-        valid_commands = ('quit', 'disc', 'play', 'play_pause',
-                          'next', 'prev', 'stop', 'eject')
-
-    class STOP:
-        valid_commands = ('quit', 'disc', 'play', 'play_pause',
-                          'next', 'prev', 'eject')
-
-
-    def __init__(self):
-        self.state = self.NO_DISC
-        self.disc_id = None
-        self.track = 0
-        self.no_tracks = 0
-        self.index = 0
-        self.position = 0
-        self.length = 0
-        self.ripping = None
-        self.error = None
-
-
-    def __str__(self):
-        return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
-                'index: {index} position: {position} length: {length} ripping: {ripping} '
-                'error: {error}'
-                .format(**self.__dict__))
-
-
-    # Deserialisation methods
-    MAPPING = (
-        serialize.Attr('state', enum = (NO_DISC, WORKING, PLAY, PAUSE, STOP)),
-        serialize.Attr('disc_id', str),
-        serialize.Attr('track', int),
-        serialize.Attr('no_tracks', int),
-        serialize.Attr('index', int),
-        serialize.Attr('position', int),
-        serialize.Attr('ripping', int),
-        serialize.Attr('error', serialize.str_unicode),
-        )
-
-    @classmethod
-    def from_file(cls, path):
-        """Create a State object from the JSON stored in the file PATH."""
-        return serialize.load_json(cls, path)
-        
 
 class Player(object):
 
@@ -173,6 +87,8 @@ class Player(object):
         
     def run(self):
         try:
+            publishers = [p.publisher(self) for p in self.cfg.publishers]
+
             # Drop any privs to get ready for full operation.  Do this
             # before opening the sink, since we generally need to be
             # able to reopen it with the reduced privs anyway
@@ -190,7 +106,9 @@ class Player(object):
                     self.log('not root, not changing uid or gid')
                     
             self.transport = Transport(
-                self, sink.SINKS[self.cfg.audio_device_type](self))
+                self,
+                sink.SINKS[self.cfg.audio_device_type](self),
+                publishers)
 
             # Main loop, executing until a quit command is received.
             # However, don't stop if a rip process is currently running.
@@ -475,12 +393,12 @@ class Transport(object):
             self.context = context
 
 
-    def __init__(self, player, sink):
+    def __init__(self, player, sink, publishers):
         self.log = player.log
         self.debug = player.debug
-        self.cfg = player.cfg
 
         self.sink = sink
+        self.publishers = publishers
 
         self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
 
@@ -500,8 +418,8 @@ class Transport(object):
         # End of self.lock protected members
 
         # Write NO_DISC state at startup
-        self.write_state()
-        self.write_disc()
+        self.update_state()
+        self.update_disc()
 
         # Kick off the threads
         source_thread = threading.Thread(target = self.source_thread,
@@ -535,7 +453,7 @@ class Transport(object):
             self.source = source
             self.start_new_track(track)
 
-            self.write_disc()
+            self.update_disc()
 
 
     def eject(self):
@@ -551,7 +469,7 @@ class Transport(object):
             self.start_track = None
             self.set_state_no_disc()
 
-            self.write_disc()
+            self.update_disc()
 
             
     def play(self):
@@ -669,7 +587,7 @@ class Transport(object):
             
             if progress is None:
                 self.state.ripping = None
-                self.write_state()
+                self.update_state()
                 
                 # Special case: if the rip process failed, we
                 # didn't get any packets from the streamer and
@@ -688,7 +606,7 @@ class Transport(object):
             else:
                 # Update progress, but no point logging it
                 self.state.ripping = progress
-                self.write_state(False)
+                self.update_state(False)
 
                 
     #
@@ -701,7 +619,7 @@ class Transport(object):
         # this is not a new context, the sink just pauses packet playback
         if self.sink.pause():
             self.state.state = State.PAUSE
-            self.write_state()
+            self.update_state()
             self.paused_by_user = True
         else:
             self.log('sink refused to pause, keeping PLAY')
@@ -715,7 +633,7 @@ class Transport(object):
             # playing buffered packets
             self.sink.resume()
             self.state.state = State.PLAY
-            self.write_state()
+            self.update_state()
 
         else:
             self.log('paused after track, playing')
@@ -738,7 +656,7 @@ class Transport(object):
 
     def set_state_no_disc(self):
         self.state = State()
-        self.write_state()
+        self.update_state()
         
 
     def set_state_working(self):
@@ -749,7 +667,7 @@ class Transport(object):
         self.state.index = 0
         self.state.position = 0
         self.state.length = 0
-        self.write_state()
+        self.update_state()
 
                 
     def set_state_stop(self):
@@ -758,22 +676,21 @@ class Transport(object):
         self.state.index = 0
         self.state.position = 0
         self.state.length = 0
-        self.write_state()
+        self.update_state()
     
 
-    def write_state(self, log_state = True):
+    def update_state(self, log_state = True):
         if log_state:
             self.debug('state: {0}', self.state)
 
-        # TODO: should this be done by a helper thread instead?
-        serialize.save_json(self.state, self.cfg.state_file)
+        for p in self.publishers:
+            p.update_state(self.state)
 
 
-    def write_disc(self):
-        if self.source:
-            serialize.save_json(model.ExtDisc(self.source.disc), self.cfg.disc_file)
-        else:
-            serialize.save_json(None, self.cfg.disc_file)
+    def update_disc(self):
+        disc = model.ExtDisc(self.source.disc) if self.source else None
+        for p in self.publishers:
+            p.update_disc(disc)
 
     #
     # Source thread
@@ -903,7 +820,7 @@ class Transport(object):
                 self.state.position = int(packet.rel_pos / packet.format.rate)
                 self.state.length = int((packet.track.length - packet.track.pregap_offset)
                                         / packet.format.rate)
-                self.write_state()
+                self.update_state()
 
                 return True
             else:
@@ -919,7 +836,7 @@ class Transport(object):
 
                 if paused_after_track:
                     self.state.state = State.PAUSE
-                    self.write_state()
+                    self.update_state()
                     self.paused_by_user = False
 
                     # Usually this is signalled from the main thread,
@@ -964,7 +881,7 @@ class Transport(object):
             # Always update the device error, regardless of context
             if error != self.state.error:
                 self.state.error = error
-                self.write_state()
+                self.update_state()
 
             # If the context of this packet is no longer valid, just ignore it
             if packet.context != self.context:
@@ -980,7 +897,7 @@ class Transport(object):
                 self.state.position = pos
                 self.state.length = int((packet.track.length - packet.track.pregap_offset)
                                         / packet.format.rate)
-                self.write_state()
+                self.update_state()
 
             elif (self.state.track != packet.track_number + 1
                 or self.state.index != packet.index):
@@ -989,17 +906,17 @@ class Transport(object):
                 self.state.position = pos
                 self.state.length = int((packet.track.length - packet.track.pregap_offset)
                                         / packet.format.rate)
-                self.write_state()
+                self.update_state()
 
             # Moved backward in track
             elif pos < self.state.position:
                 self.state.position = pos
-                self.write_state()
+                self.update_state()
 
             # Moved a second (not worth logging)
             elif pos != self.state.position:
                 self.state.position = pos
-                self.write_state(False)
+                self.update_state(False)
 
 
 class CommandReader(object):
