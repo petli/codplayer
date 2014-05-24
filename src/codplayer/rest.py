@@ -4,6 +4,8 @@
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
+from pkg_resources import resource_filename
+
 import bottle
 import musicbrainzngs
 
@@ -31,7 +33,9 @@ def rest_app(config):
     app = bottle.Bottle()
 
     mydb = db.Database(config.database)
-    
+
+    static_dir = resource_filename('codplayer', 'data/dbadmin')
+
     @app.route('/discs')
     def server_discs():
         """Return an array of DiscOverview JSON objects for all discs
@@ -128,15 +132,13 @@ def rest_app(config):
         return serialize.get_jsons(config.players, pretty = True)
 
 
-    if config.static_dir:
-        # Support simple setups where the web UI is provided by this
-        # server instance too
-        @app.route('/<filename:path>')
-        def server_static(filename):
-            return bottle.static_file(filename, root = config.static_dir)
+    # Serve static files from the Python package
+    @app.route('/<filename:path>')
+    def server_static(filename):
+        return bottle.static_file(filename, root = static_dir)
 
-        @app.route('/')
-        def server_root():
-            return bottle.static_file('codadmin.html', root = config.static_dir)
+    @app.route('/')
+    def server_root():
+        return bottle.static_file('codadmin.html', root = static_dir)
     
     return app

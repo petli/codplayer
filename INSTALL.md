@@ -12,34 +12,36 @@ other things) shuts down udev.
 Dependencies
 ------------
 
-codplayer has been tested with Python 2.7.  
+codplayer has been tested with Python 2.7.
 
 The `webui/controlwidget` has been tested with Node.js 0.10.23.
 
 codplayer depends on a number of libraries and utilities.  On a
 Debian/Raspbian/Ubuntu system this should install them all:
 
-    apt-get install \
-    cdrdao eject libasound2-dev \
-    python-musicbrainz2 \
-    python-daemon python-dev \
-    python-bottle
-
-The Python musicbrainzngs package is only released as 0.4, but the
-code needs the upcoming 0.5.  Until that is released, install it from
-github (skip --user if you want to install it system-wide):
-
-    git clone https://github.com/alastair/python-musicbrainzngs.git
-    cd python-musicbrainzngs
-    python setup.py install --user
+    apt-get install libdiscid0 cdrdao eject libasound2-dev python-dev python-virtualenv
 
 
 Build and install
 -----------------
 
-The standard Python distutils are used to build and install codplayer:
+The standard Python setuptools are used to install all dependencies
+and build the C module.
 
-    python setup.py build
+For development it is recommended to install in virtualenv, e.g.:
+
+    virtualenv ~/cod
+    ~/cod/bin/python setup.py develop
+
+This will link up the installation in the virtualenv with the source
+directory, so there's no need to re-install after changes.
+
+To install fully in a virtual env:
+
+    ~/cod/bin/python setup.py install
+
+To do a system-wide installation:
+
     python setup.py install
 
 
@@ -63,13 +65,43 @@ Database initialisation
 -----------------------
 
     mkdir /path/to/new/database/dir
-    codadmin init /path/to/new/database/dir
+    ~/cod/bin/codadmin init /path/to/new/database/dir
+
+(Assuming installation in a virtualenv in `~/cod`.
 
 
 Listing database contents
 -------------------------
 
-    codadmin list /path/to/database
+The database can be inspected with `codadmin`.
+
+    ~/cod/bin/codadmin list /path/to/database
+
+Use `--help` to see all commands.
+
+
+Running codplayer
+-----------------
+
+codplayerd is the main deamon.  It will fork itself, unless started
+with the `-d` flag to remain in debug mode.  If the configuration is
+not located in `/etc/codplayer.conf` the path must be specified with
+`-c`:
+
+    ~/cod/bin/codplayerd -c path/to/codplayer.conf
+
+`codctl` can be used to inspect the state of the daemon and to send it
+commands.  To see all the commands:
+
+    ~/cod/bin/codctl --help
+
+`codctl` also reads `/etc/codplayer.conf`, and like `codplayerd`
+accepts `-c` to indicate another file.
+
+
+The database admin interface is started with
+
+    ~/cod/bin/codrestd -c path/to/codrest.conf
 
 
 Installing the web control widget

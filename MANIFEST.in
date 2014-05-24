@@ -1,4 +1,0 @@
-include LICENSE
-include README.mdown
-include etc/codplayer.conf
-include doc/*.md

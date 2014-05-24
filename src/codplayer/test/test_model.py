@@ -5,6 +5,7 @@
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
+from pkg_resources import resource_string
 import unittest
 import os
 
@@ -499,12 +500,7 @@ class TestDiscFromJSON(unittest.TestCase):
 
 class TestMusicbrainz(unittest.TestCase):
     def get_test_xml(self, name):
-        path = os.path.join(
-            os.path.dirname(__file__),
-            'data',
-            name)
-        
-        return open(path, 'rt').read()
+        return resource_string('codplayer.test', 'data/' + name)
 
     def test_discset_compilation(self):
         xml = self.get_test_xml('discset-compilation.xml')
