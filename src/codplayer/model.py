@@ -96,7 +96,7 @@ class Disc(serialize.Serializable):
         self.date = None
 
     def __str__(self):
-        return self.disc_id
+        return u'{self.disc_id}: {self.artist}/{self.title}'.format(self = self).encode('utf-8')
 
 
 class Track(serialize.Serializable):

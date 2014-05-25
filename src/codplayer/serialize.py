@@ -206,8 +206,11 @@ def load_json(cls, path):
     try:
         with open(path, 'rt') as f:
             raw = json.load(f)
-    except IOError, e:
+    except (ValueError, IOError) as  e:
         raise LoadError('error reading JSON from {0}: {1}'.format(path, e))
+
+    if raw is None:
+        return None
 
     obj = cls()
     populate_object(raw, obj, cls.MAPPING)
@@ -219,8 +222,14 @@ def load_jsons(cls, string):
 
     Returns the object.
     """
-    
-    raw = json.loads(string)
+
+    try:
+        raw = json.loads(string)
+    except ValueError as e:
+        raise LoadError('malformed JSON: {0}'.format(e))
+
+    if raw is None:
+        return None
 
     obj = cls()
     populate_object(raw, obj, cls.MAPPING)
@@ -234,6 +243,9 @@ def load_jsono(cls, raw):
     Returns the object.
     """
     
+    if raw is None:
+        return None
+
     obj = cls()
     populate_object(raw, obj, cls.MAPPING)
     return obj

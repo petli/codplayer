@@ -38,7 +38,20 @@ def main(args):
                 break
 
     if args.command == 'state':
+        ps = None
+        if args.follow:
+            for p in cfg.publishers:
+                ps = p.subscriber()
+                if ps:
+                    break
+            else:
+                sys.exit('no publisher supports subscribing to state updates')
+
         print state
+        if ps:
+            for obj in ps.iter(timeout = args.timeout):
+                print obj
+
 
     # All other commands get sent to the daemon
     else:
@@ -84,8 +97,12 @@ parser.add_argument('-c', '--config', help = 'alternative configuration file')
 
 subparsers = parser.add_subparsers(help = 'command', dest = 'command')
 
-parser_disc = subparsers.add_parser(
+parser_state = subparsers.add_parser(
     'state', help = 'output current player state')
+parser_state.add_argument('-f', '--follow', action = 'store_true',
+                          help = 'follow state updates, if supported by the publisher')
+parser_state.add_argument('-t', '--timeout', type = int,
+                          help = 'stop after TIMEOUT seconds')
 
 parser_disc = subparsers.add_parser(
     'disc', help = 'notify player that a new disc has been inserted, or play disc from database')

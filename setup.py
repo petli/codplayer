@@ -59,10 +59,10 @@ setup(
         'lockfile',
         'python-musicbrainz2',
         'musicbrainzngs >= 0.5',
+        'pyzmq',
     ],
 
     extras_require = {
-
     },
 
     setup_requires = [

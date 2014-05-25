@@ -19,7 +19,9 @@ The `webui/controlwidget` has been tested with Node.js 0.10.23.
 codplayer depends on a number of libraries and utilities.  On a
 Debian/Raspbian/Ubuntu system this should install them all:
 
-    apt-get install libdiscid0 cdrdao eject libasound2-dev python-dev python-virtualenv
+    apt-get install libdiscid0 cdrdao eject libasound2-dev \
+        python-dev python-virtualenv \
+        libzmq3 libzmq3-dev
 
 
 Build and install

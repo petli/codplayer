@@ -126,6 +126,12 @@ class PublisherFactory(object):
         """
         return None
 
+    def subscriber(self):
+        """Return a new StateSubscriber, or None if this publisher type
+        doesn't support it.
+        """
+        return None
+
 class StatePublisher(object):
     """Base class for publishers to be used by player.Transport.
     """
@@ -154,6 +160,18 @@ class StateGetter(object):
 
     def get_disc(self):
         """Return a model.ExtDisc object"""
+        raise NotImplementedError()
+
+
+class StateSubscriber(object):
+    """Base class for state subscribers to be used by player clients."""
+
+    def iter(self, timeout = None):
+        """Return an iterator that will yield State or model.ExtDisc objects.
+
+        If timeout is None it runs forever, otherwise blocks for that
+        many seconds.  If timeout is 0, doesn't block at all.
+        """
         raise NotImplementedError()
 
 
