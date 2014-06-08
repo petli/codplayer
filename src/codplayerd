@@ -16,6 +16,7 @@ import daemon
 import lockfile
 
 from codplayer import db, player, config, sink
+from codplayer import command
 
 def main(args):
     try:
@@ -33,7 +34,7 @@ def main(args):
 
         if args.debug:
             log_file = sys.stderr
-            control_fd = sys.stdin.fileno()
+            cfg.commands.append(command.StdinCommandFactory())
         else:
             try:
                 log_file = open(cfg.log_file, 'at')
@@ -42,32 +43,8 @@ def main(args):
 
             preserve_files.append(log_file)
 
-            # Always recreate the fifo, to avoid any problems with
-            # lingering processes or malcreated fifos
-
-            try:
-                os.unlink(cfg.control_fifo)
-            except OSError:
-                pass
-
-            try:
-                os.mkfifo(cfg.control_fifo)
-                control_fd = os.open(cfg.control_fifo, os.O_RDONLY | os.O_NONBLOCK)
-
-                preserve_files.append(control_fd)
-
-                # To avoid getting an EOF in the reader code when the
-                # processes sending commands closes the fifo, open the
-                # fifo for writing too to ensure that there's always a
-                # writer process.
-                fd = os.open(cfg.control_fifo, os.O_WRONLY)
-                preserve_files.append(fd)
-                
-            except OSError, e:
-                sys.exit('error creating and opening fifo {0}: {1}'.format(cfg.control_fifo, e))
-
         # All set, create the player object
-        p = player.Player(cfg, database, log_file, control_fd)
+        p = player.Player(cfg, database, log_file)
 
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))

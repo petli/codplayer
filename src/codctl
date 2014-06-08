@@ -8,13 +8,31 @@
 
 import sys
 import os
-import errno
 import argparse
 
 from codplayer import player
 from codplayer import config
 from codplayer import db
 from codplayer.state import StateError
+from codplayer.command import CommandError, ClientError
+
+def state_getter(cfg):
+    for p in cfg.publishers:
+        pg = p.getter()
+        if pg:
+            return pg
+
+    return None
+
+
+def state_publisher(cfg):
+    for p in cfg.publishers:
+        ps = p.subscriber()
+        if ps:
+            return ps
+
+    return None
+
 
 def main(args):
     try:
@@ -22,70 +40,57 @@ def main(args):
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
-    # Try to read player state for outputting state and to provide
-    # better error handling to caller.
-
-    for p in cfg.publishers:
-        pg = p.getter()
-        if pg:
-            try:
-                state = pg.get_state()
-            except StateError, e:
-                sys.stderr.write('error reading state: {0}\n'.format(e))
-                state = None
-
-            if state:
-                break
-
     if args.command == 'state':
-        ps = None
+        pg = state_getter(cfg)
+        if not pg:
+            sys.exit('no way to get player state')
+
+        print pg.get_state(timeout = args.timeout)
+
         if args.follow:
-            for p in cfg.publishers:
-                ps = p.subscriber()
-                if ps:
-                    break
-            else:
+            ps = state_publisher(cfg)
+            if not ps:
                 sys.exit('no publisher supports subscribing to state updates')
 
-        print state
-        if ps:
             for obj in ps.iter(timeout = args.timeout):
                 print obj
 
 
+    elif args.command == 'source':
+        pg = state_getter(cfg)
+        if not pg:
+            sys.exit('no way to get player state')
+
+        print pg.get_disc(timeout = args.timeout)
+
     # All other commands get sent to the daemon
     else:
-        if state is not None:
-            if args.command not in state.state.valid_commands:
-                sys.stderr.write(
-                    'warning: invalid command in state {1}: {0}\n'.format(
-                        args.command, state.state.__name__))
+        cmd_args = []
 
         if args.command == 'disc':
             if args.id:
                 if (db.Database.is_valid_disc_id(args.id) or
                     db.Database.is_valid_db_id(args.id)):
-                    cmd = 'disc {0}'.format(args.id)
+                    cmd_args.append(args.id)
                 else:
                     sys.exit('invalid disc or db id: {0}'.format(args.id))
-            else:
-                cmd = 'disc'
-        else:
-            cmd = args.command
 
-        try:
-            fd = os.open(cfg.control_fifo, os.O_WRONLY | os.O_NONBLOCK)
-            os.write(fd, cmd + '\n')
-            os.close(fd)
-        except OSError, e:
-            if e.errno == errno.ENXIO:
-                sys.exit('error sending command to {0}: no deamon listening'
-                         .format(cfg.control_fifo))
-            elif e.errno == errno.ENOENT:
-                sys.exit('error sending command to {0}: no such fifo'
-                         .format(cfg.control_fifo))
+
+        # Try sending through one of the command channels
+        for cf in cfg.commands:
+            c = cf.client()
+            try:
+                ret = c.send(args.command, cmd_args, timeout = args.timeout)
+            except CommandError, e:
+                sys.exit('codplayerd: error: {1}'.format(c.__class__.__name__, e))
+            except ClientError, e:
+                sys.stderr.write('{0} error: {1}\n'.format(c.__class__.__name__, e))
             else:
-                sys.exit('error sending command to fifo: {0}'.format(e))
+                if ret:
+                    print ret
+                return
+
+        sys.exit('failed sending command')
 
 
 #
@@ -94,6 +99,8 @@ def main(args):
 
 parser = argparse.ArgumentParser(description = 'codplayer daemon')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
+parser.add_argument('-t', '--timeout', type = int,
+                    help = 'give up command/stop updates after TIMEOUT seconds')
 
 subparsers = parser.add_subparsers(help = 'command', dest = 'command')
 
@@ -101,8 +108,9 @@ parser_state = subparsers.add_parser(
     'state', help = 'output current player state')
 parser_state.add_argument('-f', '--follow', action = 'store_true',
                           help = 'follow state updates, if supported by the publisher')
-parser_state.add_argument('-t', '--timeout', type = int,
-                          help = 'stop after TIMEOUT seconds')
+
+parser_source = subparsers.add_parser(
+    'source', help = 'get the current source disc as JSON')
 
 parser_disc = subparsers.add_parser(
     'disc', help = 'notify player that a new disc has been inserted, or play disc from database')

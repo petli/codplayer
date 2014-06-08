@@ -17,6 +17,7 @@ class State(serialize.Serializable):
     """Player state as visible to external users.  Attributes:
 
     state: One of the state identifiers:
+      OFF:     The player isn't running
       NO_DISC: No disc is loaded in the player
       WORKING: Disc has been loaded, waiting for streaming to start
       PLAY:    Playing disc normally
@@ -43,6 +44,9 @@ class State(serialize.Serializable):
 
     error: A string giving the error state of the player, if any.
     """
+
+    class OFF:
+        valid_commands = ()
 
     class NO_DISC:
         valid_commands = ('quit', 'disc', 'eject')
@@ -84,7 +88,7 @@ class State(serialize.Serializable):
 
     # Deserialisation methods
     MAPPING = (
-        serialize.Attr('state', enum = (NO_DISC, WORKING, PLAY, PAUSE, STOP)),
+        serialize.Attr('state', enum = (OFF, NO_DISC, WORKING, PLAY, PAUSE, STOP)),
         serialize.Attr('disc_id', str),
         serialize.Attr('track', int),
         serialize.Attr('no_tracks', int),
@@ -99,15 +103,15 @@ class State(serialize.Serializable):
         """Create a State object from the JSON stored in the file PATH."""
         return serialize.load_json(cls, path)
 
+    @classmethod
     def from_string(cls, json):
         """Create a State object from a JSON serialized string."""
-        return serialize.load_jsons(cls, path)
+        return serialize.load_jsons(cls, json)
 
 
-#
-# And here we go all Java style, including long clumsy names, just so
-# we don't end up with a full dependency on ZeroMQ.
-#
+# And here we go all Java style, including long clumsy names, but it
+# does make the configuration much more useful for both server and
+# clients.
 
 class PublisherFactory(object):
     """Base class for  state publisher factories.
@@ -154,11 +158,11 @@ class StatePublisher(object):
 class StateGetter(object):
     """Base class for state getters to be used by player clients."""
 
-    def get_state(self):
+    def get_state(self, timeout = None):
         """Return a State object."""
         raise NotImplementedError()
 
-    def get_disc(self):
+    def get_disc(self, timeout = None):
         """Return a model.ExtDisc object"""
         raise NotImplementedError()
 
@@ -193,13 +197,13 @@ class FilePublisherFactory(PublisherFactory):
         def __init__(self, factory):
             self.factory = factory
 
-        def get_state(self):
+        def get_state(self, timeout = None):
             try:
                 return State.from_file(self.factory.state_path)
             except serialize.LoadError, e:
                 raise StateError(e)
 
-        def get_disc(self):
+        def get_disc(self, timeout = None):
             return serialize.load_json(model.ExtDisc, self.factory.disc_path)
 
 

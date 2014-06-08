@@ -15,28 +15,33 @@ import os
 import pwd
 import grp
 import errno
-import select
 import subprocess
 import time
 import threading
 import Queue
 import traceback
+import copy
+
+import zmq
 
 from musicbrainz2 import disc as mb2_disc
 
+from . import serialize
 from . import db
 from . import model
 from . import source
 from . import sink
 from .state import State
+from .command import CommandError
 
 class PlayerError(Exception):
     pass
 
 
 class Player(object):
+    COMMAND_ENDPOINT = 'inproc://player-commands'
 
-    def __init__(self, cfg, database, log_file, control_fd):
+    def __init__(self, cfg, database, log_file):
         self.cfg = cfg
         self.db = database
         self.log_file = log_file
@@ -51,10 +56,6 @@ class Player(object):
         self.ripping_source = None
 
         self.keep_running = True
-
-        self.control = CommandReader(control_fd)
-        self.poll = select.poll()
-        self.poll.register(self.control, select.POLLIN)
 
         # Figure out which IDs to run as, if any
         self.uid = None
@@ -87,6 +88,14 @@ class Player(object):
         
     def run(self):
         try:
+            # Prepare for in-process commands
+            self.zmq_context = zmq.Context()
+
+            self.command_socket = self.zmq_context.socket(zmq.REP)
+            self.command_socket.bind(self.COMMAND_ENDPOINT)
+
+            # Kick off command servers and publishers
+            commands = [c.server(self) for c in self.cfg.commands]
             publishers = [p.publisher(self) for p in self.cfg.publishers]
 
             # Drop any privs to get ready for full operation.  Do this
@@ -117,23 +126,23 @@ class Player(object):
                 self.run_once(1000)
 
         finally:
-            # "Eject" any disc to reset state to leave less mess behind
             if self.transport:
-                self.transport.eject()
+                self.transport.shutdown()
         
+            # Give state and command sockets a chance to get the
+            # shutdown info to the clients.
+            time.sleep(1)
 
     #
     # Internal methods
     # 
 
     def run_once(self, ms_timeout):
-        fds = self.poll.poll(ms_timeout)
-
-        # Process input
-        for fd, event in fds:
-            if fd == self.control.fileno():
-                for cmd_args in self.control.handle_data():
-                    self.handle_command(cmd_args)
+        ev = self.command_socket.poll(ms_timeout, zmq.POLLIN)
+        if ev:
+            cmd_args = self.command_socket.recv_multipart()
+            result = self.handle_command(cmd_args)
+            self.command_socket.send_multipart(result)
 
         # Check if any current ripping process is finished
         if self.rip_process is not None:
@@ -158,29 +167,47 @@ class Player(object):
                 self.transport.set_ripping_progress(None)
 
                     
+    def handle_command(self, cmd_args):
+        try:
+            self.debug('got command: {0}', cmd_args)
+
+            cmd = cmd_args[0]
+            args = cmd_args[1:]
+
+            try:
+                cmd_func = getattr(self, 'cmd_' + cmd)
+            except AttributeError:
+                raise CommandError('invalid command: {0}', cmd)
+
+            result = cmd_func(args)
+
+            if isinstance(result, State):
+                result_type = 'state'
+            elif isinstance(result, model.ExtDisc):
+                result_type = 'disc'
+            else:
+                result_type = 'ok'
+
+            return (result_type, serialize.get_jsons(result))
+
+        except CommandError as e:
+            self.log('command failed: {0}', e)
+            return ('error', str(e))
+
+        except:
+            self.log('exception in command: {0}', cmd_args)
+            traceback.print_exc(file = self.log_file)
+            return ('error', 'unexpected error: {0}'.format(
+                traceback.format_exc()))
+
+
     #
     # Command processing
     #
-        
-    def handle_command(self, cmd_args):
-        self.debug('got command: {0}', cmd_args)
-
-        cmd = cmd_args[0]
-        args = cmd_args[1:]
-
-        try:
-            cmd_func = getattr(self, 'cmd_' + cmd)
-        except AttributeError:
-            self.log('invalid command: {0}', cmd)
-            return
-
-        cmd_func(args)
-        
 
     def cmd_disc(self, args):
         if self.rip_process:
-            self.log("already ripping disc, can't rip another one yet")
-            return
+            raise CommandError("already ripping disc, can't rip another one yet")
 
         if args:
             # Play disc in database by its ID
@@ -193,10 +220,7 @@ class Player(object):
                 disc = self.db.get_disc_by_db_id(did)
 
             if disc is None:
-                self.log('invalid disc or database ID: {0}', did)
-                return
-
-            self.play_disc(disc)
+                raise CommandError('invalid disc or database ID: {0}'.format(did))
         else:
             # Play inserted physical disc
             self.debug('disc inserted, reading ID')
@@ -205,9 +229,8 @@ class Player(object):
             try:
                 mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
             except mb2_disc.DiscError, e:
-                self.log('error reading disc in {0}: {1}',
-                         self.cfg.cdrom_device, e)
-                return
+                raise CommandError('error reading disc in {0}: {1}'.format(
+                    self.cfg.cdrom_device, e))
 
             # Is this already ripped?
             disc = self.db.get_disc_by_disc_id(mbd.getId())
@@ -216,33 +239,33 @@ class Player(object):
                 # No, rip it and get a Disc object good enough for playing 
                 disc = self.rip_disc(mbd)
                 if not disc:
-                    return
+                    raise CommandError('rip_disc failed to create a Disc object')
 
-            self.play_disc(disc)
+        return self.play_disc(disc)
 
 
     def cmd_stop(self, args):
-        self.transport.stop()
+        return self.transport.stop()
 
 
     def cmd_play(self, args):
-        self.transport.play()
+        return self.transport.play()
 
 
     def cmd_pause(self, args):
-        self.transport.pause()
+        return self.transport.pause()
 
 
     def cmd_play_pause(self, args):
-        self.transport.play_pause()
+        return self.transport.play_pause()
 
 
     def cmd_next(self, args):
-        self.transport.next()
+        return self.transport.next()
         
 
     def cmd_prev(self, args):
-        self.transport.prev()
+        return self.transport.prev()
 
 
     def cmd_quit(self, args):
@@ -251,11 +274,11 @@ class Player(object):
             self.log('but letting currently running cdrdao process finish first')
             
         self.keep_running = False
-        self.transport.stop()
+        return self.transport.shutdown()
 
 
     def cmd_eject(self, args):
-        self.transport.eject()
+        state = self.transport.eject()
 
         # Eject the disc with the help of an external command. There's
         # far too many ioctls to keep track of to do it ourselves.
@@ -271,6 +294,16 @@ class Player(object):
                 self.log("error executing command {0!r}: {1}:", args, e)
             except subprocess.CalledProcessError, e:
                 self.log("{0}", e)
+
+        return state
+
+
+    def cmd_state(self, args):
+        return self.transport.get_state()
+
+
+    def cmd_source(self, args):
+        return self.transport.get_source_disc()
 
 
     def rip_disc(self, mbd):
@@ -299,9 +332,8 @@ class Player(object):
             log_path = os.path.join(path, 'cdrdao.log')
             log_file = open(log_path, 'wt')
         except IOError, e:
-            self.log("error ripping disc: can't open log file {0}: {1}",
-                     log_path, e)
-            return False
+            raise CommandError("error ripping disc: can't open log file {0}: {1}"
+                               .format(log_path, e))
 
         self.debug('executing command in {0}: {1!r}', path, args)
                 
@@ -313,8 +345,7 @@ class Player(object):
                 stdout = log_file,
                 stderr = subprocess.STDOUT)
         except OSError, e:
-            self.log("error executing command {0!r}: {1}:", args, e)
-            return None
+            raise CommandError("error executing command {0!r}: {1}".format(args, e))
 
         return disc
 
@@ -338,7 +369,7 @@ class Player(object):
         else:
             src = source.PCMDiscSource(self, disc, False)
         
-        self.transport.new_source(src, track_number)
+        return self.transport.new_source(src, track_number)
 
 
     def log(self, msg, *args, **kwargs):
@@ -434,15 +465,47 @@ class Transport(object):
         sink_thread.start()
 
 
+    def get_state(self):
+        with self.lock:
+            return copy.copy(self.state)
+
+
+    def get_source_disc(self):
+        with self.lock:
+            if self.source:
+                return model.ExtDisc(self.source.disc)
+            else:
+                return None
+
+
     #
     # Commands changing transport state
     # 
 
+    def shutdown(self):
+        with self.lock:
+            if self.state.state == State.OFF:
+                return
+
+            self.log('transport shutting down')
+            self.sink.stop()
+
+            self.new_context()
+            self.source = None
+            self.start_track = None
+
+            self.state = State()
+            self.state.state = State.OFF
+            self.update_state()
+            self.update_disc()
+
+            return copy.copy(self.state)
+
+
     def new_source(self, source, track = 0):
         with self.lock:
             if self.state.state == State.WORKING:
-                self.debug('ignoring new_source while WORKING')
-                return
+                raise CommandError('ignoring new_source while WORKING')
 
             self.debug('new source for disc: {0} state: {1}'.format(
                     source.disc.disc_id, self.state.state.__name__))
@@ -454,6 +517,7 @@ class Transport(object):
             self.start_new_track(track)
 
             self.update_disc()
+            return copy.copy(self.state)
 
 
     def eject(self):
@@ -470,6 +534,7 @@ class Transport(object):
             self.set_state_no_disc()
 
             self.update_disc()
+            return copy.copy(self.state)
 
             
     def play(self):
@@ -482,7 +547,10 @@ class Transport(object):
                 self.do_resume()
 
             else:
-                self.debug('ignoring play() in state {0}'.format(self.state.state))
+                raise CommandError('ignoring play() in state {0}'.format(
+                    self.state.state))
+
+            return copy.copy(self.state)
 
 
     def pause(self):
@@ -490,8 +558,10 @@ class Transport(object):
             if self.state.state == State.PLAY:
                 self.do_pause()
             else:
-                self.debug('ignoring pause() in state {0}'.format(self.state.state))
+                raise CommandError('ignoring pause() in state {0}'.format(
+                    self.state.state))
 
+            return copy.copy(self.state)
 
     def play_pause(self):
         with self.lock:
@@ -506,21 +576,25 @@ class Transport(object):
                 self.do_resume()
 
             else:
-                self.debug('ignoring play() in state {0}'.format(self.state.state))
+                raise CommandError('ignoring play() in state {0}'.format(
+                    self.state.state))
+
+            return copy.copy(self.state)
 
 
     def stop(self):
         with self.lock:
             if self.state.state not in (State.PLAY, State.PAUSE):
-                self.debug('ignoring stop() in state {0}'.format(self.state.state))
-                return
-            
+                raise CommandError('ignoring stop() in state {0}'.format(
+                    self.state.state))
+
             self.log('transport stopping')
             self.sink.stop()
 
             self.new_context()
             self.start_track = None
             self.set_state_stop()
+            return copy.copy(self.state)
 
 
     def prev(self):
@@ -554,7 +628,10 @@ class Transport(object):
                     self.start_track = None
                     self.set_state_stop()
             else:
-                self.debug('ignoring prev() in state {0}'.format(self.state.state))
+                raise CommandError('ignoring prev() in state {0}'.format(
+                    self.state.state))
+
+            return copy.copy(self.state)
 
 
     def next(self):
@@ -577,7 +654,10 @@ class Transport(object):
                     self.start_track = None
                     self.set_state_stop()
             else:
-                self.debug('ignoring next() in state {0}'.format(self.state.state))
+                raise CommandError('ignoring next() in state {0}'.format(
+                    self.state.state))
+
+            return copy.copy(self.state)
 
 
     def set_ripping_progress(self, progress):
@@ -608,7 +688,7 @@ class Transport(object):
                 self.state.ripping = progress
                 self.update_state(False)
 
-                
+
     #
     # State updating methods.  self.lock must be held when calling these
     #
@@ -918,63 +998,3 @@ class Transport(object):
                 self.state.position = pos
                 self.update_state(False)
 
-
-class CommandReader(object):
-    """Wrapper around the file object for the command channel.
-
-    It collects whole lines of input and returns an argv style list
-    when complete.
-    """
-
-    def __init__(self, fd):
-        self.fd = fd
-        self.buffer = ''
-
-    def fileno(self):
-        """For compatibility with poll()"""
-        return self.fd
-
-    def handle_data(self):
-        """Call when poll() says there's data to read on the control file.
-
-        Acts as an iterator, generating all received commands
-        (typically only one, though).  The command is split into an
-        argv style list.
-        """
-        
-        self.buffer += self.read_data()
-
-        # Not a complete line yet
-        if '\n' not in self.buffer:
-            return
-
-        lines = self.buffer.splitlines(True)
-
-        # The last one may be a partial line, indicated by not having
-        # a newline at the end
-        last_line = lines[-1]
-        if last_line and last_line[-1] != '\n':
-            self.buffer = last_line
-            del lines[-1]
-        else:
-            self.buffer = ''
-            
-        # Process the complete lines
-        for line in lines:
-            if line:
-                assert line[-1] == '\n'
-                cmd_args = line.split()
-                if cmd_args:
-                    yield cmd_args
-
-    def read_data(self):
-        """This function mainly exists to support the test cases for
-        the class, allowing them to override the system call.
-        """
-        
-        d = os.read(self.fd, 500)
-        if not d:
-            raise PlayerError('unexpected close of control file')
-
-        return d
-        

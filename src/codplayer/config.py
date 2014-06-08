@@ -10,6 +10,7 @@ Classes for loading configuration files.
 
 from . import serialize
 from . import state
+from . import command
 
 
 class ConfigError(Exception):
@@ -55,8 +56,8 @@ class PlayerConfig(Config):
         serialize.Attr('group', str),
         serialize.Attr('pid_file', str),
         serialize.Attr('log_file', str),
+        serialize.Attr('commands', list_type = command.CommandFactory),
         serialize.Attr('publishers', list_type = state.PublisherFactory),
-        serialize.Attr('control_fifo', str),
         serialize.Attr('cdrom_device', str),
         serialize.Attr('cdrdao_command', str),
         serialize.Attr('eject_command', str),

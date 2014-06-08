@@ -30,6 +30,7 @@ Example file:
 ```json
 {
   "disc_id": "IAFL61gCjwAGpOwBz3kjG7QWMa8-", 
+  "error": null,
   "index": 1, 
   "no_tracks": 4, 
   "position": 27, 
@@ -42,6 +43,7 @@ Example file:
 Attributes:
 
 * `state`: One of the state identifiers:
+  * `OFF`:     The player isn't running
   * `NO_DISC`: No disc is loaded in the player
   * `WORKING`: Disc has been loaded, waiting for streaming to start
   * `PLAY`:    Playing disc normally
@@ -66,8 +68,9 @@ Attributes:
 * `length`: Length of the current track in whole seconds, counting
   from index 1 (i.e. not including any pregap).
 
-* `ripping`: `false` if the disc is played from a previously ripped
+* `ripping`: `null` if the disc is played from a previously ripped
   copy, otherwise a number 0-100 indicating how many percent of the
   disc has been ripped.  (Take care to use the === operator in
   javascript.)
 
+* `error`: A string giving the error state of the player, if any.
