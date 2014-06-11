@@ -1,12 +1,16 @@
 {
   "name": "codctl_widget",
   "description": "codplayer control web widget",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "bin": "server.js",
   "dependencies": {
     "jsonfile": "*",
-    "express": "3.x",
-    "socket.io": "0.9"
+    "express": "4.x",
+    "socket.io": "0.9",
+    "zmq": "*"
+  },
+  "devDependencies": {
+      "jshint": "*"
   },
   "private": "true"
 }

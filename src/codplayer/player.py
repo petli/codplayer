@@ -119,11 +119,20 @@ class Player(object):
                 sink.SINKS[self.cfg.audio_device_type](self),
                 publishers)
 
+            # Force out a bunch of updates at the start to improve the
+            # chance that already running state subscribers get the
+            # update
+            force_updates = 30
+
             # Main loop, executing until a quit command is received.
             # However, don't stop if a rip process is currently running.
 
             while self.keep_running or self.rip_process is not None:
                 self.run_once(1000)
+
+                if force_updates > 0:
+                    force_updates -= 1
+                    self.transport.force_state_update()
 
         finally:
             if self.transport:
@@ -183,7 +192,7 @@ class Player(object):
 
             if isinstance(result, State):
                 result_type = 'state'
-            elif isinstance(result, model.ExtDisc):
+            elif isinstance(result, model.ExtDisc) or cmd == 'source':
                 result_type = 'disc'
             else:
                 result_type = 'ok'
@@ -449,8 +458,8 @@ class Transport(object):
         # End of self.lock protected members
 
         # Write NO_DISC state at startup
-        self.update_state()
         self.update_disc()
+        self.update_state()
 
         # Kick off the threads
         source_thread = threading.Thread(target = self.source_thread,
@@ -477,6 +486,10 @@ class Transport(object):
             else:
                 return None
 
+    def force_state_update(self):
+        with self.lock:
+            return self.update_state(log_state = False)
+
 
     #
     # Commands changing transport state
@@ -493,11 +506,11 @@ class Transport(object):
             self.new_context()
             self.source = None
             self.start_track = None
+            self.update_disc()
 
             self.state = State()
             self.state.state = State.OFF
             self.update_state()
-            self.update_disc()
 
             return copy.copy(self.state)
 
@@ -514,9 +527,10 @@ class Transport(object):
                 self.sink.stop()
 
             self.source = source
+            self.update_disc()
+
             self.start_new_track(track)
 
-            self.update_disc()
             return copy.copy(self.state)
 
 
@@ -531,9 +545,10 @@ class Transport(object):
             self.new_context()
             self.source = None
             self.start_track = None
+            self.update_disc()
+
             self.set_state_no_disc()
 
-            self.update_disc()
             return copy.copy(self.state)
 
             
