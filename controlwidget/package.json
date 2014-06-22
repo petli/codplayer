@@ -1,15 +1,26 @@
 {
-  "name": "codplayer-control",
-  "description": "codplayer control web widget",
-  "version": "0.2.0",
-  "bin": "server.js",
-  "dependencies": {
-    "jsonfile": "*",
-    "express": "4.x",
-    "socket.io": "0.9",
-    "zmq": "*"
-  },
-  "devDependencies": {
-      "jshint": "*"
-  }
+    "name": "codplayer-control",
+    "version": "0.2.0",
+    "description": "codplayer control web interface",
+    "homepage": "https://github.com/petli/codplayer",
+    "author": {
+        "name": "Peter Liljenberg",
+        "email": "peter.liljenberg@gmail.com",
+        "url": "https://github.com/petli"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/petli/codplayer.git"
+    },
+    "license": "MIT",
+    "bin": "server.js",
+    "dependencies": {
+        "jsonfile": "*",
+        "express": "4.x",
+        "socket.io": "0.9",
+        "zmq": "*"
+    },
+    "devDependencies": {
+        "jshint": "*"
+    }
 }
