@@ -8,6 +8,9 @@
 Classes for loading configuration files.
 """
 
+import sys
+import os
+
 from . import serialize
 from . import state
 from . import command
@@ -36,7 +39,7 @@ class Config(object):
         try:
             params = {}
             execfile(config_file, params)
-        except SyntaxError, e:
+        except (IOError, SyntaxError) as e:
             raise ConfigError('error reading config file {0}: {1}'
                               .format(config_file, e))
 
@@ -48,7 +51,7 @@ class Config(object):
         
             
 class PlayerConfig(Config):
-    DEFAULT_FILE = '/etc/codplayer.conf'
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codplayer.conf')
 
     CONFIG_PARAMS = (
         serialize.Attr('database', str),
@@ -75,7 +78,7 @@ class PlayerConfig(Config):
 
 
 class RestConfig(Config):
-    DEFAULT_FILE = '/etc/codrest.conf'
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codrest.conf')
 
     CONFIG_PARAMS = (
         serialize.Attr('database', str),

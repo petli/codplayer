@@ -6,7 +6,7 @@ from setuptools.command.test import test as TestCommand
 
 setup(
     name = 'codplayer',
-    version = '1.0',
+    version = '0.9',
     license = 'MIT',
     description = 'Complicated CD player',
     author = 'Peter Liljenberg',
@@ -27,6 +27,7 @@ setup(
 
     package_data = {
         'codplayer': [
+            'data/config/*.conf',
             'data/dbadmin/*.html',
             'data/dbadmin/*.js',
             'data/dbadmin/*.css',

@@ -6,8 +6,12 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 import sys
+import os
 import argparse
 import subprocess
+import shutil
+
+from pkg_resources import resource_filename
 
 from codplayer import db, model
 from codplayer import serialize
@@ -17,6 +21,18 @@ def cmd_init(args):
         db.Database.init_db(args.db_dir)
     except db.DatabaseError, e:
         sys.exit(str(e))
+
+
+def cmd_config(args):
+    dest_dir = args.config_dir or ''
+    for f in ('codplayer.conf', 'codrest.conf'):
+        src = resource_filename('codplayer', 'data/config/' + f)
+        dest = os.path.join(dest_dir, f)
+        if os.path.exists(dest) and not args.force:
+            sys.exit('file already exists (use -f to overwrite): {0}'.format(dest))
+
+        sys.stderr.write('creating {0}\n'.format(dest))
+        shutil.copyfile(src, dest)
 
 
 def cmd_list(args):
@@ -110,6 +126,14 @@ parser_init = subparsers.add_parser(
     'init', help = 'initialise a database in an existing, empty directory')
 parser_init.add_argument('db_dir')
 parser_init.set_defaults(func = cmd_init)
+
+parser_config = subparsers.add_parser(
+    'config', help = 'create default config files in the current directory')
+parser_config.add_argument('-f', '--force', action = 'store_true',
+                           help = 'overwrite any existing files')
+parser_config.add_argument('config_dir', nargs = '?',
+                           help = 'create files here instead of current directory')
+parser_config.set_defaults(func = cmd_config)
 
 parser_list = subparsers.add_parser(
     'list', help = 'list the discs in a database')

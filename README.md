@@ -19,10 +19,17 @@ discs allows them to be edited.  Some use cases for this include:
 * Link multi-disc albums so all the discs are played in sequence
 
 
+Installation
+============
+
+Installation and configuration instructions are provided in
+[`INSTALL.md`](https://github.com/petli/codplayer/blob/master/INSTALL.md).
+
+
 License
 =======
 
-Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
 
 codplayer is licensed under an MIT license, please see the file
 LICENSE.
@@ -38,7 +45,7 @@ mustache.js is licensed under an MIT license:
 * Copyright (c) 2009 Chris Wanstrath (Ruby)
 * Copyright (c) 2010 Jan Lehnardt (JavaScript)
 
-The icon font was generated from icomoon.io.
+The icon font was generated from http://icomoon.io/
 
 
 Architecture
@@ -51,8 +58,8 @@ administration UIs.
 The target system setup is to run the player deamon on a fanless,
 diskless small computer hooked up to the hifi in the living room,
 which is connected over the LAN to a file server which holds the disc
-database.  The player computer would provide the control interface,
-while the file server would host the database administration web GUI.
+database.  The web control interface and the the database
+administration web GUI can be hosted on the file server.
 
 
 The disc database
@@ -68,10 +75,9 @@ The player daemon
 -----------------
 
 codplayerd links the CD reader and the sound output device with the
-disc database, ripping and playing disc.  It is controlled over a FIFO
-in the file system, and continously updates a file with the player
-state.  All the different interfaces uses the FIFO and the state file
-to control and output the state of the player daemon.
+disc database, ripping and playing disc.  It is controlled over ZeroMQ
+sockets or via a FIFO in the file system.  The current state is sent
+to ZeroMQ subscribers, but can also be read from a local file.
 
 
 Player interfaces
@@ -82,7 +88,7 @@ interfaces.  E.g.:
 
 * codctl - command line interface
 * codmousectl - use a wireless USB mouse as remote control
-* Web interface (a simple one is in `src/webui/controlwidget`)
+* Web interface (a simple one is in `controlwidget`)
 * Control apps (none implemented yet)
 * Physical button and LED display interfaces (not implemented either)
 
@@ -90,9 +96,8 @@ interfaces.  E.g.:
 Database administration
 -----------------------
 
-A web GUI for administering the discs in the database is provided in
-`src/webui/dbadmin`, which accesses the database through the REST
-interface provided by `codrestd`.  Current features:
+A web GUI for administering the discs in the database is provided via
+the REST API provided by `codrestd`.  Current features:
 
 * Browse discs, show track listings
 * Edit disc and track details
