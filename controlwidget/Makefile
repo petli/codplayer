@@ -11,4 +11,9 @@ all: lint
 lint: server.js
 	$(JSHINT) $(REPORTER) $^
 
-.PHONY: all lint
+
+dist:
+	git clean -fx .
+	npm pack
+
+.PHONY: all lint dist

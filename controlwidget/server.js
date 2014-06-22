@@ -21,18 +21,25 @@ var currentDisc = null;
 
 
 //
-// Command line parsing
+// Read config
 //
 
 var configPath;
 var config;
 
-if (process.argv.length !== 3) {
-    console.error('Usage: %s %s config.json', process.argv[0], process.argv[1]);
+if (process.argv.length === 2) {
+    configPath = __dirname + '/config.json';
+}
+else if (process.argv.length === 3) {
+    configPath = process.argv[2];
+}
+else {
+    console.error('Usage: %s %s [config.json]', process.argv[0], process.argv[1]);
     process.exit(1);
 }
 
-configPath = process.argv[2];
+console.log('reading config from: %s', configPath);
+
 try {
     config = jf.readFileSync(configPath);
 }

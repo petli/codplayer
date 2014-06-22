@@ -1,5 +1,5 @@
 {
-  "name": "codctl_widget",
+  "name": "codplayer-control",
   "description": "codplayer control web widget",
   "version": "0.2.0",
   "bin": "server.js",
@@ -11,6 +11,5 @@
   },
   "devDependencies": {
       "jshint": "*"
-  },
-  "private": "true"
+  }
 }
