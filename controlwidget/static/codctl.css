@@ -72,6 +72,7 @@ body {
     background-color: #ddd;
     padding: 4px;
     font-size: 14pt;
+    border-radius: 4px;
 }
 
 .left-value {
@@ -94,12 +95,14 @@ body {
 
 
 #ripping-state {
-    float: right;
-    margin-top: 4px;
-    margin-right: 18px;
+    position: absolute;
+    top: 3px;
+    right: 17px;
     display: none;
+    border: 1px solid #444;
     font-size: 8pt;
     min-width: 4.5em;
+    border-radius: 2px;
 }
     
 
@@ -113,18 +116,18 @@ body {
     padding: 0px 8px;
 }
 
-#album-info {
-    display: inline-table;
-    border-collapse: collapse;
-    margin-left: 10px;
-    margin-right: 10px;
+.album-info {
+    text-align: center;
+    vertical-align: baseline;
 }
     
-#album-info td {
-    vertical-align: baseline;
-    text-align: left;
+.album-info-item {
+    display: inline-block;
     background-color: #ddd;
-    padding: 4px;
+    font-size: 14pt;
+    padding: 4px 8px;
+    margin: 6px 6px;
+    border-radius: 3px;
 }
 
 #track-list {
@@ -139,6 +142,7 @@ body {
     padding: 4px;
     margin: 6px auto 6px auto;
     text-align: left;
+    border-radius: 3px;
 }
 
 .short-track-info-box {
@@ -147,6 +151,7 @@ body {
     padding: 4px;
     margin: 6px 3px 6px 3px;
     min-width: 5em;
+    border-radius: 3px;
 }
 
 .track-info {
@@ -164,6 +169,10 @@ body {
     display: inline-block;
     min-width: 2.5em;
     text-align: right;
+}
+
+.current-track {
+    background-color: #acf;
 }
 
 /*

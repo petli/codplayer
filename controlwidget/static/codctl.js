@@ -23,6 +23,7 @@ $(function(){
         STOP:    '\u25a0'
     };
 
+    var highlightedTrack = 0;
     var showingRipping = false;
 
     var formatTime = function(seconds) {
@@ -42,6 +43,16 @@ $(function(){
         return sign + minPart + ':' + secPart;
     };
 
+    var highlightTrack = function() {
+        if (highlightedTrack) {
+            var el = $('#track-' + highlightedTrack);
+
+            if (el.size()) {
+                el.addClass('current-track');
+                el.get(0).scrollIntoView(true);
+            }
+        }
+    };
 
     var socket = io.connect();
     socket.on('connect', function () {
@@ -84,6 +95,13 @@ $(function(){
             document.title = title || 'codplayer';
             data.summary = title;
 
+            // Change current track highlightning, if any
+            if (data.track !== highlightedTrack) {
+                highlightedTrack = data.track;
+                $('.current-track').removeClass('current-track');
+                highlightTrack();
+            }
+
             // If we're embedded in an iframe, send the state update to the parent too
             if (window.parent !== window) {
                 window.parent.postMessage(
@@ -119,6 +137,7 @@ $(function(){
             }
 
             $('#album').replaceWith(album);
+            highlightTrack();
         });
     });
 

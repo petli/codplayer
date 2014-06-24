@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <title>codplayer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="normalize-3.0.1.css" type="text/css"></style>
   <link rel="stylesheet" href="codctl.css" type="text/css"></style>
+
   <script src="jquery-2.0.3.min.js"></script>
   <script src="socket.io/socket.io.js"></script>
   <script src="jquery.mustache.js"></script>
@@ -48,25 +51,23 @@
   
   <script type="text/template" id="album-template">
     <div id="album">
+        <div class="album-info">
+	  {{#title}}
+          <div class="album-info-item">{{.}}</div>
+	  {{/title}}
+
+	  {{#artist}}
+          <div class="album-info-item">{{.}}</div>
+	  {{/artist}}
+        </div>
+
       <div class="scrollable">
-      <table id="album-info">
-	{{#title}}
-	  <tr><td class="info-desc">Album:</td>
-	      <td class="info-value">{{.}}</td></tr>
-	{{/title}}
-
-	{{#artist}}
-	  <tr><td class="info-desc">Artist:</td>
-	      <td class="info-value">{{.}}</td></tr>
-	{{/artist}}
-      </table>
-
       
       <div id="track-list">
 	{{#tracks}}
 
           {{#trackHasTitle}}
-          <span class="full-track-info-box">
+          <span id="track-{{number}}" class="full-track-info-box">
             <span class="track-number">{{number}}.</span>
             <span class="track-length">{{lengthTime}}</span>
             <span class="track-info">
@@ -76,7 +77,7 @@
           {{/trackHasTitle}}
           
           {{^title}}
-          <span class="short-track-info-box">
+          <span id="track-{{number}}" class="short-track-info-box">
             <span class="track-number">{{number}}.</span>
             <span class="track-length">{{lengthTime}}</span>
           </span>
