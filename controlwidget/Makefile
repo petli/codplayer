@@ -8,7 +8,7 @@ endif
 
 all: lint
 
-lint: server.js
+lint: server.js static/codctl.js
 	$(JSHINT) $(REPORTER) $^
 
 

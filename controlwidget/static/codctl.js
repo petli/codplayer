@@ -5,12 +5,14 @@
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
 $(function(){
+    'use strict';
+
     var stateSymbols = {
-	NO_DISC: '\ue60a',
-	WORKING: '\ue606',
-	PLAY:    '\u25b6',
-	PAUSE:   '\u2016',
-	STOP:    '\u25a0'
+        NO_DISC: '\ue60a',
+        WORKING: '\ue606',
+        PLAY:    '\u25b6',
+        PAUSE:   '\u2016',
+        STOP:    '\u25a0'
     };
 
     var titleStateSymbols = {
@@ -24,27 +26,27 @@ $(function(){
     var showingRipping = false;
 
     var formatTime = function(seconds) {
-	var sign = '';
-	if (seconds < 0) {
-	    sign = '-';
-	    seconds = -seconds;
-	}
+        var sign = '';
+        if (seconds < 0) {
+            sign = '-';
+            seconds = -seconds;
+        }
 
-	var minPart = Math.floor(seconds / 60).toString();
-	var secPart = (seconds % 60).toString();
+        var minPart = Math.floor(seconds / 60).toString();
+        var secPart = (seconds % 60).toString();
 
-	if (secPart.length == 1) {
-	    secPart = '0' + secPart;
-	}
+        if (secPart.length === 1) {
+            secPart = '0' + secPart;
+        }
 
-	return sign + minPart + ':' + secPart;	
+        return sign + minPart + ':' + secPart;
     };
 
 
     var socket = io.connect();
     socket.on('connect', function () {
-	socket.on('cod-state', function(data) {
-	    // TODO: should probably be paranoid about what we get in data
+        socket.on('cod-state', function(data) {
+            // TODO: should probably be paranoid about what we get in data
 
             var state = data.state.toString();
             var stateSymbol = stateSymbols[state] || state;
@@ -54,24 +56,24 @@ $(function(){
             var title = '';
 
             $('#state').text(stateSymbol);
-	    $('#track').text(data.track.toString());
+            $('#track').text(data.track.toString());
             $('#no_tracks').text(data.no_tracks.toString());
             $('#position').text(position);
             $('#length').text(length);
 
-	    if (typeof data.ripping !== 'number') {
+            if (typeof data.ripping !== 'number') {
                 if (showingRipping) {
-		    $('#ripping-state').fadeOut();
+                    $('#ripping-state').fadeOut();
                     showingRipping = false;
                 }
-	    }
-	    else {
-		$('#ripping-percentage').text(data.ripping.toString());
+            }
+            else {
+                $('#ripping-percentage').text(data.ripping.toString());
                 if (!showingRipping) {
-		    $('#ripping-state').fadeIn();
+                    $('#ripping-state').fadeIn();
                     showingRipping = true;
                 }
-	    }
+            }
 
             if (state !== 'NO_DISC') {
                 title = (titleState + ' ' +
@@ -83,7 +85,7 @@ $(function(){
             data.summary = title;
 
             // If we're embedded in an iframe, send the state update to the parent too
-            if (window.parent != window) {
+            if (window.parent !== window) {
                 window.parent.postMessage(
                     JSON.stringify({
                         codplayer: {
@@ -93,35 +95,35 @@ $(function(){
             }
         });
 
-	socket.on('cod-disc', function(disc) {
-	    var template = $('#album-template').html();
-	    var album;
+        socket.on('cod-disc', function(disc) {
+            var template = $('#album-template').html();
+            var album;
 
-	    if (disc && disc.tracks && disc.tracks.length) {
+            if (disc && disc.tracks && disc.tracks.length) {
                 disc.trackHasTitle = function() {
                     return this.title && this.title.length > 0;
                 };
 
-		disc.lengthTime = function() {
-		    return formatTime(this.length);
-		};
+                disc.lengthTime = function() {
+                    return formatTime(this.length);
+                };
 
-		disc.artistIfDifferent = function() {
-		    return this.artist === disc.artist ? '' : this.artist;
-		};
-		
-		album = $.mustache(template, disc);
-	    }
-	    else {
-		album = $('<div id="album"></div>');
-	    }
+                disc.artistIfDifferent = function() {
+                    return this.artist === disc.artist ? '' : this.artist;
+                };
 
-	    $('#album').replaceWith(album);
-	});
+                album = $.mustache(template, disc);
+            }
+            else {
+                album = $('<div id="album"></div>');
+            }
+
+            $('#album').replaceWith(album);
+        });
     });
 
     $('button.command').on('click', function(event) {
-	socket.emit('cod-command', { command: this.id });
+        socket.emit('cod-command', { command: this.id });
     });
 
     /* Accept messages from a containing window to play a disc */
@@ -130,8 +132,7 @@ $(function(){
         var data = JSON.parse(ev.data);
         var cmd;
 
-        if (ev.source === window.parent
-            && data && data.codplayer) {
+        if (ev.source === window.parent && data && data.codplayer) {
             if (data.codplayer.play && typeof data.codplayer.play.disc === 'string') {
                 cmd = 'disc ' + data.codplayer.play.disc;
                 console.log('Got message from parent, issuing command: %s', cmd);
