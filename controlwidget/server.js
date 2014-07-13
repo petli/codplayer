@@ -108,6 +108,7 @@ var onSocketMessage = function(type, value) {
         }
         catch (e) {
             console.log('invalid state: %j', value);
+            io.sockets.emit('cod-error', 'Malformed state update from codplayer');
             return;
         }
 
@@ -151,7 +152,7 @@ var onSocketMessage = function(type, value) {
 
     case 'error':
         console.log('codplayer sent an error: %s', value);
-        io.sockets.emit('error', value);
+        io.sockets.emit('cod-error', value);
         break;
 
     case 'ok':
@@ -168,7 +169,7 @@ var openStateSocket = function() {
 
     stateSocket.on('error', function(err) {
         console.log('state socket error: %j', err);
-        io.sockets.emit('error', err);
+        io.sockets.emit('cod-error', err);
     });
 
     stateSocket.on('message', onSocketMessage);
@@ -183,7 +184,7 @@ var openCommandSocket = function() {
 
     commandSocket.on('error', function(err) {
         console.log('command socket error: %j', err);
-        io.sockets.emit('error', err);
+        io.sockets.emit('cod-error', err);
     });
 
     commandSocket.on('message', function(type, value) {
@@ -227,6 +228,8 @@ sendCommand = function(cmdargs) {
     commandTimeout = setTimeout(
         function() {
             console.log('timeout sending command: %s', currentCommand);
+            io.sockets.emit('cod-error', 'No response from server');
+
             currentCommand = null;
             commandTimeout = null;
 

@@ -54,6 +54,27 @@ $(function(){
         }
     };
 
+    var currentError = '';
+    var setError = function(error) {
+        if (error === currentError) {
+            return;
+        }
+
+        if (error) {
+            $('#error').text(error);
+            $('#error').fadeIn({
+                duration: 200,
+                queue: false,
+            });
+        }
+        else {
+            $('#error').fadeOut({
+                duration: 2000,
+                queue: true,
+            });
+        }
+    };
+
     var socket = io.connect();
     socket.on('connect', function () {
         socket.on('cod-state', function(data) {
@@ -111,6 +132,9 @@ $(function(){
                         }
                     }), "*");
             }
+
+            // Update the error display, if any
+            setError(data.error);
         });
 
         socket.on('cod-disc', function(disc) {
@@ -139,6 +163,10 @@ $(function(){
             $('#album').replaceWith(album);
             highlightTrack();
         });
+    });
+
+    socket.on('cod-error', function(error) {
+        setError(error);
     });
 
     $('button.command').on('click', function(event) {

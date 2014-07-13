@@ -107,6 +107,25 @@ body {
     
 
 /*
+ * Error box
+ */
+
+#error {
+    display: none;
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    left: 8px;
+    bottom: auto;
+
+    padding: 5px 8px;
+    background: #ffccd4;
+    color: #f00;
+    border: 1px solid #f00;
+    border-radius: 3px
+}
+
+/*
  * Album info
  */
 
