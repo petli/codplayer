@@ -1,42 +1,46 @@
 Installing codplayer
 ====================
 
-This is yet to be packaged up in a general way, but the instructions
-here should provide some guidance at least.
-
-The author deploys codplayer on a RaspberryPi B running the
-volumio.org dist, but with its PHP web UI disabled since it (among
-other things) shuts down udev.
-
+For further information on hardware and OS setup examples, see
+https://github.com/petli/codplayer/wiki
 
 Dependencies
 ------------
 
 codplayer has been tested with Python 2.7.
 
-The `webui/controlwidget` has been tested with Node.js 0.10.23.
+The `webui/controlwidget` has been tested with Node.js 0.10.x.
 
 codplayer depends on a number of libraries and utilities.  On a Ubuntu
 system this should install them all:
 
     apt-get install libdiscid0 cdrdao eject libasound2-dev \
-        python-dev python-virtualenv \
+        python-dev python-virtualenv python-pip \
         libzmq3 libzmq3-dev
 
 Raspbian has an older version of ZeroMQ:
 
     apt-get install libdiscid0 cdrdao eject libasound2-dev \
-        python-dev python-virtualenv \
+        python-dev python-virtualenv python-pip \
         libzmq1 libzmq-dev
 
 
-Build and install
------------------
+Install released package
+------------------------
 
-The standard Python setuptools are used to install all dependencies
-and build the C module.
+The latest release of codplayer can be installed with `pip`.  It is
+recommended to install it in a virtualenv:
 
-For development it is recommended to install in virtualenv, e.g.:
+    virtualenv ~/cod
+    ~/cod/bin/pip install codplayer
+
+Then continue with the configuration, described below.
+
+Install from source
+-------------------
+
+To run directly from source the package and scripts must be deployed
+in a virtualenv:
 
     virtualenv ~/cod
     ~/cod/bin/python setup.py develop
@@ -47,10 +51,6 @@ directory, so there's no need to re-install after changes.
 To install fully in a virtual env:
 
     ~/cod/bin/python setup.py install
-
-To do a system-wide installation:
-
-    python setup.py install
 
 
 Configuration
@@ -120,23 +120,21 @@ The database admin interface is started with
 
     ~/cod/bin/codrestd -c path/to/codrest.conf
 
+It can be accessed on `http://localhost:8303` if running locally
+(otherwise substitute the hostname and possibly port number with the
+correct location).
+
 
 Installing the web control widget
 =================================
 
 The web control widget is a Node.js server, located in
 `controlwidget`.  It can be run on any machine which can connect to
-the ZeroMQ sockets of `codplayerd`.  There are three installation
-alternatives, listed below.
+the ZeroMQ sockets of `codplayerd`.
 
-When installed, open `http://hostname:port/` to access the control
-interface.
-
-The server does not fork (right now), so it is a good idea to start it
-in the background and redirect all output to a log file.  E.g. with a
-global install:
-
-    nohup codplayer-control >>/tmp/codctlwidget.log 2>&1 &
+When installed, open `http://localhost:8304/` if running locally
+(otherwise substitute the hostname and possibly port number with the
+correct location).
 
 
 Getting Node.js
@@ -151,15 +149,42 @@ A precompiled package for Raspbian is available here:
 https://github.com/nathanjohnson320/node_arm
 
 
+Install released package
+------------------------
+
+The latest release of the control widget can be installed with npm.
+It is recommended to install it in a dedicated directory, e.g.:
+
+    mkdir ~/cod
+    cd ~/cod
+    npm install codplayer-control
+
+
 Configuration
 -------------
 
-The default settings in `controlwidget/config.json` match the default
-ZeroMQ settings in `codplayer.conf`, but might have to be changed if
-you are running on different machines or have changed the ports.  It's
-best to do this by copying the file somewhere else and change the
-settings, then give the filename to `codplayer-control` on the command
-line.
+The default settings in `config.json` match the default ZeroMQ
+settings in `codplayer.conf`, but might have to be changed if you are
+running on different machines or have changed the ports.  It's best to
+do this by copying the file somewhere else and change the settings,
+then give the filename to `codplayer-control` on the command line.
+
+
+Running package installation
+----------------------------
+
+Assuming the control widget was installed in `~/cod` and using the
+default configuration, it can be run like this:
+
+    nohup ~/cod/node_modules/.bin/codplayer-control >> ~/cod/codctlwidget.log 2>&1 &
+
+The server does not fork (right now), so that's why it is run with
+nohup and in the background
+
+If you have changed the configuration, the path to the new config can
+be proved on the command line:
+
+    ~/cod/node_modules/.bin/codplayer-control /path/to/config.json
 
 
 Running from source dir
@@ -177,30 +202,3 @@ Then run the server with either
 
 or
     /path/to/node server.js [/path/to/config.json]
-
-
-Installing in dedicated dir
----------------------------
-
-The server can be installed in a dedicated directory.  E.g.:
-
-    mkdir /opt/codplayer/controlwidget
-    cd /opt/codplayer/controlwidget
-    npm install /path/to/controlwidget
-
-Then run it with
-
-    ./node_modules/.bin/codplayer-control [/path/to/config.json]
-
-
-Installing system-wide
-----------------------
-
-The widget and all its dependencies can be installed globally too with
-`-g`:
-
-    npm install -g /path/to/controlwidget
-
-Then run it with
-
-    codplayer-control [/path/to/config.json]
