@@ -1400,3 +1400,75 @@ class TestTransport(unittest.TestCase):
         expects.done()
         self.assertEqual(t.state.state, player.State.STOP,
                          'transport should stop at end of disc')
+
+
+    def test_device_error_without_packet(self):
+        # Single track with lots of packets
+        src = DummySource('disc1', 1)
+
+        # Wait for test to finish on an event
+        done = threading.Event()
+
+        expects = DummySink(
+            self,
+            Expect('start', 'should call start on new disc',
+                   checks = lambda format: (
+                       self.assertIs(t.state.state, player.State.WORKING,
+                                     'state should be WORKING before any packets have been read'),
+                   ),
+                ),
+
+            Expect('add_packet', 'should add first packet, and get error in response',
+                   checks = lambda packet, offset: (
+                       self.assertIs(t.state.state, player.State.PLAY,
+                                     'state should be PLAY when we stop()'),
+                   ),
+
+                   ret = lambda packet, offset: (0, None, 'foobar'),
+               ),
+
+            Expect('add_packet', 'should retry first packet after error',
+                   checks = lambda packet, offset: (
+                       self.assertEqual(packet.abs_pos, 0, 'should be first packet'),
+                       self.assertEqual(offset, 0),
+
+                       self.assertEqual(t.state.error, 'Audio sink error: foobar',
+                                        'state.error should be set'),
+
+                       self.assertIs(t.state.state, player.State.PLAY,
+                                     'state should be PLAY when we stop()'),
+
+                       # Now stop, so test doesn't run away
+                       self.assertIs(t.state.state, player.State.PLAY,
+                                     'state should be PLAY when we stop()'),
+
+                       # Allow test to detect that state has updated
+                       p.clear(),
+
+                       # Tell the transport to stop
+                       t.stop(),
+
+                       self.assertIs(t.state.state, player.State.STOP,
+                                     'state should be STOP immediately, since this is a disruptive change'),
+                   ),
+
+                   ret = lambda packet, offset: (len(packet.data), packet, None),
+               ),
+
+            Expect('stop', 'should be told to stop by transport',
+                   checks = lambda: (
+                       # Allow test case to sync the end of the test
+                       done.set(),
+                   ),
+               ),
+        )
+
+        # Kick off test and wait for it
+        t, p = create_transport(self, expects)
+        t.new_source(src)
+        self.assertTrue(done.wait(5), 'timeout waiting for test to finish')
+        self.assertTrue(p.wait(5), 'timeout waiting for second run state to update')
+
+        # Check final state
+        expects.done()
+        self.assertEqual(t.state.state, player.State.STOP)

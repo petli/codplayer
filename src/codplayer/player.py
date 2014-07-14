@@ -972,11 +972,17 @@ class Transport(object):
 
 
     def sink_update_state(self, packet, error):
+        if error:
+            error = 'Audio sink error: {0}'.format(error)
+
         with self.lock:
             # Always update the device error, regardless of context
             if error != self.state.error:
                 self.state.error = error
                 self.update_state()
+
+            if not packet:
+                return
 
             # If the context of this packet is no longer valid, just ignore it
             if packet.context != self.context:
