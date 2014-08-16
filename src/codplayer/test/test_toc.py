@@ -12,6 +12,7 @@ import os
 from .. import toc
 from .. import model
 
+msf_to_frames = model.PCM.msf_to_frames
 
 class TestDiscFromToc(unittest.TestCase):
     def test_no_tracks(self):
@@ -51,7 +52,7 @@ FILE "data.cdr" 0 02:54:53
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
 
 
@@ -90,19 +91,19 @@ FILE "data.cdr" 06:24:43 03:36:67
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[1]
         self.assertEqual(t.number, 2)
-        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('02:54:53'))
-        self.assertEqual(t.length, model.PCM.msf_to_frames('03:29:65'))
+        self.assertEqual(t.file_offset, msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, msf_to_frames('03:29:65'))
         self.assertEqual(t.length, t.file_length)
 
         t = d.tracks[2]
         self.assertEqual(t.number, 3)
-        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('06:24:43'))
-        self.assertEqual(t.length, model.PCM.msf_to_frames('03:36:67'))
+        self.assertEqual(t.file_offset, msf_to_frames('06:24:43'))
+        self.assertEqual(t.length, msf_to_frames('03:36:67'))
         self.assertEqual(t.length, t.file_length)
 
 
@@ -128,7 +129,7 @@ FILE "data.cdr" 0 02:54:53 // foo bar
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
 
 
@@ -151,11 +152,11 @@ START 03:48:35
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
         self.assertEqual(t.length,
-                         model.PCM.msf_to_frames('03:27:10') +
-                         model.PCM.msf_to_frames('03:48:35'))
-        self.assertEqual(t.file_length, model.PCM.msf_to_frames('03:27:10'))
-        self.assertEqual(t.pregap_offset, model.PCM.msf_to_frames('03:48:35'))
-        self.assertEqual(t.pregap_silence, model.PCM.msf_to_frames('03:48:35'))
+                         msf_to_frames('03:27:10') +
+                         msf_to_frames('03:48:35'))
+        self.assertEqual(t.file_length, msf_to_frames('03:27:10'))
+        self.assertEqual(t.pregap_offset, msf_to_frames('03:48:35'))
+        self.assertEqual(t.pregap_silence, msf_to_frames('03:48:35'))
 
 
     def test_start_index(self):
@@ -174,16 +175,16 @@ INDEX 00:05:00
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
+        self.assertEqual(t.length, msf_to_frames('02:54:53'))
         self.assertEqual(t.length, t.file_length)
-        self.assertEqual(t.pregap_offset, model.PCM.msf_to_frames('00:01:22'))
+        self.assertEqual(t.pregap_offset, msf_to_frames('00:01:22'))
 
         # Indexes will have been translated from relative to pregap to
         # relative to track start
 
         self.assertEqual(len(t.index), 2)
-        self.assertEqual(t.index[0], model.PCM.msf_to_frames('00:04:33'))
-        self.assertEqual(t.index[1], model.PCM.msf_to_frames('00:06:22'))
+        self.assertEqual(t.index[0], msf_to_frames('00:04:33'))
+        self.assertEqual(t.index[1], msf_to_frames('00:06:22'))
 
 
 
@@ -259,7 +260,7 @@ FILE "data.cdr" 03:15:63 03:17:47
         t = d.tracks[1]
         self.assertEqual(t.title, 'Title track 2')
         self.assertEqual(t.artist, 'Artist track 2')
-        self.assertEqual(t.file_offset, model.PCM.msf_to_frames('03:15:63'))
+        self.assertEqual(t.file_offset, msf_to_frames('03:15:63'))
 
 
     def test_cdtext_no_language_map(self):
@@ -319,8 +320,98 @@ FILE "data.cdr" 0 03:27:10
         t = d.tracks[0]
         self.assertEqual(t.number, 1)
         self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('03:27:10'))
+        self.assertEqual(t.length, msf_to_frames('03:27:10'))
         self.assertEqual(t.length, t.file_length)
         self.assertEqual(t.isrc, "GBAYE0000351")
 
 
+
+class MusicbrainzDiscDummy(object):
+    def __init__(self, *tracks):
+        self.tracks = tracks
+
+    def getId(self):
+        return 'testId'
+
+    def getTracks(self):
+        return self.tracks
+
+
+class TestMergeToc(unittest.TestCase):
+    def read_toc(self, testfile):
+        return toc.parse_toc(
+            resource_string('codplayer.test', 'data/' + testfile), 'testId')
+
+    def test_plain_disc(self):
+        """Addis Black Widow - Wait in Summer (single):
+        Nothing fancy, just two tracks with regular separation.
+        """
+
+        mbd = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
+            (150, 17207), (17357, 14263)))
+
+        tocd = self.read_toc('abw-waitinsummer.toc')
+
+        d = toc.merge_toc_with_raw(tocd, mbd)
+
+        self.assertEqual(d.catalog, "5099767123812")
+        self.assertEqual(d.data_file_name, "data.cdr")
+
+        self.assertEqual(len(d.tracks), 2)
+
+        t = d.tracks[0]
+        self.assertEqual(t.number, 1)
+        self.assertEqual(t.file_offset, 0)
+        self.assertEqual(t.length, msf_to_frames('03:47:50'))
+        self.assertEqual(t.length, t.file_length)
+        self.assertEqual(t.isrc, "GBDKA0100022")
+
+        t = d.tracks[1]
+        self.assertEqual(t.number, 2)
+        self.assertEqual(t.file_offset, msf_to_frames('03:47:50'))
+        self.assertEqual(t.pregap_offset, msf_to_frames('00:01:57'))
+        self.assertEqual(t.length, msf_to_frames('03:11:70'))
+        self.assertEqual(t.length, t.file_length)
+        self.assertEqual(t.isrc, "GBDKA0100054")
+
+
+    def test_hidden_track_at_start(self):
+        """Kylie Minogue - Light Years:
+        Has a hidden first track which is marked as silence in
+        the full TOC.  It should be turned into track 0.
+        """
+
+        mbd = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
+            (17285, 15590), (32875, 15987), (48862, 16303),
+            (65165, 17807), (82972, 18808), (101780, 18010),
+            (119790, 16030), (135820, 18635), (154455, 16727),
+            (171182, 18710), (189892, 15293), (205185, 15992),
+            (221177, 19503), (240680, 21557)))
+
+        tocd = self.read_toc('kylie-lightyears.toc')
+
+        d = toc.merge_toc_with_raw(tocd, mbd)
+
+        self.assertEqual(d.catalog, "0724352840021")
+        self.assertEqual(d.data_file_name, "b8ffac79.cdr")
+
+        self.assertEqual(len(d.tracks), 15)
+
+        # Hidden track
+        t = d.tracks[0]
+        self.assertEqual(t.number, 0)
+        self.assertEqual(t.file_offset, 0)
+        self.assertEqual(t.pregap_offset, 0)
+        self.assertEqual(t.length, msf_to_frames('03:48:35'))
+        self.assertEqual(t.length, t.file_length)
+        self.assertEqual(t.isrc, None)
+
+        # First regular track
+        t = d.tracks[1]
+        self.assertEqual(t.number, 1)
+        self.assertEqual(t.file_offset, msf_to_frames('03:48:35'))
+        self.assertEqual(t.length, msf_to_frames('03:27:10'))
+        self.assertEqual(t.length, t.file_length)
+        self.assertEqual(t.pregap_silence, 0)
+        self.assertEqual(t.pregap_offset, 0)
+        self.assertEqual(t.isrc, "GBAYE0000351")
