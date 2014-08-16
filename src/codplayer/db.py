@@ -16,7 +16,7 @@ import types
 
 from . import model
 from . import serialize
-
+from . import toc
 
 class DatabaseError(Exception):
     def __init__(self, dir, msg = None, entry = None, exc = None):
@@ -332,14 +332,9 @@ class Database(object):
             return None
         
         try:
-            f = open(orig_toc_file, 'rt')
-            toc_data = f.read(50000) # keep it sane
-            f.close()
-        except IOError, e:
-            raise DatabaseError('error reading {0}: {1}'.format(
-                    orig_toc_file, e))
-        
-        return model.DbDisc.from_toc(toc_data, self.db_to_disc_id(db_id))
+            return toc.read_toc(orig_toc_file, self.db_to_disc_id(db_id))
+        except toc.TOCError as e:
+            raise DatabaseError(e)
 
 
     def create_disc_dir(self, db_id):

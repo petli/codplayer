@@ -7,6 +7,7 @@
 import unittest
 
 from .. import audio, model
+from .. import toc
 
 class DummyDisc:
     audio_format = model.PCM
@@ -101,7 +102,7 @@ class TestAudioSplitter(unittest.TestCase):
 
     def test_unedited_disc(self):
 
-        toc = '''
+        toc_data = '''
 // First track have pregap silence (which will be ignored anyway)
 TRACK AUDIO
 TWO_CHANNEL_AUDIO
@@ -127,7 +128,7 @@ TWO_CHANNEL_AUDIO
 FILE "data.cdr" 00:02:00 00:00:17
 '''
         
-        disc = model.DbDisc.from_toc(toc, 'testId')
+        disc = toc.parse_toc(toc_data, 'testId')
 
         # Work with three packets per second, i.e. 25 frames per
         # packet, to make the test case reasonably easy to write
