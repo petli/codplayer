@@ -5,7 +5,14 @@ This document describes the various files used to manage the database
 and store the player state.
 
 The configuration file format is described in comments in the default
-configuration file in the etc/ directory.
+configuration file in the `src/codplayer/data/config` directory.
+
+All JSON files are updated by writing the new contents to a temporary
+file, and then replacing the target file with this new file.  This
+guarantees that a reader never will see a half-written file, but it
+also means that readers might not find the file at all in the small
+gap between removing the old file and moving the new one in place.
+Readers must be prepared to handle that error by retrying.
 
 
 Player state
@@ -17,13 +24,6 @@ The player deamon stores the current state in a scoreboard file that
 is updated whenever the state changes.  During playback, this means
 every second.
 
-The file is updated by writing the new state to a temporary file, and
-then replacing the state file with this new file.  This guarantees
-that a reader never will see a half-written file, but it also means
-that readers might not find the file at all in the small gap between
-removing the old file and moving the new one in place.  Readers must
-be prepared to handle that error by retrying.
-
 
 Example file:
 
@@ -34,7 +34,6 @@ Example file:
   "index": 1, 
   "no_tracks": 4, 
   "position": 27, 
-  "ripping": 47, 
   "state": "PLAY", 
   "track": 1
 }
@@ -68,9 +67,36 @@ Attributes:
 * `length`: Length of the current track in whole seconds, counting
   from index 1 (i.e. not including any pregap).
 
-* `ripping`: `null` if the disc is played from a previously ripped
-  copy, otherwise a number 0-100 indicating how many percent of the
-  disc has been ripped.  (Take care to use the === operator in
-  javascript.)
-
 * `error`: A string giving the error state of the player, if any.
+
+
+Ripping state
+-------------
+
+Default path: `/var/run/codplayer.ripstate`
+
+When a disc is ripped into the database the player deamon stores the
+current rip state in a scoreboard file.
+
+Example file:
+
+    {
+      "disc_id": "6lMdIBppbilQ1I6.oe.8nJSiJc8-",
+      "error": null,
+      "progress": 34,
+      "state": "AUDIO"
+    }
+
+Attributes:
+
+* `state`: One of the following identifiers:
+  * `INACTIVE`:  No ripping is currently taking place
+  * `AUDIO`:     Audio data is being read
+  * `TOC`:       TOC is being read
+
+* `disc_id`: The Musicbrainz disc ID of the currently ripped disc, or None
+
+* `progress`: Percentage of 0-100 for current phase, or None if not
+known or not applicable
+
+* `error`: The last ripping error, if any.

@@ -46,6 +46,8 @@ def main(args):
             sys.exit('no way to get player state')
 
         print pg.get_state(timeout = args.timeout)
+        print pg.get_rip_state(timeout = args.timeout)
+        print pg.get_disc(timeout = args.timeout)
 
         if args.follow:
             ps = state_publisher(cfg)

@@ -16,7 +16,7 @@ import types
 
 from . import model
 from . import serialize
-from . import toc
+
 
 class DatabaseError(Exception):
     def __init__(self, dir, msg = None, entry = None, exc = None):
@@ -73,9 +73,9 @@ class Database(object):
     DISC_DIR/b8ffac79.toc
       TOC read by cdrdao from the disc.
 
-    DISC_DIR/b8ffac79.cod (optional)
-      If present, the cooked disc TOC with album information and track
-      edits.
+    DISC_DIR/b8ffac79.cod
+      A serialized model.DbDisc recording the current state and
+      information about the disc.
     """
 
     VERSION = 1
@@ -88,7 +88,7 @@ class Database(object):
     DISC_ID_SUFFIX = '.id'
     AUDIO_SUFFIX = '.cdr'
     ORIG_TOC_SUFFIX = '.toc'
-    COOKED_TOC_SUFFIX = '.cod'
+    DISC_INFO_SUFFIX = '.cod'
 
     #
     # Helper class methods
@@ -253,8 +253,8 @@ class Database(object):
     def get_orig_toc_file(self, db_id):
         return self.filename_base(db_id) + self.ORIG_TOC_SUFFIX
 
-    def get_cooked_toc_file(self, db_id):
-        return self.filename_base(db_id) + self.COOKED_TOC_SUFFIX
+    def get_disc_info_file(self, db_id):
+        return self.filename_base(db_id) + self.DISC_INFO_SUFFIX
 
     def get_id_path(self, db_id):
         return os.path.join(self.get_disc_dir(db_id),
@@ -269,9 +269,9 @@ class Database(object):
         return os.path.join(self.get_disc_dir(db_id),
                             self.get_orig_toc_file(db_id))
 
-    def get_cooked_toc_path(self, db_id):
+    def get_disc_info_path(self, db_id):
         return os.path.join(self.get_disc_dir(db_id),
-                            self.get_cooked_toc_file(db_id))
+                            self.get_disc_info_file(db_id))
         
 
     def iterdiscs_db_ids(self):
@@ -316,25 +316,16 @@ class Database(object):
 
         path = self.get_disc_dir(db_id)
 
-        # Try cooked TOC first
-        cooked_toc_file = self.get_cooked_toc_path(db_id)
+        disc_info_file = self.get_disc_info_path(db_id)
 
-        if os.path.exists(cooked_toc_file):
-            try:
-                return serialize.load_json(model.DbDisc, cooked_toc_file)
-            except serialize.LoadError, e:
-                raise DatabaseError('error reading disc cooked toc: {0}'.format(e))
-
-        orig_toc_file = self.get_orig_toc_path(db_id)
-
-        # If no TOC, then no Disc
-        if not os.path.exists(orig_toc_file):
+        if not os.path.exists(disc_info_file):
+            # If no file, no disc
             return None
-        
+
         try:
-            return toc.read_toc(orig_toc_file, self.db_to_disc_id(db_id))
-        except toc.TOCError as e:
-            raise DatabaseError(e)
+            return serialize.load_json(model.DbDisc, disc_info_file)
+        except serialize.LoadError, e:
+            raise DatabaseError(self.db_dir, 'error reading disc info file: {0}'.format(e))
 
 
     def create_disc_dir(self, db_id):
@@ -353,7 +344,7 @@ class Database(object):
             try:
                 os.mkdir(path)
             except OSError, e:
-                raise DatabaseError('error creating disc dir {0}: {1}'.format(
+                raise DatabaseError(self.db_dir, 'error creating disc dir {0}: {1}'.format(
                         path, e))
 
 
@@ -366,12 +357,30 @@ class Database(object):
             f.write(self.db_to_disc_id(db_id) + '\n')
             f.close()
         except IOError, e:
-            raise DatabaseError('error writing disc ID to {0}: {1}'.format(
+            raise DatabaseError(self.db_dir, 'error writing disc ID to {0}: {1}'.format(
                     disc_id_path, e))
 
         return path
 
     
+    def save_disc_info(self, disc):
+        """Save new disc info, overwriting anything existing.
+        """
+        db_id = self.disc_to_db_id(disc.disc_id)
+        try:
+            serialize.save_json(disc, self.get_disc_info_path(db_id))
+        except serialize.SaveError, e:
+            raise DatabaseError(self.db_dir, str(e))
+
+
+    def create_disc(self, disc):
+        """Create a directory for a new disc and save the initial disc object.
+        """
+        db_id = self.disc_to_db_id(disc.disc_id)
+        self.create_disc_dir(db_id)
+        self.save_disc_info(disc)
+
+
     def update_disc(self, ext_disc):
         """Update the database information about a disc, based on the
         information provided in EXT_DISC.
@@ -398,7 +407,7 @@ class Database(object):
         db_disc = self.get_disc_by_db_id(db_id)
 
         if db_disc is None:
-            raise DatabaseError('attempting to update an unknown disc: {0}'.format(ext_disc.disc_id))
+            raise DatabaseError(self.db_dir, 'attempting to update an unknown disc: {0}'.format(ext_disc.disc_id))
 
         # Disc ok, update attributes
         update_db_object(db_disc, ext_disc)
@@ -422,7 +431,7 @@ class Database(object):
             
 
         # Save new record
-        serialize.save_json(db_disc, self.get_cooked_toc_path(db_id))
+        serialize.save_json(db_disc, self.get_disc_info_path(db_id))
 
         return db_disc
 

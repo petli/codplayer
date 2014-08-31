@@ -9,6 +9,7 @@ Use ZeroMQ to publish player state and accept commands.
 """
 
 import time
+import threading
 
 import zmq
 
@@ -46,6 +47,8 @@ class ZMQPublisher(state.StatePublisher):
         self.log = player.log
         self.debug = player.debug
 
+        self.lock = threading.Lock()
+
         self.socket = player.zmq_context.socket(zmq.PUB)
         self.socket.set_hwm(10)
 
@@ -54,13 +57,22 @@ class ZMQPublisher(state.StatePublisher):
 
     def update_state(self, state):
         try:
-            self.socket.send_multipart(['state', serialize.get_jsons(state)])
+            with self.lock:
+                self.socket.send_multipart(['state', serialize.get_jsons(state)])
         except zmq.ZMQError as e:
             self.log('zeromq: error publishing state: {0}', e)
 
+    def update_rip_state(self, rip_state):
+        try:
+            with self.lock:
+                self.socket.send_multipart(['rip_state', serialize.get_jsons(rip_state)])
+        except zmq.ZMQError as e:
+            self.log('zeromq: error publishing rip state: {0}', e)
+
     def update_disc(self, disc):
         try:
-            self.socket.send_multipart(['disc', serialize.get_jsons(disc)])
+            with self.lock:
+                self.socket.send_multipart(['disc', serialize.get_jsons(disc)])
         except zmq.ZMQError as e:
             self.log('zeromq: error publishing state: {0}', e)
 
@@ -72,6 +84,12 @@ class ZMQStateGetter(state.StateGetter):
     def get_state(self, timeout = None):
         try:
             return self.client.send('state', [], timeout = timeout)
+        except (command.CommandError, command.ClientError) as e:
+            raise state.StateError(str(e))
+
+    def get_rip_state(self, timeout = None):
+        try:
+            return self.client.send('rip_state', [], timeout = timeout)
         except (command.CommandError, command.ClientError) as e:
             raise state.StateError(str(e))
 
@@ -121,6 +139,9 @@ class ZMQSubscriber(state.StateSubscriber):
         try:
             if msg[0] == 'state':
                 cls = state.State
+                json = msg[1]
+            elif msg[0] == 'rip_state':
+                cls = state.RipState
                 json = msg[1]
             elif msg[0] == 'disc':
                 cls = model.ExtDisc
@@ -236,6 +257,15 @@ class ZMQClient(command.CommandClient):
                 return state.State.from_string(msg[1])
             except serialize.LoadError as e:
                 raise command.ClientError('error deserializing state: {0}'.format(e))
+
+        elif msg[0] == 'rip_state':
+            if len(msg) < 2:
+                raise command.ClientError('missing rip state in response: {0}'.format(msg))
+
+            try:
+                return state.RipState.from_string(msg[1])
+            except serialize.LoadError as e:
+                raise command.ClientError('error deserializing rip state: {0}'.format(e))
 
         elif msg[0] == 'disc':
             if len(msg) < 2:

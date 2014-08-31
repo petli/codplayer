@@ -176,6 +176,11 @@ class DbDisc(Disc):
 
     MAPPING = Disc.MAPPING + (
         serialize.Attr('tracks', list_type = DbTrack),
+
+        # Process flags: optional to be backward-compatible
+        serialize.Attr('rip', bool, optional = True),
+        serialize.Attr('toc', bool, optional = True),
+
         serialize.Attr('data_file_name', serialize.str_unicode),
         serialize.Attr('data_file_format', enum = (RAW_CD, )),
         serialize.Attr('audio_format', enum = (PCM, )),
@@ -194,6 +199,8 @@ class DbDisc(Disc):
     def __init__(self):
         super(DbDisc, self).__init__()
         
+        self.rip = False
+        self.toc = False
         self.data_file_name = None
         self.data_file_format = None
         self.audio_format = None

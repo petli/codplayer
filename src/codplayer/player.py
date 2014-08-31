@@ -24,14 +24,13 @@ import copy
 
 import zmq
 
-from musicbrainz2 import disc as mb2_disc
-
 from . import serialize
 from . import db
 from . import model
 from . import source
 from . import sink
-from .state import State
+from . import rip
+from .state import State, RipState
 from .command import CommandError
 
 class PlayerError(Exception):
@@ -49,11 +48,7 @@ class Player(object):
 
         self.transport = None
         
-        self.rip_process = None
-
-        self.ripping_audio_path = None
-        self.ripping_audio_size = None
-        self.ripping_source = None
+        self.ripper = None
 
         self.keep_running = True
 
@@ -96,7 +91,7 @@ class Player(object):
 
             # Kick off command servers and publishers
             commands = [c.server(self) for c in self.cfg.commands]
-            publishers = [p.publisher(self) for p in self.cfg.publishers]
+            self.publishers = [p.publisher(self) for p in self.cfg.publishers]
 
             # Drop any privs to get ready for full operation.  Do this
             # before opening the sink, since we generally need to be
@@ -117,7 +112,7 @@ class Player(object):
             self.transport = Transport(
                 self,
                 sink.SINKS[self.cfg.audio_device_type](self),
-                publishers)
+                self.publishers)
 
             # Force out a bunch of updates at the start to improve the
             # chance that already running state subscribers get the
@@ -127,7 +122,7 @@ class Player(object):
             # Main loop, executing until a quit command is received.
             # However, don't stop if a rip process is currently running.
 
-            while self.keep_running or self.rip_process is not None:
+            while self.keep_running or self.ripper is not None:
                 self.run_once(1000)
 
                 if force_updates > 0:
@@ -153,29 +148,13 @@ class Player(object):
             result = self.handle_command(cmd_args)
             self.command_socket.send_multipart(result)
 
-        # Check if any current ripping process is finished
-        if self.rip_process is not None:
-            rc = self.rip_process.poll()
-            if rc is None:
-                # Still in progress, just check how far into the disc it is
-                assert self.ripping_audio_size > 0
-                try:
-                    stat = os.stat(self.ripping_audio_path)
-                    progress = int(100 * (float(stat.st_size) / self.ripping_audio_size))
-                except OSError:
-                    progress = 0
+        # Allow any ripping to update status, possibly closing it
+        if self.ripper:
+            if not self.ripper.tick():
+                self.ripper = None
+                self.transport.ripping_done()
 
-                self.transport.set_ripping_progress(progress)
-            else:
-                self.debug('ripping process finished with status {0}', rc)
-                self.rip_process = None
-                self.ripping_audio_path = None
-                self.ripping_audio_size = None
-                self.ripping_source = None
 
-                self.transport.set_ripping_progress(None)
-
-                    
     def handle_command(self, cmd_args):
         try:
             self.debug('got command: {0}', cmd_args)
@@ -192,6 +171,8 @@ class Player(object):
 
             if isinstance(result, State):
                 result_type = 'state'
+            elif isinstance(result, RipState):
+                result_type = 'rip_state'
             elif isinstance(result, model.ExtDisc) or cmd == 'source':
                 result_type = 'disc'
             else:
@@ -215,9 +196,6 @@ class Player(object):
     #
 
     def cmd_disc(self, args):
-        if self.rip_process:
-            raise CommandError("already ripping disc, can't rip another one yet")
-
         if args:
             # Play disc in database by its ID
             did = args[0]
@@ -232,23 +210,15 @@ class Player(object):
                 raise CommandError('invalid disc or database ID: {0}'.format(did))
         else:
             # Play inserted physical disc
-            self.debug('disc inserted, reading ID')
+            if self.ripper:
+                raise CommandError("already ripping disc, can't rip another one yet")
 
-            # Use Musicbrainz code to get the disc signature
-            try:
-                mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
-            except mb2_disc.DiscError, e:
-                raise CommandError('error reading disc in {0}: {1}'.format(
-                    self.cfg.cdrom_device, e))
+            ripper = rip.Ripper(self)
+            disc = ripper.read_disc()
 
-            # Is this already ripped?
-            disc = self.db.get_disc_by_disc_id(mbd.getId())
-
-            if disc is None:
-                # No, rip it and get a Disc object good enough for playing 
-                disc = self.rip_disc(mbd)
-                if not disc:
-                    raise CommandError('rip_disc failed to create a Disc object')
+            if ripper.tick():
+                # Ripper is running, so keep track of it
+                self.ripper = ripper
 
         return self.play_disc(disc)
 
@@ -279,14 +249,18 @@ class Player(object):
 
     def cmd_quit(self, args):
         self.log('quitting on command')
-        if self.rip_process is not None:
-            self.log('but letting currently running cdrdao process finish first')
-            
+        if self.ripper:
+            self.log('but letting currently running ripping process finish first')
+
         self.keep_running = False
         return self.transport.shutdown()
 
 
     def cmd_eject(self, args):
+        if self.ripper:
+            self.ripper.stop()
+            self.ripper = None
+
         state = self.transport.eject()
 
         # Eject the disc with the help of an external command. There's
@@ -311,53 +285,18 @@ class Player(object):
         return self.transport.get_state()
 
 
+    def cmd_rip_state(self, args):
+        # Since the ripper is ticked by this thread,
+        # we can just respond with the state as-is
+        if self.ripper:
+            return self.ripper.state
+        else:
+            # Dummy inactive state
+            return RipState()
+
+
     def cmd_source(self, args):
         return self.transport.get_source_disc()
-
-
-    def rip_disc(self, mbd):
-        """Set up the process of ripping a disc that's not in the
-        database, based on the Musicbrainz Disc object
-        """
-        
-        # Turn Musicbrainz disc into our Disc object
-        db_id = self.db.disc_to_db_id(mbd.getId())
-        path = self.db.create_disc_dir(db_id)
-
-        disc = model.DbDisc.from_musicbrainz_disc(
-            mbd, filename = self.db.get_audio_path(db_id))
-        
-        self.log('ripping new disk: {0}', disc)
-
-        # Build the command line
-        args = [self.cfg.cdrdao_command,
-                'read-cd',
-                '--device', self.cfg.cdrom_device,
-                '--datafile', self.db.get_audio_file(db_id),
-                self.db.get_orig_toc_file(db_id),
-                ]
-
-        try:
-            log_path = os.path.join(path, 'cdrdao.log')
-            log_file = open(log_path, 'wt')
-        except IOError, e:
-            raise CommandError("error ripping disc: can't open log file {0}: {1}"
-                               .format(log_path, e))
-
-        self.debug('executing command in {0}: {1!r}', path, args)
-                
-        try:
-            self.rip_process = subprocess.Popen(
-                args,
-                cwd = path,
-                close_fds = True,
-                stdout = log_file,
-                stderr = subprocess.STDOUT)
-        except OSError, e:
-            raise CommandError("error executing command {0!r}: {1}".format(args, e))
-
-        return disc
-
 
     def play_disc(self, disc, track_number = 0):
         """Start playing disc from the database"""
@@ -367,17 +306,8 @@ class Player(object):
         # Filter out skipped tracks
         disc.tracks = [t for t in disc.tracks if not t.skip]
 
-        if self.rip_process is not None:
-            src = source.PCMDiscSource(self, disc, True)
-
-            db_id = self.db.disc_to_db_id(disc.disc_id)
-            self.ripping_audio_path = self.db.get_audio_path(db_id)
-            self.ripping_audio_size = disc.get_disc_file_size_bytes()
-            self.ripping_source = src
-            self.transport.set_ripping_progress(0)
-        else:
-            src = source.PCMDiscSource(self, disc, False)
-        
+        is_ripping = self.ripper is not None
+        src = source.PCMDiscSource(self, disc, is_ripping)
         return self.transport.new_source(src, track_number)
 
 
@@ -675,33 +605,21 @@ class Transport(object):
             return copy.copy(self.state)
 
 
-    def set_ripping_progress(self, progress):
+    def ripping_done(self):
         with self.lock:
-            if progress == self.state.ripping:
-                return
-            
-            if progress is None:
-                self.state.ripping = None
-                self.update_state()
-                
-                # Special case: if the rip process failed, we
-                # didn't get any packets from the streamer and
-                # never got out of the working state.  Handle that
-                # here by telling that process to stop and
-                # manually go back to NO_DISC.
+            # Special case: if the rip process failed, we
+            # didn't get any packets from the streamer and
+            # never got out of the working state.  Handle that
+            # here by telling that process to stop and
+            # manually go back to NO_DISC.
 
-                if self.state.state == State.WORKING:
-                    self.log('ripping seems to have failed, since state is still WORKING')
+            if self.state.state == State.WORKING:
+                self.log('ripping seems to have failed, since state is still WORKING')
 
-                    self.new_context()
-                    self.source = None
-                    self.start_track = None
-                    self.set_state_no_disc()
-
-            else:
-                # Update progress, but no point logging it
-                self.state.ripping = progress
-                self.update_state(False)
+                self.new_context()
+                self.source = None
+                self.start_track = None
+                self.set_state_no_disc()
 
 
     #

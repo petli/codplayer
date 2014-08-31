@@ -24,13 +24,23 @@ receive all events.
 
 ### state
 
-Sent every time the state changes, including when the play position
-moves a second or the ripping progress a percentage point.
+Sent every time the player state changes, including when the play
+position moves a second.
 
 Frame format:
 
     0: "state"
     1: JSON: state.State
+
+### rip_state
+
+Sent every time the rip state changes, including when the ripping
+progress moves a percentage point.
+
+Frame format:
+
+    0: "rip_state"
+    1: JSON: state.RipState
 
 ### disc
 
@@ -67,6 +77,11 @@ Most commands return the resulting state, if successful:
 
     0: "state"
     1: JSON: state.State
+
+The `rip_state` command returns the current rip state:
+
+    0: "rip_state"
+    1: JSON: state.RipState
 
 The `source` command returns the current disc:
 
