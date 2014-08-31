@@ -40,49 +40,88 @@ def read_toc(path, disc_id):
     return parse_toc(toc_data, disc_id)
 
 
-def merge_toc_with_raw(toc_disc, raw_disc):
-    """This merges the TOC read by cdrdao with the plain TOC read by
-    libdiscid (via musicbrainz2), updating toc_disc and also returning
-    it.
+def merge_basic_toc(old_disc, toc_disc):
+    """Merge a basic TOC into an existing model.DbDisc.
+
+    This is only used when encountering an a disc in the database that
+    has been ripped with the cdrdao-only method, and ensures that any
+    track information added later is retained while still resetting
+    the track offsets and length to the basic information, discarding
+    the not-that-reliable information that we got from cdrdao when
+    both ripping audio and TOC the first time.  This is only temporary,
+    as a full proper TOC will be read next, but ensures a consistent disc
+    state during the process.
+    """
+
+    assert toc_disc.disc_id == old_disc.disc_id
+    assert len(toc_disc.tracks) == len(old_disc.tracks)
+
+    for ot, tt in zip(old_disc.tracks, toc_disc.tracks):
+        ot.file_offset = tt.file_offset
+        ot.length = ot.file_length = tt.file_length
+        ot.pregap_offset = ot.pregap_silence = 0
+        ot.index = []
+
+
+def merge_full_toc(old_disc, toc_disc):
+    """Merges the TOC read by cdrdao into an existing model.DbDisc.
 
     The reason that this is needed is that we can't trust the file
     offsets fully when just reading a TOC with cdrdao, so we're
-    instead using the offsets from the raw disc TOC.  Together with
-    the good index information we get from cdrdao when just reading a
-    TOC and not ripping a disc at the same time, we get something
-    that's as close as possible to the actual CD.
+    instead using the offsets from the basic TOC already present in
+    the file.  Together with the good index information we get from
+    cdrdao when just reading a TOC and not ripping a disc at the same
+    time, we get something that's as close as possible to the actual
+    CD.
 
     This method also tries to discover "hidden" tracks before the
     first one, and adds them as track 0.  It is then up to you if you
     want to keep them or silence them.
+
     """
 
-    assert toc_disc.disc_id == raw_disc.disc_id
-    assert len(toc_disc.tracks) == len(raw_disc.tracks)
+    assert toc_disc.disc_id == old_disc.disc_id
+    assert len(toc_disc.tracks) == len(old_disc.tracks)
+
+    # Update general disc info
+    old_disc.catalog = old_disc.catalog or toc_disc.catalog
+    old_disc.artist = old_disc.artist or toc_disc.artist
+    old_disc.title = old_disc.title or toc_disc.title
+    old_disc.barcode = old_disc.barcode or toc_disc.barcode
+
 
     # Detect "hidden" first tracks.  Anything more than 2s is
     # suspicious.
     hidden = None
+    ot = old_disc.tracks[0]
     tt = toc_disc.tracks[0]
-    rt = raw_disc.tracks[0]
-    if rt.file_offset > 2 * model.PCM.rate:
+    if ot.file_offset > 2 * model.PCM.rate:
         hidden = model.DbTrack()
         hidden.file_offset = 0
-        hidden.file_length = hidden.length = rt.file_offset
+        hidden.file_length = hidden.length = ot.file_offset
 
         # The TOC might announce the track as silence, so nuke that
         tt.pregap_silence = 0
         tt.pregap_offset = 0
         tt.length = tt.file_length
 
-    # Then just adjust the file offsets
-    for tt, rt in zip(toc_disc.tracks, raw_disc.tracks):
-        tt.file_offset = rt.file_offset - tt.pregap_offset
+    # Then process tracks normally
+    prev = None
+    for ot, tt in zip(old_disc.tracks, toc_disc.tracks):
+        # Move pregap into the track
+        ot.pregap_offset = tt.pregap_offset
+        ot.pregap_silence = tt.pregap_silence
+        ot.file_offset -= tt.pregap_offset
+        ot.length = tt.length
+        ot.file_length = tt.file_length
+        ot.index = list(tt.index)
+
+        ot.isrc = ot.isrc or tt.isrc
+        ot.artist = ot.artist or tt.artist
+        ot.title = ot.title or tt.title
 
     if hidden:
-        toc_disc.tracks.insert(0, hidden)
-
-    return toc_disc
+        old_disc.tracks.insert(0, hidden)
 
 
 def parse_toc(toc, disc_id):
@@ -318,9 +357,9 @@ class CDText:
             if line == '}':
                 return info
             elif line.startswith('TITLE '):
-                info['title'] = get_toc_string_arg(line)
+                info['title'] = get_toc_string_arg(line) or None
             elif line.startswith('PERFORMER '):
-                info['artist'] = get_toc_string_arg(line)
+                info['artist'] = get_toc_string_arg(line) or None
             elif '{' in line:
                 if '}' not in line:
                     self.skip_binary_data(toc_iter)

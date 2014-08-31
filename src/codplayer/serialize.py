@@ -42,7 +42,16 @@ class Serializable(object):
     define a MAPPING attribute which will be passed to
     populate_object.
     """
-    pass
+
+    @classmethod
+    def from_file(cls, path):
+        """Load an object from the JSON stored in the file PATH."""
+        return load_json(cls, path)
+
+    @classmethod
+    def from_string(cls, json):
+        """Load an object from a JSON serialized string."""
+        return load_jsons(cls, json)
 
 
 class Attr(object):
