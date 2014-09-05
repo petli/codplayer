@@ -23,7 +23,7 @@ $(function(){
         STOP:    '\u25a0'
     };
 
-    var highlightedTrack = 0;
+    var highlightedTrack = null;
     var showingRipping = false;
 
     var formatTime = function(seconds) {
@@ -44,7 +44,7 @@ $(function(){
     };
 
     var highlightTrack = function() {
-        if (highlightedTrack) {
+        if (highlightedTrack !== null) {
             var el = $('#track-' + highlightedTrack);
 
             if (el.size()) {
@@ -117,8 +117,9 @@ $(function(){
             data.summary = title;
 
             // Change current track highlightning, if any
-            if (data.track !== highlightedTrack) {
-                highlightedTrack = data.track;
+            var ht = (state === 'PLAY' || state === 'PAUSE') ? data.track : null;
+            if (highlightedTrack !== ht) {
+                highlightedTrack = ht;
                 $('.current-track').removeClass('current-track');
                 highlightTrack();
             }

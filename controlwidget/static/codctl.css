@@ -180,12 +180,14 @@ body {
 
 .full-track-info-box .track-number {
     display: inline-block;
+    vertical-align: top;
     min-width: 2em;
     text-align: right;
 }
 
 .full-track-info-box .track-length {
     display: inline-block;
+    vertical-align: top;
     min-width: 2.5em;
     text-align: right;
 }

@@ -358,10 +358,20 @@ $(function(){
                 mbTracks = this.mbDisc.get('tracks');
                 modelTracks = this.model.get('tracks');
 
+                // If there are an initial hidden track and that
+                // doesn't seem to be in the MB response, push it to
+                // the front
+                if (modelTracks[0].number === 0 &&
+                    modelTracks.length > mbTracks.length) {
+                    mbTracks.unshift(modelTracks[0]);
+                }
+
+                // Add track info at the end, if missing in MB response
                 while (mbTracks.length < modelTracks.length) {
                     mbTracks.push(_.clone(modelTracks[mbTracks.length]));
                 }
 
+                // Trim MB response, if longer than the local disc
                 while (mbTracks.length > modelTracks.length) {
                     mbTracks.pop();
                 }
