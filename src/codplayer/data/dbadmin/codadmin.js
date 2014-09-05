@@ -375,6 +375,28 @@ $(function(){
                 while (mbTracks.length > modelTracks.length) {
                     mbTracks.pop();
                 }
+
+                // Copy over information not in the MB response
+
+                var discProps = [ 'catalog', 'title', 'artist', 'barcode', 'date' ];
+                var trackProps = [ 'isrc', 'title', 'artist', 'skip', 'pause_after' ];
+                var i, n, prop;
+
+                for (i = 0; i < discProps.length; i++) {
+                    prop = discProps[i];
+                    if (!this.mbDisc.get(prop)) {
+                        this.mbDisc.set(prop, this.model.get(prop));
+                    }
+                }
+
+                for (n = 0; n < mbTracks.length; n++) {
+                    for (i = 0; i < trackProps.length; i++) {
+                        prop = trackProps[i];
+                        if (!mbTracks[n][prop]) {
+                            mbTracks[n][prop] = modelTracks[n][prop];
+                        }
+                    }
+                }
             }
         },
 
