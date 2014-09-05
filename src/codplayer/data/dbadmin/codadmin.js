@@ -11,50 +11,46 @@ $(function(){
     // Disc model and collection
     //
     
+    var getSortKey = function(value) {
+        if (typeof value === 'string') {
+            value = value.toLowerCase();
+            if (/^the /.test(value)) {
+                value = value.slice(4);
+            }
+            return value;
+        }
+        return '';
+    };
+
     var Disc = Backbone.Model.extend({
         idAttribute: 'disc_id',
 
         initialize: function() {
+            this.updateSortKey();
+            this.listenTo(this, 'change', this.updateSortKey);
+        },
+
+        updateSortKey: function() {
+            // Preconstruct a disc compare string to speed up sorting
+            // Primary key: artist
+            // Secondary key: year of release
+            // Tertiary key: title
+            // Fallback: disc ID
+
+            this.sortKey = getSortKey(this.get('artist')) + '\0' +
+                getSortKey(this.get('date')) + '\0' +
+                getSortKey(this.get('title')) + '\0' +
+                getSortKey(this.get('disc_id'));
         },
     });
-
-    // Sort empty/missing last, the rest in increasing order
-    var discComparator = function(a, b, key) {
-        a = a.get(key);
-        b = b.get(key);
-
-        if (a && b) {
-            // Prepare both strings for comparison
-            a = a.toLowerCase();
-            b = b.toLowerCase();
-
-            if (/^the /.test(a)) a = a.slice(4);
-            if (/^the /.test(b)) b = b.slice(4);
-
-            if (a < b) return -1;
-            if (a > b) return 1
-            return 0;
-        }
-        if (a) return -1;
-        if (b) return 1;
-        return 0;
-    };
 
     var DiscList = Backbone.Collection.extend({
         model: Disc,
 
         url: 'discs',
 
-        comparator: function(a, b) {
-            // Primary key: artist
-            // Secondary key: year of release
-            // Tertiary key: title
-            // Fallback: disc ID
-
-            return (discComparator(a, b, 'artist') ||
-                    discComparator(a, b, 'date') ||
-                    discComparator(a, b, 'title') ||
-                    discComparator(a, b, 'disc_id'));
+        comparator: function(m) {
+            return m.sortKey;
         }
     });
 
