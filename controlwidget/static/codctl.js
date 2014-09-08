@@ -93,20 +93,6 @@ $(function(){
             $('#position').text(position);
             $('#length').text(length);
 
-            if (typeof data.ripping !== 'number') {
-                if (showingRipping) {
-                    $('#ripping-state').fadeOut();
-                    showingRipping = false;
-                }
-            }
-            else {
-                $('#ripping-percentage').text(data.ripping.toString());
-                if (!showingRipping) {
-                    $('#ripping-state').fadeIn();
-                    showingRipping = true;
-                }
-            }
-
             if (state !== 'NO_DISC') {
                 title = (titleState + ' ' +
                          data.track.toString() + '/' + data.no_tracks.toString() + ' ' +
@@ -136,6 +122,35 @@ $(function(){
 
             // Update the error display, if any
             setError(data.error);
+        });
+
+        socket.on('cod-rip-state', function(data) {
+            switch (data.state)
+            {
+            case null:
+            case undefined:
+            case 'INACTIVE':
+                if (showingRipping) {
+                    $('#ripping-state').fadeOut();
+                    showingRipping = false;
+                }
+                break;
+
+
+            default:
+                if (typeof data.progress === 'number') {
+                    $('#ripping-percentage').text(data.progress.toString() + '%');
+                }
+                else {
+                    $('#ripping-percentage').text(data.state);
+                }
+
+                if (!showingRipping) {
+                    $('#ripping-state').fadeIn();
+                    showingRipping = true;
+                }
+                break;
+            }
         });
 
         socket.on('cod-disc', function(disc) {
