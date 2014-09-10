@@ -5,7 +5,6 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 
-import copy
 import os
 import subprocess
 import time
@@ -98,9 +97,7 @@ class Ripper(object):
         self.db_id = db_id
         self.state.disc_id = disc.disc_id
 
-        # Return a copy since we might be modifying this one as it
-        # progresses
-        return copy.deepcopy(disc)
+        return disc
 
 
     def tick(self):
@@ -196,9 +193,16 @@ class Ripper(object):
         if rc != 0:
             raise RipError('audio ripping failed: status {0}'.format(rc))
 
-        self.disc.rip = True
+
         try:
-            self.db.save_disc_info(self.disc)
+            # Reload disc object, since it might have changed while ripping
+            disc = self.db.get_disc_by_db_id(self.db_id)
+            if not disc:
+                raise RipError('disc missing after ripping in database: {}'.format(self.db_id))
+
+            disc.rip = True
+            self.db.save_disc_info(disc)
+            self.disc = disc
         except db.DatabaseError, e:
             raise RipError('error updating rip flag: {0}'.format(e))
 
@@ -246,11 +250,17 @@ class Ripper(object):
         except toc.TOCError as e:
             raise RipError('error reading TOC: {0}'.format(e))
 
-        toc.merge_full_toc(self.disc, toc_disc)
-        self.disc.toc = True
-
         try:
-            self.db.save_disc_info(self.disc)
+            # Reload disc object, since it might have changed while ripping
+            disc = self.db.get_disc_by_db_id(self.db_id)
+            if not disc:
+                raise RipError('disc missing after TOC ripping in database: {}'.format(self.db_id))
+
+            toc.merge_full_toc(disc, toc_disc)
+            disc.toc = True
+
+            self.db.save_disc_info(disc)
+            self.disc = disc
         except db.DatabaseError, e:
             raise RipError('error updating rip flag: {0}'.format(e))
 
