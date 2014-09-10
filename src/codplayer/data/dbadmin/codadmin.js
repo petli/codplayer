@@ -14,14 +14,15 @@ $(function(){
     //
     
     var getSortKey = function(value) {
-        if (typeof value === 'string') {
+        if (value && typeof value === 'string') {
             value = value.toLowerCase();
             if (/^the /.test(value)) {
                 value = value.slice(4);
             }
             return value;
         }
-        return '';
+        // Force missing fields to be sorted last
+        return '\uffff';
     };
 
     var Disc = Backbone.Model.extend({
@@ -37,12 +38,12 @@ $(function(){
             // Primary key: artist
             // Secondary key: year of release
             // Tertiary key: title
-            // Fallback: disc ID
+            // Fallback: disc ID (after anything with info
 
             this.sortKey = getSortKey(this.get('artist')) + '\0' +
                 getSortKey(this.get('date')) + '\0' +
                 getSortKey(this.get('title')) + '\0' +
-                getSortKey(this.get('disc_id'));
+                this.get('disc_id');
         },
     });
 
