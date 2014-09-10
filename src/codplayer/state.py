@@ -39,9 +39,6 @@ class State(serialize.Serializable):
     length: Length of current track in whole seconds, counting
     from index 1.
 
-    ripping: None if not currently ripping a disc, otherwise a number
-    0-100 showing the percentage done.
-
     error: A string giving the error state of the player, if any.
     """
 
@@ -75,13 +72,12 @@ class State(serialize.Serializable):
         self.index = 0
         self.position = 0
         self.length = 0
-        self.ripping = None
         self.error = None
 
 
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
-                'index: {index} position: {position} length: {length} ripping: {ripping} '
+                'index: {index} position: {position} length: {length} '
                 'error: {error}'
                 .format(**self.__dict__))
 
@@ -94,7 +90,6 @@ class State(serialize.Serializable):
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
         serialize.Attr('position', int),
-        serialize.Attr('ripping', int),
         serialize.Attr('error', serialize.str_unicode),
         )
 
