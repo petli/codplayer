@@ -4,6 +4,8 @@
 //
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
+/* global Backbone, $, _ */
+
 $(function(){
     'use strict';
 
@@ -180,7 +182,7 @@ $(function(){
             var minPart = Math.floor(seconds / 60).toString();
             var secPart = (seconds % 60).toString();
 
-            if (secPart.length == 1) {
+            if (secPart.length === 1) {
                 secPart = '0' + secPart;
             }
 
@@ -253,8 +255,8 @@ $(function(){
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
         },
 
-        template: _.template($('#disc-row-template').html()
-                             + $('#disc-detail-template').html()),
+        template: _.template($('#disc-row-template').html() +
+                             $('#disc-detail-template').html()),
 
         initialize: function() {
             this.listenTo(this.model, 'change', this.render);
@@ -615,7 +617,7 @@ $(function(){
         },
     });
 
-    var alertView = new AlertView({ model: currentAlert });
+    var alertView = new AlertView({ model: currentAlert }); // jshint ignore:line
 
 
     //
@@ -643,10 +645,11 @@ $(function(){
 
                 if (self.iframe && ev.source === self.iframe.contentWindow) {
                     data = JSON.parse(ev.data);
-                    if (data && data.codplayer
-                        && data.codplayer.state
-                        && data.codplayer.state.summary
-                        && self.headingState) {
+                    if (data &&
+                        data.codplayer &&
+                        data.codplayer.state &&
+                        data.codplayer.state.summary &&
+                        self.headingState) {
                         self.headingState.text(data.codplayer.state.summary);
                     }
                     else {
