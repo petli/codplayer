@@ -129,6 +129,16 @@ class Player(object):
                     force_updates -= 1
                     self.transport.force_state_update()
 
+                    # Also announce that we're not ripping anything (unless we are)
+                    if self.ripper:
+                        rip_state = self.ripper.state
+                    else:
+                        # Dummy inactive state
+                        rip_state = RipState()
+
+                    for p in self.publishers:
+                        p.update_rip_state(rip_state)
+
         finally:
             if self.transport:
                 self.transport.shutdown()
