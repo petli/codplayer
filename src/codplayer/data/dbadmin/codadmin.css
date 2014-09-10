@@ -132,6 +132,17 @@ table.mb-disc {
     z-index: 100;
 }
 
+/* Help link is always visible */
+#help-link {
+    position: fixed;
+    top: 2px;
+    left: 2px;
+    z-index: 50;
+    padding: 2px 4px;
+    font-size: 12px;
+    border-radius: 3px;
+}
+
 /* Players are shown to the bottom right */
 #players {
     position: fixed;
