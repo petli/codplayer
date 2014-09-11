@@ -12,11 +12,13 @@ import argparse
 
 from codplayer import rest
 from codplayer import config
+from codplayer import full_version
 
 parser = argparse.ArgumentParser(description = 'codplayer database REST API')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
 parser.add_argument('-d', '--debug', action = 'store_true',
                     help = 'run in debug mode')
+parser.add_argument('--version', action = 'version', version = full_version())
 
 def main(args):
     try:

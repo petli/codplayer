@@ -15,6 +15,7 @@ from codplayer import config
 from codplayer import db
 from codplayer.state import StateError
 from codplayer.command import CommandError, ClientError
+from codplayer import full_version
 
 def state_getter(cfg):
     for p in cfg.publishers:
@@ -103,6 +104,7 @@ parser = argparse.ArgumentParser(description = 'codplayer daemon')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
 parser.add_argument('-t', '--timeout', type = int,
                     help = 'give up command/stop updates after TIMEOUT seconds')
+parser.add_argument('--version', action = 'version', version = full_version())
 
 subparsers = parser.add_subparsers(help = 'command', dest = 'command')
 
@@ -142,6 +144,8 @@ parser_eject = subparsers.add_parser(
 parser_quit = subparsers.add_parser(
     'quit', help = 'tell player process to quit nicely')
 
+parser_version = subparsers.add_parser(
+    'version', help = 'get the version of the codplayer daemon')
 
 if __name__ == '__main__':
     args = parser.parse_args()

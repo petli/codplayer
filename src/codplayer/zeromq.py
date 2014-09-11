@@ -11,6 +11,7 @@ Use ZeroMQ to publish player state and accept commands.
 import time
 import threading
 
+import json
 import zmq
 
 from . import state
@@ -277,7 +278,12 @@ class ZMQClient(command.CommandClient):
                 raise command.ClientError('error deserializing disc: {0}'.format(e))
 
         elif msg[0] == 'ok':
-            return None
+            try:
+                return json.loads(msg[1])
+            except ValueError as e:
+                raise command.ClientError('error deserializing response: {0}'.format(e))
+            except IndexError:
+                return None
 
         elif msg[0] == 'error':
             if len(msg) < 2:

@@ -28,6 +28,7 @@ import time
 import os
 
 from codplayer import config
+from codplayer import full_version
 
 
 # Event interface:
@@ -47,6 +48,7 @@ BTN_BACK    = 0x116
 parser = argparse.ArgumentParser(description = 'codplayer mouse remote controller')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
 parser.add_argument('device', help = 'the /dev/input/eventX device to use')
+parser.add_argument('--version', action = 'version', version = full_version())
 
 def main(args):
     try:

@@ -55,11 +55,14 @@ Frame format:
     1: JSON: model.ExtDisc object or null
 
 
-Cmmands
--------
+Commands
+--------
 
 Create a `REQ` socket and connect to the address specified in the
 `ZMQCommandFactory` config.
+
+Run `codctl --help` to get a list of commands that can be sent to the
+daemon.
 
 ### Request
 
@@ -91,6 +94,7 @@ The `source` command returns the current disc:
 If a command doesn't have a return value, the response is simply:
 
     0: "ok"
+    1: JSON response (this frame may be omitted if none)
 
 Command errors are returned as:
 

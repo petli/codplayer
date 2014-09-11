@@ -32,6 +32,7 @@ from . import sink
 from . import rip
 from .state import State, RipState
 from .command import CommandError
+from . import full_version
 
 class PlayerError(Exception):
     pass
@@ -82,6 +83,9 @@ class Player(object):
             
         
     def run(self):
+        self.log('-' * 60)
+        self.log('starting {}', full_version())
+
         try:
             # Prepare for in-process commands
             self.zmq_context = zmq.Context()
@@ -307,6 +311,11 @@ class Player(object):
 
     def cmd_source(self, args):
         return self.transport.get_source_disc()
+
+
+    def cmd_version(self, args):
+        return full_version()
+
 
     def play_disc(self, disc, track_number = 0):
         """Start playing disc from the database"""
