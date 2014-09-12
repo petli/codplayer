@@ -8,7 +8,9 @@ import unittest
 import os
 import tempfile
 
-from .. import db, model
+from .. import db
+from .. import model
+from .. import toc
 from .. import serialize
 
 
@@ -92,7 +94,7 @@ class TestDir(object):
             if s in (db.Database.DISC_ID_SUFFIX,
                      db.Database.AUDIO_SUFFIX,
                      db.Database.ORIG_TOC_SUFFIX,
-                     db.Database.COOKED_TOC_SUFFIX,
+                     db.Database.DISC_INFO_SUFFIX,
                      '.log',
                      ):
                 os.remove(os.path.join(d, f))
@@ -181,13 +183,13 @@ class TestDiscAccess(TestDir, unittest.TestCase):
 
         audio_file = self.db.get_audio_path(self.DB_ID)
         toc_file = self.db.get_orig_toc_path(self.DB_ID)
-        cooked_toc_file = self.db.get_cooked_toc_path(self.DB_ID)
+        disc_info_file = self.db.get_disc_info_path(self.DB_ID)
 
         # Dir should now exist and not contain those files 
         self.assertTrue(os.path.isdir(path))
         self.assertFalse(os.path.exists(audio_file))
         self.assertFalse(os.path.exists(toc_file))
-        self.assertFalse(os.path.exists(cooked_toc_file))
+        self.assertFalse(os.path.exists(disc_info_file))
 
         # But should have the disc ID file
         self.assertTrue(os.path.isfile(self.db.get_id_path(self.DB_ID)))
@@ -203,36 +205,24 @@ class TestDiscAccess(TestDir, unittest.TestCase):
 
         open(audio_file, 'wb').close()
 
-        with open(toc_file, 'wt') as f:
-            f.write("""
+        # Mock up a disc from a simple TOC with some additional info added
+        disc = toc.parse_toc("""
 TRACK AUDIO
 TWO_CHANNEL_AUDIO
 FILE "{0}.cdr" 0 02:54:53
-""".format(self.DB_ID[:8]))
-
-        disc = self.db.get_disc_by_disc_id(self.DISC_ID)
-        self.assertIsNotNone(disc)
-        
-        self.assertEqual(disc.disc_id, self.DISC_ID)
-        self.assertIs(disc.title, None)
-
-        self.assertEqual(len(disc.tracks), 1)
-
-        t = disc.tracks[0]
-        self.assertEqual(t.number, 1)
-        self.assertEqual(t.file_offset, 0)
-        self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
-        
-        # Now add some info and save as a cooked TOC and see that it
-        # hides the original TOC
+""".format(self.DB_ID[:8]), self.DISC_ID)
 
         disc.artist = u'Disc artist'
         disc.title = u'Disc title'
+        t = disc.tracks[0]
         t.artist = u'Track artist'
         t.title = u'Track title'
-        
-        serialize.save_json(disc, cooked_toc_file)
 
+        # Use the create method, to check that it is fine with
+        # being called when the dir already exists
+        self.db.create_disc(disc)
+
+        # Disc should now be read ok
         disc2 = self.db.get_disc_by_disc_id(self.DISC_ID)
         self.assertIsNotNone(disc2)
         
@@ -263,18 +253,17 @@ class TestDiscUpdate(TestDir, unittest.TestCase):
         db.Database.init_db(self.test_dir)
         self.db = db.Database(self.test_dir)
         
-        path = self.db.create_disc_dir(self.DB_ID)
-        audio_file = self.db.get_audio_path(self.DB_ID)
-        toc_file = self.db.get_orig_toc_path(self.DB_ID)
-
-        open(audio_file, 'wb').close()
-
-        with open(toc_file, 'wt') as f:
-            f.write("""
+        # Mock up a disc from a simple TOC
+        disc = toc.parse_toc("""
 TRACK AUDIO
 TWO_CHANNEL_AUDIO
 FILE "{0}.cdr" 0 02:54:53
-""".format(self.DB_ID[:8]))
+""".format(self.DB_ID[:8]), self.DISC_ID)
+
+        self.db.create_disc(disc)
+
+        audio_file = self.db.get_audio_path(self.DB_ID)
+        open(audio_file, 'wb').close()
 
 
     def test_update_invalid_disc(self):

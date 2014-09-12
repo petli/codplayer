@@ -17,6 +17,7 @@ import lockfile
 
 from codplayer import db, player, config, sink
 from codplayer import command
+from codplayer import full_version
 
 def main(args):
     try:
@@ -76,6 +77,7 @@ parser = argparse.ArgumentParser(description = 'codplayer daemon')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
 parser.add_argument('-d', '--debug', action = 'store_true',
                     help = 'run in debug mode instead of deamon')
+parser.add_argument('--version', action = 'version', version = full_version())
 
 if __name__ == '__main__':
     args = parser.parse_args()

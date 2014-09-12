@@ -23,7 +23,7 @@ $(function(){
         STOP:    '\u25a0'
     };
 
-    var highlightedTrack = 0;
+    var highlightedTrack = null;
     var showingRipping = false;
 
     var formatTime = function(seconds) {
@@ -44,7 +44,7 @@ $(function(){
     };
 
     var highlightTrack = function() {
-        if (highlightedTrack) {
+        if (highlightedTrack !== null) {
             var el = $('#track-' + highlightedTrack);
 
             if (el.size()) {
@@ -93,20 +93,6 @@ $(function(){
             $('#position').text(position);
             $('#length').text(length);
 
-            if (typeof data.ripping !== 'number') {
-                if (showingRipping) {
-                    $('#ripping-state').fadeOut();
-                    showingRipping = false;
-                }
-            }
-            else {
-                $('#ripping-percentage').text(data.ripping.toString());
-                if (!showingRipping) {
-                    $('#ripping-state').fadeIn();
-                    showingRipping = true;
-                }
-            }
-
             if (state !== 'NO_DISC') {
                 title = (titleState + ' ' +
                          data.track.toString() + '/' + data.no_tracks.toString() + ' ' +
@@ -117,8 +103,9 @@ $(function(){
             data.summary = title;
 
             // Change current track highlightning, if any
-            if (data.track !== highlightedTrack) {
-                highlightedTrack = data.track;
+            var ht = (state === 'PLAY' || state === 'PAUSE') ? data.track : null;
+            if (highlightedTrack !== ht) {
+                highlightedTrack = ht;
                 $('.current-track').removeClass('current-track');
                 highlightTrack();
             }
@@ -135,6 +122,35 @@ $(function(){
 
             // Update the error display, if any
             setError(data.error);
+        });
+
+        socket.on('cod-rip-state', function(data) {
+            switch (data.state)
+            {
+            case null:
+            case undefined:
+            case 'INACTIVE':
+                if (showingRipping) {
+                    $('#ripping-state').fadeOut();
+                    showingRipping = false;
+                }
+                break;
+
+
+            default:
+                if (typeof data.progress === 'number') {
+                    $('#ripping-percentage').text(data.progress.toString() + '%');
+                }
+                else {
+                    $('#ripping-percentage').text(data.state);
+                }
+
+                if (!showingRipping) {
+                    $('#ripping-state').fadeIn();
+                    showingRipping = true;
+                }
+                break;
+            }
         });
 
         socket.on('cod-disc', function(disc) {

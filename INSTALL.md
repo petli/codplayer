@@ -14,14 +14,14 @@ The `webui/controlwidget` has been tested with Node.js 0.10.x.
 codplayer depends on a number of libraries and utilities.  On a Ubuntu
 system this should install them all:
 
-    apt-get install libdiscid0 cdrdao eject libasound2-dev \
-        python-dev python-virtualenv python-pip \
+    apt-get install libdiscid0 cdrdao cdparanoia eject \
+        libasound2-dev python-dev python-virtualenv python-pip \
         libzmq3 libzmq3-dev
 
 Raspbian has an older version of ZeroMQ:
 
-    apt-get install libdiscid0 cdrdao eject libasound2-dev \
-        python-dev python-virtualenv python-pip \
+    apt-get install libdiscid0 cdrdao cdparanoia eject \
+        libasound2-dev python-dev python-virtualenv python-pip \
         libzmq1 libzmq-dev
 
 

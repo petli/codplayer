@@ -16,7 +16,9 @@ var io = require('socket.io').listen(server, { 'log level': 1 });
 var zmq = require('zmq');
 
 var numClients = 0;
+var isSubscribed = false;
 var currentState = null;
+var currentRipState = null;
 var currentDisc = null;
 
 
@@ -136,6 +138,22 @@ var onSocketMessage = function(type, value) {
                 io.sockets.emit('cod-disc', null);
             }
         }
+        break;
+
+    case 'rip_state':
+        try {
+            currentRipState = JSON.parse(value);
+        }
+        catch (e) {
+            console.log('invalid rip state: %j', value);
+            io.sockets.emit('cod-error', 'Malformed rip state update from codplayer');
+            return;
+        }
+
+        // Just forward to client, as we mostly care more about being
+        // told what the player is doing with the CD reader rather
+        // than exactly which disc is being read
+        io.sockets.emit('cod-rip-state', currentRipState);
         break;
 
     case 'disc':
@@ -265,12 +283,14 @@ io.sockets.on('connection', function (socket) {
     numClients++;
     console.log('connection, now ' + numClients + ' clients');
 
-    if (numClients === 1) {
+    if (!isSubscribed) {
         // Start subscribing to all state updates
+        isSubscribed = true;
         stateSocket.subscribe('');
 
         // And force a state fetch in case there's nothing coming from the server
         queueCommand(['state']);
+        queueCommand(['rip_state']);
         queueCommand(['source']);
     }
     else {
@@ -278,6 +298,10 @@ io.sockets.on('connection', function (socket) {
         // should be ok since there are other clients
         if (currentState) {
             socket.emit('cod-state', currentState);
+        }
+
+        if (currentRipState) {
+            socket.emit('cod-rip-state', currentRipState);
         }
 
         if (currentDisc) {
@@ -293,14 +317,24 @@ io.sockets.on('connection', function (socket) {
         console.log('disconnect, now ' + numClients + ' clients');
 
         if (numClients === 0) {
-            // No need to keep listening
-            console.log('unsubscribing to state updates');
-            stateSocket.unsubscribe('');
+            // Stop listening if there aren't any clients
+            // after 30 secs
+            setTimeout(function() {
+                if (numClients !== 0) {
+                    return;
+                }
 
-            // Which also means that the state is no longer updated,
-            // so don't cache it
-            currentState = null;
-            currentDisc = null;
+                // Still no clients, no need to keep listening
+                console.log('unsubscribing to state updates');
+                isSubscribed = false;
+                stateSocket.unsubscribe('');
+
+                // Which also means that the state is no longer updated,
+                // so don't cache it
+                currentState = null;
+                currentRipState = null;
+                currentDisc = null;
+            }, 30000);
         }
     });
 

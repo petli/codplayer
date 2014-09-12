@@ -24,13 +24,23 @@ receive all events.
 
 ### state
 
-Sent every time the state changes, including when the play position
-moves a second or the ripping progress a percentage point.
+Sent every time the player state changes, including when the play
+position moves a second.
 
 Frame format:
 
     0: "state"
     1: JSON: state.State
+
+### rip_state
+
+Sent every time the rip state changes, including when the ripping
+progress moves a percentage point.
+
+Frame format:
+
+    0: "rip_state"
+    1: JSON: state.RipState
 
 ### disc
 
@@ -45,11 +55,14 @@ Frame format:
     1: JSON: model.ExtDisc object or null
 
 
-Cmmands
--------
+Commands
+--------
 
 Create a `REQ` socket and connect to the address specified in the
 `ZMQCommandFactory` config.
+
+Run `codctl --help` to get a list of commands that can be sent to the
+daemon.
 
 ### Request
 
@@ -68,6 +81,11 @@ Most commands return the resulting state, if successful:
     0: "state"
     1: JSON: state.State
 
+The `rip_state` command returns the current rip state:
+
+    0: "rip_state"
+    1: JSON: state.RipState
+
 The `source` command returns the current disc:
 
     0: "disc"
@@ -76,6 +94,7 @@ The `source` command returns the current disc:
 If a command doesn't have a return value, the response is simply:
 
     0: "ok"
+    1: JSON response (this frame may be omitted if none)
 
 Command errors are returned as:
 

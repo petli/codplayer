@@ -15,6 +15,7 @@ from pkg_resources import resource_filename
 
 from codplayer import db, model
 from codplayer import serialize
+from codplayer import full_version
 
 def cmd_init(args):
     try:
@@ -119,6 +120,7 @@ def cmd_disc(args):
 #
 
 parser = argparse.ArgumentParser(description = 'codplayer database administration')
+parser.add_argument('--version', action = 'version', version = full_version())
 
 subparsers = parser.add_subparsers(help = 'command')
 

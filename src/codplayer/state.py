@@ -39,9 +39,6 @@ class State(serialize.Serializable):
     length: Length of current track in whole seconds, counting
     from index 1.
 
-    ripping: None if not currently ripping a disc, otherwise a number
-    0-100 showing the percentage done.
-
     error: A string giving the error state of the player, if any.
     """
 
@@ -75,13 +72,12 @@ class State(serialize.Serializable):
         self.index = 0
         self.position = 0
         self.length = 0
-        self.ripping = None
         self.error = None
 
 
     def __str__(self):
         return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
-                'index: {index} position: {position} length: {length} ripping: {ripping} '
+                'index: {index} position: {position} length: {length} '
                 'error: {error}'
                 .format(**self.__dict__))
 
@@ -94,19 +90,49 @@ class State(serialize.Serializable):
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
         serialize.Attr('position', int),
-        serialize.Attr('ripping', int),
         serialize.Attr('error', serialize.str_unicode),
         )
 
-    @classmethod
-    def from_file(cls, path):
-        """Create a State object from the JSON stored in the file PATH."""
-        return serialize.load_json(cls, path)
 
-    @classmethod
-    def from_string(cls, json):
-        """Create a State object from a JSON serialized string."""
-        return serialize.load_jsons(cls, json)
+class RipState(serialize.Serializable):
+    """Ripping state as visible to external users.  Attributes:
+
+    state: One of the following identifiers:
+      INACTIVE:  No ripping is currently taking place
+      AUDIO:     Audio data is being read
+      TOC:       TOC is being read
+
+    disc_id: The Musicbrainz disc ID of the currently ripped disc, or None
+
+    progress: Percentage of 0-100 for current phase, or None if not
+    known or not applicable
+
+    error: The last ripping error, if any.
+    """
+
+    class INACTIVE: pass
+    class AUDIO: pass
+    class TOC: pass
+
+    def __init__(self):
+        self.state = self.INACTIVE
+        self.disc_id = None
+        self.progress = None
+        self.error = None
+
+
+    def __str__(self):
+        return ('{state.__name__} disc: {disc_id} progress: {progress} error: {error}'
+                .format(**self.__dict__))
+
+
+    # Deserialisation methods
+    MAPPING = (
+        serialize.Attr('state', enum = (INACTIVE, AUDIO, TOC)),
+        serialize.Attr('disc_id', str),
+        serialize.Attr('progress', int),
+        serialize.Attr('error', serialize.str_unicode),
+        )
 
 
 # And here we go all Java style, including long clumsy names, but it
@@ -138,11 +164,21 @@ class PublisherFactory(object):
 
 class StatePublisher(object):
     """Base class for publishers to be used by player.Transport.
+
+    The update methods may be called from different threads, which the
+    publisher implementation must be able to handle.
     """
 
     def update_state(self, state):
         """Called by player.Transport when the state updates.  The publisher
         must copy the state if it needs to be stored for future reference.
+        """
+        raise NotImplementedError()
+
+    def update_rip_state(self, rip_state):
+        """Called by rip.Ripper when the ripping state is changed.  The
+        publisher must copy the state if it needs to be stored for
+        future reference.
         """
         raise NotImplementedError()
 
@@ -162,6 +198,10 @@ class StateGetter(object):
         """Return a State object."""
         raise NotImplementedError()
 
+    def get_rip_state(self, timeout = None):
+        """Return a RipState object"""
+        raise NotImplementedError()
+
     def get_disc(self, timeout = None):
         """Return a model.ExtDisc object"""
         raise NotImplementedError()
@@ -171,7 +211,7 @@ class StateSubscriber(object):
     """Base class for state subscribers to be used by player clients."""
 
     def iter(self, timeout = None):
-        """Return an iterator that will yield State or model.ExtDisc objects.
+        """Return an iterator that will yield State, RipState or model.ExtDisc objects.
 
         If timeout is None it runs forever, otherwise blocks for that
         many seconds.  If timeout is 0, doesn't block at all.
@@ -190,6 +230,9 @@ class FilePublisherFactory(PublisherFactory):
         def update_state(self, state):
             serialize.save_json(state, self.factory.state_path)
 
+        def update_rip_state(self, rip_state):
+            serialize.save_json(rip_state, self.factory.rip_state_path)
+
         def update_disc(self, disc):
             serialize.save_json(disc, self.factory.disc_path)
 
@@ -203,12 +246,19 @@ class FilePublisherFactory(PublisherFactory):
             except serialize.LoadError, e:
                 raise StateError(e)
 
+        def get_rip_state(self, timeout = None):
+            try:
+                return RipState.from_file(self.factory.rip_state_path)
+            except serialize.LoadError, e:
+                raise StateError(e)
+
         def get_disc(self, timeout = None):
             return serialize.load_json(model.ExtDisc, self.factory.disc_path)
 
 
-    def __init__(self, state_path, disc_path):
+    def __init__(self, state_path, rip_state_path, disc_path):
         self.state_path = state_path
+        self.rip_state_path = rip_state_path
         self.disc_path = disc_path
 
     def publisher(self, player):

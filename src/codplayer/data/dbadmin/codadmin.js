@@ -4,6 +4,8 @@
 //
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
+/* global Backbone, $, _ */
+
 $(function(){
     'use strict';
 
@@ -11,50 +13,47 @@ $(function(){
     // Disc model and collection
     //
     
+    var getSortKey = function(value) {
+        if (value && typeof value === 'string') {
+            value = value.toLowerCase();
+            if (/^the /.test(value)) {
+                value = value.slice(4);
+            }
+            return value;
+        }
+        // Force missing fields to be sorted last
+        return '\uffff';
+    };
+
     var Disc = Backbone.Model.extend({
         idAttribute: 'disc_id',
 
         initialize: function() {
+            this.updateSortKey();
+            this.listenTo(this, 'change', this.updateSortKey);
+        },
+
+        updateSortKey: function() {
+            // Preconstruct a disc compare string to speed up sorting
+            // Primary key: artist
+            // Secondary key: year of release
+            // Tertiary key: title
+            // Fallback: disc ID (after anything with info
+
+            this.sortKey = getSortKey(this.get('artist')) + '\0' +
+                getSortKey(this.get('date')) + '\0' +
+                getSortKey(this.get('title')) + '\0' +
+                this.get('disc_id');
         },
     });
-
-    // Sort empty/missing last, the rest in increasing order
-    var discComparator = function(a, b, key) {
-        a = a.get(key);
-        b = b.get(key);
-
-        if (a && b) {
-            // Prepare both strings for comparison
-            a = a.toLowerCase();
-            b = b.toLowerCase();
-
-            if (/^the /.test(a)) a = a.slice(4);
-            if (/^the /.test(b)) b = b.slice(4);
-
-            if (a < b) return -1;
-            if (a > b) return 1
-            return 0;
-        }
-        if (a) return -1;
-        if (b) return 1;
-        return 0;
-    };
 
     var DiscList = Backbone.Collection.extend({
         model: Disc,
 
         url: 'discs',
 
-        comparator: function(a, b) {
-            // Primary key: artist
-            // Secondary key: year of release
-            // Tertiary key: title
-            // Fallback: disc ID
-
-            return (discComparator(a, b, 'artist') ||
-                    discComparator(a, b, 'date') ||
-                    discComparator(a, b, 'title') ||
-                    discComparator(a, b, 'disc_id'));
+        comparator: function(m) {
+            return m.sortKey;
         }
     });
 
@@ -184,7 +183,7 @@ $(function(){
             var minPart = Math.floor(seconds / 60).toString();
             var secPart = (seconds % 60).toString();
 
-            if (secPart.length == 1) {
+            if (secPart.length === 1) {
                 secPart = '0' + secPart;
             }
 
@@ -257,8 +256,8 @@ $(function(){
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
         },
 
-        template: _.template($('#disc-row-template').html()
-                             + $('#disc-detail-template').html()),
+        template: _.template($('#disc-row-template').html() +
+                             $('#disc-detail-template').html()),
 
         initialize: function() {
             this.listenTo(this.model, 'change', this.render);
@@ -358,12 +357,44 @@ $(function(){
                 mbTracks = this.mbDisc.get('tracks');
                 modelTracks = this.model.get('tracks');
 
+                // If there are an initial hidden track and that
+                // doesn't seem to be in the MB response, push it to
+                // the front
+                if (modelTracks[0].number === 0 &&
+                    modelTracks.length > mbTracks.length) {
+                    mbTracks.unshift(modelTracks[0]);
+                }
+
+                // Add track info at the end, if missing in MB response
                 while (mbTracks.length < modelTracks.length) {
                     mbTracks.push(_.clone(modelTracks[mbTracks.length]));
                 }
 
+                // Trim MB response, if longer than the local disc
                 while (mbTracks.length > modelTracks.length) {
                     mbTracks.pop();
+                }
+
+                // Copy over information not in the MB response
+
+                var discProps = [ 'catalog', 'title', 'artist', 'barcode', 'date' ];
+                var trackProps = [ 'isrc', 'title', 'artist', 'skip', 'pause_after' ];
+                var i, n, prop;
+
+                for (i = 0; i < discProps.length; i++) {
+                    prop = discProps[i];
+                    if (!this.mbDisc.get(prop)) {
+                        this.mbDisc.set(prop, this.model.get(prop));
+                    }
+                }
+
+                for (n = 0; n < mbTracks.length; n++) {
+                    for (i = 0; i < trackProps.length; i++) {
+                        prop = trackProps[i];
+                        if (!mbTracks[n][prop]) {
+                            mbTracks[n][prop] = modelTracks[n][prop];
+                        }
+                    }
                 }
             }
         },
@@ -587,7 +618,7 @@ $(function(){
         },
     });
 
-    var alertView = new AlertView({ model: currentAlert });
+    var alertView = new AlertView({ model: currentAlert }); // jshint ignore:line
 
 
     //
@@ -615,10 +646,11 @@ $(function(){
 
                 if (self.iframe && ev.source === self.iframe.contentWindow) {
                     data = JSON.parse(ev.data);
-                    if (data && data.codplayer
-                        && data.codplayer.state
-                        && data.codplayer.state.summary
-                        && self.headingState) {
+                    if (data &&
+                        data.codplayer &&
+                        data.codplayer.state &&
+                        data.codplayer.state.summary &&
+                        self.headingState) {
                         self.headingState.text(data.codplayer.state.summary);
                     }
                     else {

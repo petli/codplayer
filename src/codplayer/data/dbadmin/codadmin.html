@@ -23,6 +23,13 @@
   <div id="alert-area">
   </div>
   
+  <div id="help-link" class="bg-info text-info">
+    <a target="_blank"
+       href="https://github.com/petli/codplayer/blob/master/doc/dbadmin.md">
+      Docs
+    </a>
+  </div>
+
   <!--
     -- Navigation and holder for the disc list
     -->
@@ -199,7 +206,7 @@
                                            tracks[i].skip ? 'active' : '' %>"
                                   data-edit-field="track-skip"
                                   data-edit-track-index="<%- i %>">
-                             <input type="checkbox"> &#x23ed;
+                             <input type="checkbox"> &#xe60a;
                            </label>
                            <label class="btn btn-default btn-xs symbol <%=
                                            tracks[i].pause_after ? 'active' : '' %>"
