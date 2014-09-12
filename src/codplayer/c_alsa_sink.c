@@ -175,6 +175,8 @@ static int thread_set_format(alsa_thread_t *self, snd_pcm_t *handle);
 static void* thread_main(void *arg);
 static void thread_loop(alsa_thread_t *self);
 static void thread_play_once(alsa_thread_t *self);
+static void thread_pause(alsa_thread_t *self);
+static void thread_resume(alsa_thread_t *self);
 
 
 /* Translate a card id to a ALSA cardname 
@@ -1104,63 +1106,16 @@ static void thread_loop(alsa_thread_t *self)
             break;
 
         case SINK_PAUSING:
-        {
-            int res = 0;
-
-            if (self->handle)
-            {
-                /* UNLOCKED CONTEXT */
-                END_LOCK(self);
-                res = snd_pcm_pause(self->handle, 1);
-                BEGIN_LOCK(self);
-            }
-
-            if (res < 0)
-            {
-                self->log_message = "error pausing device";
-                self->log_param = snd_strerror(-res);
-            }
-
-            /* Even if that fails, go into PAUSED so we at least stop
-             * pushing samples into the device.
-             */
-            self->state = SINK_PAUSED;
-            NOTIFY(self);
+            thread_pause(self);
             break;
-        }
 
         case SINK_PAUSED:
             WAIT(self);
             break;
 
-
         case SINK_RESUME:
-        {
-            int res = 0;
-
-            if (self->handle)
-            {
-                /* UNLOCKED CONTEXT */
-                END_LOCK(self);
-                res = snd_pcm_pause(self->handle, 0);
-                BEGIN_LOCK(self);
-            }
-
-            if (res < 0)
-            {
-                self->log_message = "error resuming device, closing it";
-                self->log_param = snd_strerror(-res);
-                self->device_error = "error resuming device, closed it";
-                self->state = SINK_CLOSING;
-            }
-            else
-            {
-                self->state = self->paused_in_state;
-            }
-
-            NOTIFY(self);
+            thread_resume(self);
             break;
-        }
 
         case SINK_DRAINING:
             if (self->data_size > 0)
@@ -1315,6 +1270,93 @@ static void thread_play_once(alsa_thread_t *self)
             NOTIFY(self);
         }
     }
+}
+
+
+static void thread_pause(alsa_thread_t *self)
+{
+    /* LOCK SCOPE: self->mutex is already locked when this function is
+     * called.
+     */
+
+    int res = 0;
+
+    if (self->handle)
+    {
+        /* UNLOCKED CONTEXT */
+        END_LOCK(self);
+
+        res = snd_pcm_pause(self->handle, 1);
+
+        if (res < 0) {
+            /* If we can't pause, something is probably very bad.
+             * Close the device and let thread_play_once() retry
+             * opening it later when resuming play (if done).
+             */
+            snd_pcm_drop(self->handle);
+            snd_pcm_close(self->handle);
+            self->handle = NULL;
+        }
+
+        BEGIN_LOCK(self);
+    }
+
+    if (res < 0)
+    {
+        self->log_message = "error pausing device, closed it";
+        self->log_param = snd_strerror(-res);
+        self->device_error = "error pausing device, closed it";
+    }
+
+    /* Even if pausing fails, go into PAUSED since the music will stop
+     * at this point anyway.
+     */
+    self->state = SINK_PAUSED;
+    NOTIFY(self);
+}
+
+
+static void thread_resume(alsa_thread_t *self)
+{
+    /* LOCK SCOPE: self->mutex is already locked when this function is
+     * called.
+     */
+
+    int res = 0;
+
+    if (self->handle)
+    {
+        /* UNLOCKED CONTEXT */
+        END_LOCK(self);
+
+        res = snd_pcm_pause(self->handle, 0);
+
+        if (res < 0) {
+            /* If we can't resume, something is probably very bad.
+             * Close the device and let thread_play_once() retry
+             * opening it.
+             */
+            snd_pcm_drop(self->handle);
+            snd_pcm_close(self->handle);
+            self->handle = NULL;
+        }
+
+        BEGIN_LOCK(self);
+    }
+
+    if (res < 0)
+    {
+        self->log_message = "error resuming device, closing it";
+        self->log_param = snd_strerror(-res);
+        self->device_error = "error resuming device, closed it";
+    }
+
+    /* Always go back to the intended state (PLAYING or DRAINING) even
+     * if resuming the device failed, since thread_play_once() will
+     * try to fix it by reopening.
+     */
+    self->state = self->paused_in_state;
+    NOTIFY(self);
 }
 
 

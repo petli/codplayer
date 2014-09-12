@@ -79,6 +79,12 @@ Web control widget:
   stopping the state subscriptions
 
 
+codplayerd:
+
+* Fix https://github.com/petli/codplayer/issues/30: handle errors on
+  pause/resume in c_alsa_sink correctly
+
+
 0.9.1 2014-07-14
 ----------------
 
