@@ -26,28 +26,6 @@ Installation and configuration instructions are provided in
 [`INSTALL.md`](https://github.com/petli/codplayer/blob/master/INSTALL.md).
 
 
-License
-=======
-
-Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
-
-codplayer is licensed under an MIT license, please see the file
-LICENSE.
-
-
-Third-party sources
-------------------
-
-jQuery is licensed under an MIT license:
-* Copyright (c) 2005, 2013 jQuery Foundation, Inc.
-
-mustache.js is licensed under an MIT license:
-* Copyright (c) 2009 Chris Wanstrath (Ruby)
-* Copyright (c) 2010 Jan Lehnardt (JavaScript)
-
-The icon font was generated from http://icomoon.io/
-
-
 Architecture
 ============
 
@@ -106,4 +84,73 @@ the REST API provided by `codrestd`.  Current features:
 
 Low-level administration is also possible with `codadmin`, run it with
 `--help` to see available commands.
+
+
+Ripping process
+===============
+
+If you're generous, the CD format is an elegant solution to the
+problem of how to read, process and play a digital stream when you had
+to build it all with 74xx chips.  If you're feeling more cranky, it's
+an analogue format in digital clothing.
+
+Reading the audio samples isn't that tricky on linux, as cdparanoia
+does a very good job of salvaging the intention of the mastering
+process into PCM files.  A bigger problem is reading all the
+additional information that lurks on the disc: pregap lengths, track
+indices, CDTEXT etc.  This "subchannel" data is encoded with a kind of
+digital carrier wave and must be extracted bit by bit:
+http://en.wikipedia.org/wiki/Compact_disc_subcode
+
+cdrdao can read this into a `.toc` text file.  But if you also let
+cdrdao read the audio samples at the same time, the error correcting
+it does by rereading sections will screw up the subchannel bits and
+you get distorted TOC data.
+
+Confusing things more, there might be "hidden" audio before track 1.
+If you rip both audio and TOC with cdrdao, the track offsets written
+into the `.toc` are mostly correct, but pretends that everything
+before the first track is silence.  If you only read the TOC instead
+with cdrdao, the file offsets in the `.toc` ignores the hidden track
+and thus doesn't match what cdparanoia ripped.
+
+To handle all this, codplayer uses the following process when told
+that a disc has been inserted into the reader:
+
+1. Use libdiscid to read the basic TOC (just track offsets and
+   lengths, no pregaps etc).
+2. Look up the disc information in the database, creating a basic
+   record from the TOC if this is the first time the disc is played
+3. Check if the disc audio has already been ripped.  If not, kick off
+   a cdparanoia process.
+4. Start playing, expecting that cdparanoia will rip faster than
+   playback speed (if not the player will pause waiting for more data)
+5. Check if the full TOC has bean read.  If not, run cdrdao to get a
+   `.toc` file.  When done, read the file and merge it with the
+   existing disc info keeping the best data from each source.
+6. Stop spinning the disc.
+7. Disco.
+
+
+License
+=======
+
+Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
+
+codplayer is licensed under an MIT license, please see the file
+LICENSE.
+
+
+Third-party sources
+------------------
+
+jQuery is licensed under an MIT license:
+* Copyright (c) 2005, 2013 jQuery Foundation, Inc.
+
+mustache.js is licensed under an MIT license:
+* Copyright (c) 2009 Chris Wanstrath (Ruby)
+* Copyright (c) 2010 Jan Lehnardt (JavaScript)
+
+The icon font was generated from http://icomoon.io/
+
 
