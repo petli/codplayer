@@ -158,9 +158,12 @@ class Ripper(object):
 
         args = [self.cfg.cdparanoia_command,
                 '--force-cdrom-device', self.cfg.cdrom_device,
-                '--output-raw-big-endian',
-                '--', span,
-                audio_path]
+                '--output-raw-big-endian']
+
+        if self.cfg.cdrom_read_speed:
+            args += ['--force-read-speed', str(self.cfg.cdrom_read_speed)]
+
+        args += ['--', span, audio_path]
 
         audio_process = self.run_process(args, 'rip_audio.log')
         audio_size = self.disc.get_disc_file_size_bytes()

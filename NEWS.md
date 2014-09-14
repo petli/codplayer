@@ -81,6 +81,9 @@ Web control widget:
 
 codplayerd:
 
+* Limit rip spead with new (optional) config parameter
+  `cdrom_read_speed`
+
 * Fix https://github.com/petli/codplayer/issues/30: handle errors on
   pause/resume in c_alsa_sink correctly
 

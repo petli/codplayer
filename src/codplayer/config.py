@@ -62,6 +62,7 @@ class PlayerConfig(Config):
         serialize.Attr('commands', list_type = command.CommandFactory),
         serialize.Attr('publishers', list_type = state.PublisherFactory),
         serialize.Attr('cdrom_device', str),
+        serialize.Attr('cdrom_read_speed', int, optional = True),
         serialize.Attr('cdparanoia_command', str),
         serialize.Attr('cdrdao_command', str),
         serialize.Attr('eject_command', str),

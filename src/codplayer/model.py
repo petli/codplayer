@@ -107,8 +107,8 @@ class Track(serialize.Serializable):
         # Length fields are added by the subclasses
 
         # Edit fields
-        serialize.Attr('skip', bool, optional = True),
-        serialize.Attr('pause_after', bool, optional = True),
+        serialize.Attr('skip', bool, optional = True, default = False),
+        serialize.Attr('pause_after', bool, optional = True, default = False),
         )
 
     def __init__(self):
@@ -177,9 +177,10 @@ class DbDisc(Disc):
     MAPPING = Disc.MAPPING + (
         serialize.Attr('tracks', list_type = DbTrack),
 
-        # Process flags: optional to be backward-compatible
-        serialize.Attr('rip', bool, optional = True),
-        serialize.Attr('toc', bool, optional = True),
+        # Process flags: optional to be backward-compatible with
+        # pre-1.0 rips
+        serialize.Attr('rip', bool, optional = True, default = False),
+        serialize.Attr('toc', bool, optional = True, default = False),
 
         serialize.Attr('data_file_name', serialize.str_unicode),
         serialize.Attr('data_file_format', enum = (RAW_CD, )),

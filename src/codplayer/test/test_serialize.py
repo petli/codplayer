@@ -71,11 +71,13 @@ class TestPopulateObject(unittest.TestCase):
             { 'foo': 'bar' },
             obj,
             [serialize.Attr('foo', str),
-             serialize.Attr('opt', int, optional = True)]
+             serialize.Attr('opt1', int, optional = True),
+             serialize.Attr('opt2', int, optional = True, default = 17)]
             )
 
         self.assertEqual(obj.foo, 'bar')
-        self.assertFalse(hasattr(obj, 'opt'))
+        self.assertEqual(obj.opt1, None)
+        self.assertEqual(obj.opt2, 17)
 
 
     def test_unicode_to_str(self):

@@ -59,7 +59,7 @@ class Attr(object):
     """
 
     def __init__(self, name, value_type = None, list_type = None,
-                 enum = None, optional = False):
+                 enum = None, optional = False, default = None):
         """name: attribute name
 
         value_type: expected type of the value.  Either a tuple that
@@ -72,6 +72,8 @@ class Attr(object):
         enum: if provided, a sequence of valid enum classes.
 
         optional: if True, don't raise an error if missing.
+
+        default: default value for optional attributes.
         """
 
         assert value_type or list_type or enum
@@ -81,6 +83,7 @@ class Attr(object):
         self.list_type = list_type
         self.enum = enum
         self.optional = optional
+        self.default = default
         
 
     def get_value_from_json(self, value):
@@ -142,10 +145,12 @@ def populate_object(src, dest, mapping):
         try:
             value = src[attr.name]
         except KeyError:
-            if not attr.optional:
+            if attr.optional:
+                value = attr.default
+            else:
                 raise LoadError('missing attribute: {0}'.format(attr.name))
-        else:
-            setattr(dest, attr.name, attr.get_value_from_json(value))
+
+        setattr(dest, attr.name, attr.get_value_from_json(value))
 
 
             
