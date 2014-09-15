@@ -107,18 +107,21 @@ body {
     
 
 /*
- * Error box
+ * Error boxes
  */
 
-#error {
-    display: none;
+#errors {
     position: absolute;
-    top: 6px;
+    top: auto;
     right: 8px;
     left: 8px;
-    bottom: auto;
+    bottom: 6px;
+}
 
+.error {
+    display: none;
     padding: 5px 8px;
+    margin: 4px 0px;
     background: #ffccd4;
     color: #f00;
     border: 1px solid #f00;

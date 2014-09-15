@@ -54,22 +54,28 @@ $(function(){
         }
     };
 
-    var currentError = '';
-    var setError = function(error) {
-        if (error === currentError) {
+    var currentErrors = {};
+    var setError = function(error, type) {
+        if (error === currentErrors[type]) {
             return;
         }
 
+        console.log('%s error: %s', type, error);
+
+        var $errorBox = $('#' + type + '-error');
+
+        currentErrors[type] = error;
+
         if (error) {
-            $('#error').text(error);
-            $('#error').fadeIn({
+            $errorBox.text(error);
+            $errorBox.fadeIn({
                 duration: 200,
                 queue: false,
             });
         }
         else {
-            $('#error').fadeOut({
-                duration: 2000,
+            $errorBox.fadeOut({
+                duration: 500,
                 queue: true,
             });
         }
@@ -78,6 +84,9 @@ $(function(){
     var socket = io.connect();
     socket.on('connect', function () {
         socket.on('cod-state', function(data) {
+            // Any message from server clears its errors
+            setError(null, 'server');
+
             // TODO: should probably be paranoid about what we get in data
 
             var state = data.state.toString();
@@ -121,10 +130,12 @@ $(function(){
             }
 
             // Update the error display, if any
-            setError(data.error);
+            setError(data.error, 'state');
         });
 
         socket.on('cod-rip-state', function(data) {
+            setError(null, 'server');
+
             switch (data.state)
             {
             case null:
@@ -151,9 +162,14 @@ $(function(){
                 }
                 break;
             }
+
+            // Update the error display, if any
+            setError(data.error, 'rip');
         });
 
         socket.on('cod-disc', function(disc) {
+            setError(null, 'server');
+
             var template = $('#album-template').html();
             var album;
 
@@ -182,7 +198,7 @@ $(function(){
     });
 
     socket.on('cod-error', function(error) {
-        setError(error);
+        setError(error, 'server');
     });
 
     $('button.command').on('click', function(event) {
