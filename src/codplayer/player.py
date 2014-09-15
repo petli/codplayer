@@ -164,8 +164,14 @@ class Player(object):
 
         # Allow any ripping to update status, possibly closing it
         if self.ripper:
-            if not self.ripper.tick():
+            try:
+                if not self.ripper.tick():
+                    self.ripper = None
+            except rip.RipError, e:
+                self.debug('dropping failed ripper')
                 self.ripper = None
+
+            if not self.ripper:
                 self.transport.ripping_done()
 
 
@@ -230,9 +236,12 @@ class Player(object):
             ripper = rip.Ripper(self)
             disc = ripper.read_disc()
 
-            if ripper.tick():
-                # Ripper is running, so keep track of it
-                self.ripper = ripper
+            try:
+                if ripper.tick():
+                    # Ripper is running, so keep track of it
+                    self.ripper = ripper
+            except rip.RipError, e:
+                raise CommandError('rip failed: {}'.format(e))
 
         return self.play_disc(disc)
 

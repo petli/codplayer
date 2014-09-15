@@ -125,12 +125,12 @@ class Ripper(object):
             self.current_task = None
             return self.tick()
 
-        # Propagate errors to clients and tell player we've given up
+        # Propagate errors to clients and reraise to tell player we've given up
         except RipError, e:
             self.log('rip failed: {0}', e)
             self.state.error = str(e)
             self.update_state()
-            return False
+            raise
 
 
     def stop(self):
