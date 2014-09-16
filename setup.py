@@ -6,7 +6,7 @@ from setuptools.command.test import test as TestCommand
 
 setup(
     name = 'codplayer',
-    version = '0.9.1',
+    version = '1.0',
     license = 'MIT',
     description = 'Complicated CD player',
     author = 'Peter Liljenberg',

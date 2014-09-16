@@ -1,8 +1,8 @@
 codplayer releases
 ==================
 
-1.0
----
+1.0 2014-09-16
+--------------
 
 The ripping process has been completely refactored.  The old process
 used cdrdao to rip both audio and the full TOC in a single pass.  This
@@ -85,7 +85,7 @@ codplayerd:
   `cdrom_read_speed`
 
 * Fix https://github.com/petli/codplayer/issues/30: handle errors on
-  pause/resume in c_alsa_sink correctly
+  pause/resume in `c_alsa_sink` correctly
 
 
 0.9.1 2014-07-14
