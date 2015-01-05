@@ -323,9 +323,16 @@ class Database(object):
             return None
 
         try:
-            return serialize.load_json(model.DbDisc, disc_info_file)
+            disc = serialize.load_json(model.DbDisc, disc_info_file)
         except serialize.LoadError, e:
             raise DatabaseError(self.db_dir, 'error reading disc info file: {0}'.format(e))
+
+        # 1.0 had a bug where the full data file path was saved, and
+        # not just the file name itself.  This breaks playback if the
+        # database path changes, so repair any incorrect paths here.
+        disc.data_file_name = os.path.basename(disc.data_file_name)
+
+        return disc
 
 
     def create_disc_dir(self, db_id):

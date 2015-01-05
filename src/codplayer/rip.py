@@ -65,7 +65,7 @@ class Ripper(object):
         db_id = self.db.disc_to_db_id(mbd.getId())
         old_disc = self.db.get_disc_by_db_id(db_id)
         new_disc = model.DbDisc.from_musicbrainz_disc(
-            mbd, filename = self.db.get_audio_path(db_id))
+            mbd, filename = self.db.get_audio_file(db_id))
 
         if old_disc is None:
             # This is new, so create it from the basic TOC we
