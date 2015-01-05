@@ -12,7 +12,10 @@ $(function(){
     //
     // Disc model and collection
     //
-    
+
+    // Collection of all known discs
+    var discs;
+
     var getSortKey = function(value) {
         if (value && typeof value === 'string') {
             value = value.toLowerCase();
@@ -31,6 +34,7 @@ $(function(){
         initialize: function() {
             this.updateSortKey();
             this.listenTo(this, 'change', this.updateSortKey);
+            this.listenTo(this, 'change:linked_disc_id', this.updateLinkedDisc);
         },
 
         updateSortKey: function() {
@@ -44,6 +48,20 @@ $(function(){
                 getSortKey(this.get('date')) + '\0' +
                 getSortKey(this.get('title')) + '\0' +
                 this.get('disc_id');
+        },
+
+        updateLinkedDisc: function() {
+            var linked_disc;
+            var linked_disc_id = this.get('linked_disc_id');
+            if (linked_disc_id) {
+                linked_disc = discs.get(linked_disc_id);
+            }
+            if (linked_disc) {
+                this.set('linked_disc', linked_disc);
+            }
+            else {
+                this.unset('linked_disc');
+            }
         },
     });
 
@@ -93,6 +111,70 @@ $(function(){
         url: 'players',
         model: Player,
     });
+
+
+    //
+    // Disc selection popup
+    //
+    // Emits events disc-selected or cancelled.
+    //
+
+    var DiscSelectionView = Backbone.View.extend({
+        events: {
+            'hide.bs.modal': 'onHide',
+            'hidden.bs.modal': 'onHidden',
+            'change #disc-selection-list': 'onSelectChange',
+            'click .select-disc': 'onSelectClick',
+        },
+
+        itemTemplate: _.template($('#disc-selection-item-template').html()),
+
+        show: function(title) {
+            var self = this;
+
+            $('#disc-selection-title').text(title);
+
+            var $list = this.$('#disc-selection-list');
+
+            $list.empty();
+            discs.each(function(disc) {
+                $list.append(self.itemTemplate(disc.toJSON()));
+            });
+
+            this.$('.select-disc').prop('disabled', true);
+            this.$el.modal('show');
+        },
+
+        onSelectChange: function() {
+            this.$('.select-disc').prop('disabled', !this.$('#disc-selection-list').val());
+        },
+
+        onSelectClick: function() {
+            var disc_id = this.$('#disc-selection-list').val();
+            var disc = discs.get(disc_id);
+
+            if (disc) {
+                this.trigger('disc-selected', disc);
+                this.$el.modal('hide');
+            }
+            else {
+                console.error('unknown disc ID selected', disc_id);
+            }
+        },
+
+        onHide: function() {
+            this.trigger('cancelled');
+        },
+
+        onHidden: function() {
+            this.$('#disc-selection-list').empty();
+        },
+    });
+
+    var discSelectionView = new DiscSelectionView({
+        el: $("#disc-selection").get(0),
+    });
+
 
     //
     // List view of a disc.  This consists of a master view holding
@@ -254,6 +336,8 @@ $(function(){
             'click .toggle-details': 'onToggleDetails',
             'click .edit-disc': 'onStartEdit',
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
+            'click .link-disc': 'onLinkDisc',
+            'click .remove-link': 'onRemoveLink',
         },
 
         template: _.template($('#disc-row-template').html() +
@@ -334,6 +418,33 @@ $(function(){
                     message: response.statusText + ' (' + response.status + ')',
                 });
             }
+        },
+
+        onLinkDisc: function(event) {
+            var $target = $(event.target);
+
+            this.listenTo(discSelectionView, 'disc-selected', function(disc) {
+                this.stopListening(discSelectionView);
+                if (disc) {
+                    this.model.save({
+                        link_type: $target.data('type'),
+                        linked_disc_id: disc.get('disc_id'),
+                    });
+                }
+            });
+
+            this.listenTo(discSelectionView, 'cancelled', function(disc) {
+                this.stopListening(discSelectionView);
+            });
+
+            discSelectionView.show($target.data('title'));
+        },
+
+        onRemoveLink: function() {
+            this.model.save({
+                link_type: null,
+                linked_disc_id: null,
+            });
         },
     });
 
@@ -740,12 +851,19 @@ $(function(){
     // Kick everything off by fetching the list of discs and the players
     //
 
-    var discs = new DiscList();
+    discs = new DiscList();
     var discsView;
 
     // TODO: provide progress report on this
     discs.fetch({
         success: function(collection) {
+
+            // Link discs now when all models are created in the
+            // collection
+            discs.each(function(disc) {
+                disc.updateLinkedDisc();
+            });
+
             discsView = new DiscsView({ collection: collection });
             discsView.render();
         }
