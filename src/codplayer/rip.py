@@ -58,7 +58,7 @@ class Ripper(object):
         try:
             mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
         except mb2_disc.DiscError, e:
-            raise CommandError('error reading disc in {0}: {1}'.format(
+            raise RipError('error reading disc in {0}: {1}'.format(
                 self.cfg.cdrom_device, e))
 
         # Look up in database

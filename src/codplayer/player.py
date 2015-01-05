@@ -233,10 +233,10 @@ class Player(object):
             if self.ripper:
                 raise CommandError("already ripping disc, can't rip another one yet")
 
-            ripper = rip.Ripper(self)
-            disc = ripper.read_disc()
-
             try:
+                ripper = rip.Ripper(self)
+                disc = ripper.read_disc()
+
                 if ripper.tick():
                     # Ripper is running, so keep track of it
                     self.ripper = ripper
