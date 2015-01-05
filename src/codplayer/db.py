@@ -421,20 +421,21 @@ class Database(object):
 
 
         # Update the tracks, checking that nothing fishy is happening
-        if len(ext_disc.tracks) != len(db_disc.tracks):
-            raise ValueError('update expected {0} tracks, got {1}'.format(
-                    len(db_disc.tracks), len(ext_disc.tracks)))
+        if serialize.attr_populated(ext_disc, 'tracks'):
+            if len(ext_disc.tracks) != len(db_disc.tracks):
+                raise ValueError('update expected {0} tracks, got {1}'.format(
+                        len(db_disc.tracks), len(ext_disc.tracks)))
 
-        for db_track, ext_track in zip(db_disc.tracks, ext_disc.tracks):
-            if not isinstance(ext_track, model.ExtTrack):
-                raise ValueError('update requires an ExtTrack object: {0!r}'.format(ext_track))
+            for db_track, ext_track in zip(db_disc.tracks, ext_disc.tracks):
+                if not isinstance(ext_track, model.ExtTrack):
+                    raise ValueError('update requires an ExtTrack object: {0!r}'.format(ext_track))
 
-            if db_track.number != ext_track.number:
-                raise ValueError('update expected track number {0}, got {1}'.format(
-                        db_track.number, ext_track.number))
-                
-            # Track ok, update attribute
-            update_db_object(db_track, ext_track)
+                if db_track.number != ext_track.number:
+                    raise ValueError('update expected track number {0}, got {1}'.format(
+                            db_track.number, ext_track.number))
+
+                # Track ok, update attribute
+                update_db_object(db_track, ext_track)
             
 
         # Save new record
@@ -446,7 +447,7 @@ class Database(object):
 def update_db_object(db_obj, ext_obj):
     for attr in db_obj.MUTABLE_ATTRS:
         value = getattr(ext_obj, attr)
-        if value is not None:
+        if serialize.attr_populated(ext_obj, attr):
             if isinstance(value, types.StringTypes):
                 value = value.strip()
             setattr(db_obj, attr, value)

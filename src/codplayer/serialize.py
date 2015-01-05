@@ -91,6 +91,9 @@ class Attr(object):
             return self._get_value(value, self.value_type)
 
         elif self.list_type:
+            if value is None:
+                return value
+
             if not isinstance(value, list):
                 raise LoadError('expected list for attribute {0}, got {1!r}'
                                 .format(self.name, value))
@@ -144,16 +147,22 @@ def populate_object(src, dest, mapping):
     for attr in mapping:
         try:
             value = src[attr.name]
+            present = True
         except KeyError:
             if attr.optional:
                 value = attr.default
+                present = False
             else:
                 raise LoadError('missing attribute: {0}'.format(attr.name))
 
         setattr(dest, attr.name, attr.get_value_from_json(value))
+        setattr(dest, '_populated_' + attr.name, present)
 
 
-            
+def attr_populated(obj, attr):
+    """Return True if attr was populated in obj from source JSON."""
+    return not not getattr(obj, '_populated_' + attr, False)
+
 
 class CodEncoder(json.JSONEncoder):
     """Custom enconder that extends the behavior to suit codplayer:

@@ -285,16 +285,18 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertIsNotNone(orig_disc)
 
         # All changes must come through an ExtDisc
-        ext_disc = model.ExtDisc(orig_disc)
-        
-        # These ones are allowed to be changed
-        ext_disc.mb_id = u'fake ID'
-        ext_disc.artist = u'Disc artist'
-        ext_disc.title = u'Disc title'
-        ext_disc.catalog = u'Catalog'
-        ext_disc.barcode = u'Barcode'
-        ext_disc.date = u'2010-10-10'
-        
+        ext_disc = serialize.load_jsono(model.ExtDisc, {
+            'disc_id': self.DISC_ID,
+            'mb_id': u'fake ID',
+            'artist': u'Disc artist',
+            'title': u'Disc title',
+            'catalog': u'Catalog',
+            'barcode': u'Barcode',
+            'date': u'2010-10-10',
+            'link_type': u'alias',
+            'linked_disc_id': u'linked ID',
+        })
+
         self.db.update_disc(ext_disc)
 
         new_disc = self.db.get_disc_by_disc_id(self.DISC_ID)
@@ -308,6 +310,8 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertEqual(new_disc.catalog, u'Catalog')
         self.assertEqual(new_disc.barcode, u'Barcode')
         self.assertEqual(new_disc.date, u'2010-10-10')
+        self.assertEqual(new_disc.link_type, u'alias')
+        self.assertEqual(new_disc.linked_disc_id, u'linked ID')
 
         # Track should not have changed
         t = new_disc.tracks[0]
@@ -316,13 +320,13 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertEqual(t.length, model.PCM.msf_to_frames('02:54:53'))
 
 
-        # Now test just changing one value, by setting the others to None
-        ext_disc.artist = u'New disc artist'
-        ext_disc.title = None
-        ext_disc.catalog = None
-        ext_disc.barcode = None
-        ext_disc.date = None
-        
+        # Now test just changing a few values and setting some to None
+        ext_disc = serialize.load_jsono(model.ExtDisc, {
+            'disc_id': self.DISC_ID,
+            'artist': u'New disc artist',
+            'barcode': None,
+        })
+
         self.db.update_disc(ext_disc)
 
         new_disc2 = self.db.get_disc_by_disc_id(self.DISC_ID)
@@ -333,26 +337,33 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertEqual(new_disc2.artist, u'New disc artist')
         self.assertEqual(new_disc2.title, u'Disc title')
         self.assertEqual(new_disc2.catalog, u'Catalog')
-        self.assertEqual(new_disc2.barcode, u'Barcode')
+        self.assertIs(new_disc2.barcode, None)
         self.assertEqual(new_disc2.date, u'2010-10-10')
+        self.assertEqual(new_disc.link_type, u'alias')
+        self.assertEqual(new_disc.linked_disc_id, u'linked ID')
 
 
     def test_update_invalid_track(self):
         orig_disc = self.db.get_disc_by_disc_id(self.DISC_ID)
         self.assertIsNotNone(orig_disc)
 
-        # All changes must come through an ExtDisc
-        ext_disc = model.ExtDisc(orig_disc)
-
         # Can't play around with track numbers
-        self.assertEqual(ext_disc.tracks[0].number, 1)
-        ext_disc.tracks[0].number = 2
+        ext_disc = serialize.load_jsono(model.ExtDisc, {
+            'disc_id': self.DISC_ID,
+            'tracks': [{
+                'number': 2,
+            }],
+        })
 
         with self.assertRaises(ValueError):
             self.db.update_disc(ext_disc)
 
         # Or remove tracks
-        ext_disc.tracks = []
+        ext_disc = serialize.load_jsono(model.ExtDisc, {
+            'disc_id': self.DISC_ID,
+            'tracks': [],
+        })
+
         with self.assertRaises(ValueError):
             self.db.update_disc(ext_disc)
 
@@ -362,19 +373,23 @@ FILE "{0}.cdr" 0 02:54:53
         self.assertIsNotNone(orig_disc)
 
         # All changes must come through an ExtDisc
-        ext_disc = model.ExtDisc(orig_disc)
+        ext_disc = serialize.load_jsono(model.ExtDisc, {
+            'disc_id': self.DISC_ID,
+            'tracks': [{
+                # Mandatory to provide the track number
+                'number': 1,
 
-        ext_track = ext_disc.tracks[0]
+                # These can change
+                'artist': u'Track artist',
+                'title': u'Track title',
+                'isrc': u'ISRC',
 
-        # These can change
-        ext_track.artist = u'Track artist'
-        ext_track.title = u'Track title'
-        ext_track.isrc = u'ISRC'
-
-        # But these are ignored
-        ext_track.length = 4711
-        ext_track.pregap_offset = 23
-        ext_track.index = [42, 43]
+                # But these are ignored
+                'length': 4711,
+                'pregap_offset': 23,
+                'index': [42, 43],
+            }]
+        })
 
         self.db.update_disc(ext_disc)
 

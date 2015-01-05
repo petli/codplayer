@@ -62,22 +62,31 @@ class TestPopulateObject(unittest.TestCase):
         self.assertEqual(obj.foo, 'bar')
         self.assertEqual(obj.gazonk, 17)
         self.assertIs(obj.flag, True)
-        
-        
+
     def test_optional(self):
         obj = DummyObject()
 
         serialize.populate_object(
-            { 'foo': 'bar' },
+            { 'foo': 'bar',
+              'opt3': None, },
             obj,
             [serialize.Attr('foo', str),
              serialize.Attr('opt1', int, optional = True),
-             serialize.Attr('opt2', int, optional = True, default = 17)]
+             serialize.Attr('opt2', int, optional = True, default = 17),
+             serialize.Attr('opt3', int, optional = True)]
             )
 
         self.assertEqual(obj.foo, 'bar')
+        self.assertTrue(serialize.attr_populated(obj, 'foo'))
+
         self.assertEqual(obj.opt1, None)
+        self.assertFalse(serialize.attr_populated(obj, 'opt1'))
+
         self.assertEqual(obj.opt2, 17)
+        self.assertFalse(serialize.attr_populated(obj, 'opt2'))
+
+        self.assertEqual(obj.opt3, None)
+        self.assertTrue(serialize.attr_populated(obj, 'opt3'))
 
 
     def test_unicode_to_str(self):
