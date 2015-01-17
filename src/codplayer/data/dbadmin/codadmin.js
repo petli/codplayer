@@ -34,7 +34,6 @@ $(function(){
         initialize: function() {
             this.updateSortKey();
             this.listenTo(this, 'change', this.updateSortKey);
-            this.listenTo(this, 'change:linked_disc_id', this.updateLinkedDisc);
         },
 
         updateSortKey: function() {
@@ -48,20 +47,6 @@ $(function(){
                 getSortKey(this.get('date')) + '\0' +
                 getSortKey(this.get('title')) + '\0' +
                 this.get('disc_id');
-        },
-
-        updateLinkedDisc: function() {
-            var linked_disc;
-            var linked_disc_id = this.get('linked_disc_id');
-            if (linked_disc_id) {
-                linked_disc = discs.get(linked_disc_id);
-            }
-            if (linked_disc) {
-                this.set('linked_disc', linked_disc);
-            }
-            else {
-                this.unset('linked_disc');
-            }
         },
     });
 
@@ -245,7 +230,14 @@ $(function(){
         tagName: 'div',
 
         render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
+            var data = this.model.toJSON();
+
+            // Resolve links to next disc to be able to render
+            // its artist and title
+            var linked_disc_id = this.model.get('linked_disc_id');
+            data.linked_disc = linked_disc_id && discs.get(linked_disc_id);
+
+            this.$el.html(this.template(data));
             return this;
         },
 
@@ -427,7 +419,7 @@ $(function(){
                 }
             });
 
-            this.listenTo(discSelectionView, 'cancelled', function(disc) {
+            this.listenTo(discSelectionView, 'cancelled', function() {
                 this.stopListening(discSelectionView);
             });
 
@@ -851,13 +843,6 @@ $(function(){
     // TODO: provide progress report on this
     discs.fetch({
         success: function(collection) {
-
-            // Link discs now when all models are created in the
-            // collection
-            discs.each(function(disc) {
-                disc.updateLinkedDisc();
-            });
-
             discsView = new DiscsView({ collection: collection });
             discsView.render();
         }
