@@ -243,6 +243,11 @@ class Player(object):
             except rip.RipError, e:
                 raise CommandError('rip failed: {}'.format(e))
 
+            # Only follow links for physical discs.  When the user
+            # starts a disc by ID we assume they really want to listen
+            # to that one.
+            disc = self.resolve_alias_links(disc)
+
         return self.play_disc(disc)
 
 
@@ -324,6 +329,44 @@ class Player(object):
 
     def cmd_version(self, args):
         return full_version()
+
+
+    def resolve_alias_links(self, disc):
+        """Follow any disc alias links, returning the disc that should really
+        be played.
+
+        Any errors are handled by just returning whatever disc has
+        been reached in the chain, as that is probably good enough to
+        play.
+        """
+
+        # Avoid getting stuck in circles
+        visited = set()
+        visited.add(disc.disc_id)
+
+        while disc.link_type == 'alias':
+            if disc.linked_disc_id:
+                linked = self.db.get_disc_by_disc_id(disc.linked_disc_id)
+            else:
+                linked = None
+
+            if not linked:
+                self.log('error: missing alias link from {} to {}',
+                         disc, disc.linked_disc_id)
+                return disc
+
+            if linked.disc_id in visited:
+                self.log('error: alias link circle from {} to {}',
+                         disc, linked)
+                return disc
+
+            self.debug('following alias link from {} to {}',
+                       disc, linked)
+
+            visited.add(linked.disc_id)
+            disc = linked
+
+        return disc
 
 
     def play_disc(self, disc, track_number = 0):
