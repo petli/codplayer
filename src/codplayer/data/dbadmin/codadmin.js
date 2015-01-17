@@ -417,10 +417,14 @@ $(function(){
                         linked_disc_id: disc.get('disc_id'),
                     });
                 }
+		// Since this disc might have been scrolled away when
+		// browsing the selection modal
+		this.el.scrollIntoView();
             });
 
             this.listenTo(discSelectionView, 'cancelled', function() {
                 this.stopListening(discSelectionView);
+		this.el.scrollIntoView();
             });
 
             discSelectionView.show($target.data('title'));
