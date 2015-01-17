@@ -40,12 +40,14 @@ body {
 }
 
 
-/* Normally display the number of tracks, but on hover show a play button instead */
+/* Normally display the number of tracks, but on hover in the main disc list
+ * show a play button instead
+ */
 .disc-row .play-disc {
     display: none;
 }
 
-.disc-row:hover .play-disc {
+#disc-list .disc-row:hover .play-disc {
     display: inline;
 }
 
@@ -53,7 +55,7 @@ body {
     display: inline;
 }
 
-.disc-row:hover .num-tracks {
+#disc-list .disc-row:hover .num-tracks {
     display: none;
 }
  

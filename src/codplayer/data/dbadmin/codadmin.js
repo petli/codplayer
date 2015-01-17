@@ -123,11 +123,10 @@ $(function(){
         events: {
             'hide.bs.modal': 'onHide',
             'hidden.bs.modal': 'onHidden',
-            'change #disc-selection-list': 'onSelectChange',
-            'click .select-disc': 'onSelectClick',
+            'click .disc-row': 'onDiscClick',
         },
 
-        itemTemplate: _.template($('#disc-selection-item-template').html()),
+        itemTemplate: _.template($('#disc-row-template').html()),
 
         show: function(title) {
             var self = this;
@@ -141,16 +140,11 @@ $(function(){
                 $list.append(self.itemTemplate(disc.toJSON()));
             });
 
-            this.$('.select-disc').prop('disabled', true);
             this.$el.modal('show');
         },
 
-        onSelectChange: function() {
-            this.$('.select-disc').prop('disabled', !this.$('#disc-selection-list').val());
-        },
-
-        onSelectClick: function() {
-            var disc_id = this.$('#disc-selection-list').val();
+        onDiscClick: function(ev) {
+            var disc_id = ev.currentTarget.dataset.discId;
             var disc = discs.get(disc_id);
 
             if (disc) {

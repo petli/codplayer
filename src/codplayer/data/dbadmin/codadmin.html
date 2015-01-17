@@ -68,34 +68,22 @@
         <div class="modal-body">
           <div class="row">
             <div class="col-xs-12">
-              <select id="disc-selection-list" size="20">
-              </select>
+              <ul id="disc-selection-list" class="list-group">
+              </ul>
             </div>
           </div>
         </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
-        <button type="button" class="select-disc btn btn-primary">Select</button>
       </div>
   </div>
-
-  <!-- TEMPLATE: disc selection items -->
-  <script type="text/template" id="disc-selection-item-template">
-    <option value="<%- disc_id %>">
-      <% if (artist || title) { %>
-        <%- artist %>: <%- title %>
-      <% } else { %>
-        <%- disc_id %>
-      <% } %>
-    </option>
-  </script>
 
   <!--
     -- TEMPLATE: disc row for folded or expanded discs
     -->
   <script type="text/template" id="disc-row-template">
-    <div class="hover-row row disc-row toggle-details">
-
+    <div class="hover-row row disc-row toggle-details"
+         data-disc-id="<%- disc_id %>">
     <% if (artist || title) { %>
       <div class="col-xs-5"><%- artist %></div>
       <div class="col-xs-7"><%- title %>
