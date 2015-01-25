@@ -1,6 +1,15 @@
 codplayer releases
 ==================
 
+1.1 ????-??-??
+--------------
+
+### New features
+
+Discs can be linked as an alias for another disc.  An example usecase
+is to play a remastered CD when inserting the original release.
+
+
 1.0 2014-09-16
 --------------
 
