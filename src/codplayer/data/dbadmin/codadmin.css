@@ -162,16 +162,3 @@ iframe.player {
     width: 100%;
     height: 200px;
 }
-
-
-/*
- * Symbol font
- */
-@font-face {
-    font-family: "cod-symbols";
-    src: url('cod-symbols.woff');
-}
-
-.symbol {
-    font-family: "cod-symbols";
-}
