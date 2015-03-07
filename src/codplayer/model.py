@@ -66,13 +66,27 @@ class Disc(serialize.Serializable):
 
     MAPPING = (
         serialize.Attr('disc_id', str),
+
+        # Link to MusicBrainz IDs
         serialize.Attr('mb_id', str, optional = True),
         serialize.Attr('cover_mb_id', str, optional = True),
+
+        # Information we might get from the TOC, or failing that MusicBrainz
         serialize.Attr('catalog', serialize.str_unicode, optional = True),
         serialize.Attr('title', serialize.str_unicode, optional = True),
         serialize.Attr('artist', serialize.str_unicode, optional = True),
+
+        # Additional information we might get from MusicBrainz (not
+        # every possible morsel, but what might be useful to keep locally)
         serialize.Attr('barcode', serialize.str_unicode, optional = True),
         serialize.Attr('date', serialize.str_unicode, optional = True),
+
+        # Discs can be linked to other discs to manipulate playback.
+        # Possible link types:
+        #   - alias: alias for another disc to be played instead
+        #   - next: next disc in set to be played sequentially
+        serialize.Attr('link_type', str, optional = True),
+        serialize.Attr('linked_disc_id', str, optional = True),
 
         # tracks mapping is added by the subclasses
         )
@@ -83,16 +97,15 @@ class Disc(serialize.Serializable):
         self.cover_mb_id = None
         
         self.tracks = []
-        
-        # Information we might get from the TOC, or failing that MusicBrainz
+
         self.catalog = None
         self.title = None
         self.artist = None
-
-        # Additional information we might get from MusicBrainz (not
-        # every possible morsel, but what might be useful to keep locally)
         self.barcode = None
         self.date = None
+        self.link_type = None
+        self.linked_disc_id = None
+
 
     def __str__(self):
         return u'{self.disc_id}: {self.artist}/{self.title}'.format(self = self).encode('utf-8')
@@ -195,6 +208,8 @@ class DbDisc(Disc):
         'artist',
         'barcode',
         'date',
+        'link_type',
+        'linked_disc_id',
         )
 
     def __init__(self):
@@ -321,7 +336,7 @@ class ExtDisc(Disc):
     """
 
     MAPPING = Disc.MAPPING + (
-        serialize.Attr('tracks', list_type = ExtTrack),
+        serialize.Attr('tracks', list_type = ExtTrack, optional = True),
         )
 
     def __init__(self, disc = None):
@@ -338,6 +353,8 @@ class ExtDisc(Disc):
             self.artist = disc.artist
             self.barcode = disc.barcode
             self.date = disc.date
+            self.link_type = disc.link_type
+            self.linked_disc_id = disc.linked_disc_id
 
 
     @classmethod

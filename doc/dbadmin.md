@@ -7,7 +7,9 @@ in the database, either manually or by fetching it from
 [MusicBrainz](http://musicbrainz.org/).
 
 It can also control playback of discs to force tracks to be skipped or
-insert pauses.
+to pause the player between certain tracks.  Discs can be linked to
+other discs as aliases, so that playing one disc really plays another
+one.
 
 It is also possible to play discs directly from the GUI in one or more
 player instances.
@@ -35,6 +37,7 @@ There are three tabs, all showing list of discs in the database,
 depending on whether they have any disc information added or not.
 
 Each disc is a row, including the artist, title and number of tracks.
+A link icon is included if the disk is an alias for another disc.
 
 The lists are sorted in this order:
 
@@ -46,9 +49,9 @@ This achieves an major alphabetical sort by artist, and chronological
 within the artist.  Missing information is sorted last.
 
 The lists in the three tabs are not updated or resorted as information
-is changed.  This is partly out of lazyness of the programmer, but
-also to avoid confusing the user by moving things around when hitting
-Save.  To reload the lists, refresh the page.
+is changed.  This is partly out of lazyness on the part of the
+programmer, but also to avoid confusing the user by moving things
+around when hitting Save.  To refresh the lists, reload the page.
 
 
 Disc details
@@ -66,6 +69,9 @@ artist.
 
 The MusicBrainz disc ID, barcode and catalog numbers (if known) are
 shown below the track list.
+
+If the disc is linked to another disc, the artist, title and disc ID
+are displayed.
 
 
 Edit disc details
@@ -98,6 +104,24 @@ discard it.
 If more than one record matches, all will be displayed.  Click on one
 of the records to select it and get to the edit view, or `Cancel` to
 discard all.
+
+
+Linking discs
+-------------
+
+Click on `Link` to open a menu to link this disc to another one.
+Available options:
+
+* `As alias for another disc`: when this disc is placed in the CD
+  reader, the linked disc is played instead.  An example usecase is to
+  play a remastered CD when inserting the original release.
+
+The target disc is selected in a modal dialog.  Click on a disc to
+link to it, or cancel by clicking the `Cancel` button, press `Escape`,
+or click outside the dialog.
+
+If the disc is linked, the menu also has an option `Remove link to the
+other disc`.
 
 
 Play discs

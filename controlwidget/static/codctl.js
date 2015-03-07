@@ -25,6 +25,7 @@ $(function(){
 
     var highlightedTrack = null;
     var showingRipping = false;
+    var sourceDiscId = null;
 
     var formatTime = function(seconds) {
         var sign = '';
@@ -110,6 +111,17 @@ $(function(){
 
             document.title = title || 'codplayer';
             data.summary = title;
+
+            // Show "play source" button if different from actually played disc
+            if (sourceDiscId !== data.source_disc_id) {
+                sourceDiscId = data.source_disc_id;
+                if (sourceDiscId) {
+                    $('#play-source').show();
+                }
+                else {
+                    $('#play-source').hide();
+                }
+            }
 
             // Change current track highlightning, if any
             var ht = (state === 'PLAY' || state === 'PAUSE') ? data.track : null;
@@ -202,7 +214,12 @@ $(function(){
     });
 
     $('button.command').on('click', function(event) {
-        socket.emit('cod-command', { command: this.id });
+        if (this.id === 'play-source') {
+            socket.emit('cod-command', { command: 'disc ' + sourceDiscId });
+        }
+        else {
+            socket.emit('cod-command', { command: this.id });
+        }
     });
 
     /* Accept messages from a containing window to play a disc */

@@ -12,7 +12,10 @@ $(function(){
     //
     // Disc model and collection
     //
-    
+
+    // Collection of all known discs
+    var discs;
+
     var getSortKey = function(value) {
         if (value && typeof value === 'string') {
             value = value.toLowerCase();
@@ -94,6 +97,64 @@ $(function(){
         model: Player,
     });
 
+
+    //
+    // Disc selection popup
+    //
+    // Emits events disc-selected or cancelled.
+    //
+
+    var DiscSelectionView = Backbone.View.extend({
+        events: {
+            'hide.bs.modal': 'onHide',
+            'hidden.bs.modal': 'onHidden',
+            'click .disc-row': 'onDiscClick',
+        },
+
+        itemTemplate: _.template($('#disc-row-template').html()),
+
+        show: function(title) {
+            var self = this;
+
+            $('#disc-selection-title').text(title);
+
+            var $list = this.$('#disc-selection-list');
+
+            $list.empty();
+            discs.each(function(disc) {
+                $list.append(self.itemTemplate(disc.toJSON()));
+            });
+
+            this.$el.modal('show');
+        },
+
+        onDiscClick: function(ev) {
+            var disc_id = ev.currentTarget.dataset.discId;
+            var disc = discs.get(disc_id);
+
+            if (disc) {
+                this.trigger('disc-selected', disc);
+                this.$el.modal('hide');
+            }
+            else {
+                console.error('unknown disc ID selected', disc_id);
+            }
+        },
+
+        onHide: function() {
+            this.trigger('cancelled');
+        },
+
+        onHidden: function() {
+            this.$('#disc-selection-list').empty();
+        },
+    });
+
+    var discSelectionView = new DiscSelectionView({
+        el: $("#disc-selection").get(0),
+    });
+
+
     //
     // List view of a disc.  This consists of a master view holding
     // the position in the list of discs, and a specialised view for
@@ -169,7 +230,14 @@ $(function(){
         tagName: 'div',
 
         render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
+            var data = this.model.toJSON();
+
+            // Resolve links to next disc to be able to render
+            // its artist and title
+            var linked_disc_id = this.model.get('linked_disc_id');
+            data.linked_disc = linked_disc_id && discs.get(linked_disc_id);
+
+            this.$el.html(this.template(data));
             return this;
         },
 
@@ -254,6 +322,8 @@ $(function(){
             'click .toggle-details': 'onToggleDetails',
             'click .edit-disc': 'onStartEdit',
             'click .fetch-musicbrainz': 'onFetchMusicbrainz',
+            'click .link-disc': 'onLinkDisc',
+            'click .remove-link': 'onRemoveLink',
         },
 
         template: _.template($('#disc-row-template').html() +
@@ -334,6 +404,37 @@ $(function(){
                     message: response.statusText + ' (' + response.status + ')',
                 });
             }
+        },
+
+        onLinkDisc: function(event) {
+            var $target = $(event.target);
+
+            this.listenTo(discSelectionView, 'disc-selected', function(disc) {
+                this.stopListening(discSelectionView);
+                if (disc) {
+                    this.model.save({
+                        link_type: $target.data('type'),
+                        linked_disc_id: disc.get('disc_id'),
+                    });
+                }
+		// Since this disc might have been scrolled away when
+		// browsing the selection modal
+		this.el.scrollIntoView();
+            });
+
+            this.listenTo(discSelectionView, 'cancelled', function() {
+                this.stopListening(discSelectionView);
+		this.el.scrollIntoView();
+            });
+
+            discSelectionView.show($target.data('title'));
+        },
+
+        onRemoveLink: function() {
+            this.model.save({
+                link_type: null,
+                linked_disc_id: null,
+            });
         },
     });
 
@@ -740,7 +841,7 @@ $(function(){
     // Kick everything off by fetching the list of discs and the players
     //
 
-    var discs = new DiscList();
+    discs = new DiscList();
     var discsView;
 
     // TODO: provide progress report on this

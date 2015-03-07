@@ -1,6 +1,19 @@
 codplayer releases
 ==================
 
+1.1 ????-??-??
+--------------
+
+### New features
+
+Discs can be linked as an alias for another disc.  An example usecase
+is to play a remastered CD when inserting the original release.
+
+If a linked disc is played, the source disc ID is available in the
+`state.State.source_disc_id` parameter.
+
+
+
 1.0 2014-09-16
 --------------
 

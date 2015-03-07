@@ -56,12 +56,34 @@
   <div id="players">
   </div>
 
+  <!-- Disc selection modal popup -->
+  <div id="disc-selection" class="modal" tabindex="-1" role="dialog"
+       aria-labelledby="disc-selection-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          <h4 class="modal-title" id="disc-selection-title"></h4>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-xs-12">
+              <ul id="disc-selection-list" class="list-group">
+              </ul>
+            </div>
+          </div>
+        </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+      </div>
+  </div>
+
   <!--
     -- TEMPLATE: disc row for folded or expanded discs
     -->
   <script type="text/template" id="disc-row-template">
-    <div class="hover-row row disc-row toggle-details">
-
+    <div class="hover-row row disc-row toggle-details"
+         data-disc-id="<%- disc_id %>">
     <% if (artist || title) { %>
       <div class="col-xs-5"><%- artist %></div>
       <div class="col-xs-7"><%- title %>
@@ -69,10 +91,15 @@
       <div class="col-xs-12">Disc ID: <%- disc_id %>
     <% } %>
         <span class="pull-right">
+          <% if (link_type === "alias") { %>
+            <span class="glyphicon glyphicon-link"></span>
+          <% } %>
           <span class="num-tracks badge">
             <% if (typeof tracks === 'number') { %><%- tracks %><% } else { %><%- tracks.length %><% } %>
           </span>
-          <button type="button" class="play-disc btn btn-default btn-xs symbol">&#x25b6;</button>
+          <button type="button" class="play-disc btn btn-default btn-xs">
+            <span class="glyphicon glyphicon-play"></span>
+          </button>
         </span>
       </div>
     </div>
@@ -103,8 +130,8 @@
            <% if (tracks[i].pause_after) { %>
            <li class="list-group-item">
              <div class="row">
-               <div class="pause-after col-xs-12 symbol">
-                 &#x2016;
+               <div class="pause-after col-xs-12">
+                 <span class="glyphicon glyphicon-pause"></span>
                </div>
              </div>
            </li>
@@ -130,6 +157,22 @@
               <div class="col-xs-8 col-md-9"><%- barcode %></div>
             </div>
             <% } %>
+            <% if (link_type && linked_disc) { %>
+            <div class="row">
+              <div class="col-xs-4 col-md-3"><strong>
+                  <%- link_type === "alias" ? "Alias for" :
+                      link_type === "next" ? "Next in set" :
+                      "Linked as " + link_type + " to" %>
+              </strong></div>
+              <div class="col-xs-8 col-md-9">
+                <div class="row">
+                  <div class="col-xs-12"><%- linked_disc.get("artist") %></div>
+                  <div class="col-xs-12"><%- linked_disc.get("title") %></div>
+                  <div class="col-xs-12"><%- linked_disc.get("disc_id") %></div>
+                </div>
+              </div>
+            </div>
+            <% } %>
           </div>
         </div>
       </div>
@@ -151,6 +194,27 @@
                 data-loading-text="Fetching...">
           Fetch info
         </button>
+
+        <div class="btn-group btn-block">
+          <button type="button"
+                  class="btn btn-default btn-block dropdown-toggle"
+                  data-toggle="dropdown" aria-expanded="false">
+            Link <span class="caret"></span>
+          </button>
+          <ul class="dropdown-menu" role="menu">
+              <li><a href="#" class="link-disc"
+                     data-type="alias"
+                     data-title="Select the disc that this one should be an alias for">
+                  <span class="glyphicon glyphicon-link"></span>
+                  As alias for another disc
+              </a></li>
+            <% if (link_type) { %>
+              <li><a href="#" class="remove-link">
+                  <span class="glyphicon glyphicon-remove"></span>
+                  Remove link to the other disc
+              </a></li>
+            <% } %>
+          </ul>
       </div>
                   
       </fieldset>
@@ -202,17 +266,19 @@
                      <div class="row">
                        <div class="col-xs-2">
                          <div class="btn-group" data-toggle="buttons">
-                           <label class="btn btn-default btn-xs symbol <%=
+                           <label class="btn btn-default btn-xs <%=
                                            tracks[i].skip ? 'active' : '' %>"
                                   data-edit-field="track-skip"
                                   data-edit-track-index="<%- i %>">
-                             <input type="checkbox"> &#xe60a;
+                             <input type="checkbox">
+                             <span class="glyphicon glyphicon-thumbs-down"></span>
                            </label>
-                           <label class="btn btn-default btn-xs symbol <%=
+                           <label class="btn btn-default btn-xs <%=
                                            tracks[i].pause_after ? 'active' : '' %>"
                                   data-edit-field="track-pause-after"
                                   data-edit-track-index="<%- i %>">
-                             <input type="checkbox"> &#x2016;
+                             <input type="checkbox"> 
+                             <span class="glyphicon glyphicon-pause"></span>
                            </label>
                          </div>
                        </div>

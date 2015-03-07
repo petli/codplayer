@@ -27,6 +27,8 @@ class DiscOverview(model.Disc):
         self.artist = disc.artist
         self.barcode = disc.barcode
         self.date = disc.date
+        self.link_type = disc.link_type
+        self.linked_disc_id = disc.linked_disc_id
 
 
 def rest_app(config):

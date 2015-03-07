@@ -24,7 +24,11 @@ class State(serialize.Serializable):
       PAUSE:   Disc is currently paused
       STOP:    Playing finished, but disc is still loaded
 
-    disc_id: The Musicbrainz disc ID of the currently loaded disc, or None
+    disc_id: The Musicbrainz disc ID of the currently playing disc, or None
+
+    source_disc_id: The source disc ID that triggered the current
+    play, which may be different from disc_id (e.g. for aliased
+    discs).  Set to `None` if the disc isn't linked to another one.
 
     track: Current track being played, counting from 1. 0 if
                   stopped or no disc is loaded.
@@ -67,6 +71,7 @@ class State(serialize.Serializable):
     def __init__(self):
         self.state = self.NO_DISC
         self.disc_id = None
+        self.source_disc_id = None
         self.track = 0
         self.no_tracks = 0
         self.index = 0
@@ -76,7 +81,8 @@ class State(serialize.Serializable):
 
 
     def __str__(self):
-        return ('{state.__name__} disc: {disc_id} track: {track}/{no_tracks} '
+        return ('{state.__name__} disc: {disc_id} source: {source_disc_id} '
+                'track: {track}/{no_tracks} '
                 'index: {index} position: {position} length: {length} '
                 'error: {error}'
                 .format(**self.__dict__))
@@ -86,6 +92,7 @@ class State(serialize.Serializable):
     MAPPING = (
         serialize.Attr('state', enum = (OFF, NO_DISC, WORKING, PLAY, PAUSE, STOP)),
         serialize.Attr('disc_id', str),
+        serialize.Attr('source_disc_id', str, optional = True),
         serialize.Attr('track', int),
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
