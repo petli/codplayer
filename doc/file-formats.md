@@ -29,7 +29,8 @@ Example file:
 
 ```json
 {
-  "disc_id": "IAFL61gCjwAGpOwBz3kjG7QWMa8-", 
+  "disc_id": "IAFL61gCjwAGpOwBz3kjG7QWMa8-",
+  "source_disc_id": null,
   "error": null,
   "index": 1, 
   "no_tracks": 4, 
@@ -51,6 +52,10 @@ Attributes:
 
 * `disc_id`: The Musicbrainz disc ID of the currently loaded disc,
   or `null` if no disc is loaded.
+
+* `source_disc_id`: The source disc ID that triggered the current
+  play, which may be different from disc_id (e.g. for aliased discs).
+  Set to `null` if the disc isn't linked to another one.
 
 * `track`: Current track number being played, counting from 1. 0 if
   stopped or no disc is loaded.
