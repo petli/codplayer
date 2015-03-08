@@ -1,7 +1,7 @@
 codplayer releases
 ==================
 
-1.1 ????-??-??
+1.1 2015-03-08
 --------------
 
 ### New features
@@ -12,6 +12,17 @@ is to play a remastered CD when inserting the original release.
 If a linked disc is played, the source disc ID is available in the
 `state.State.source_disc_id` parameter.
 
+
+### Other fixes
+
+* https://github.com/petli/codplayer/issues/31: data file was stored
+  as an absolute path.
+
+* https://github.com/petli/codplayer/issues/32: error handling broken
+  when disc can't be read.
+
+* https://github.com/petli/codplayer/issues/33: highlighting broken
+  when discs have skipped tracks.
 
 
 1.0 2014-09-16
