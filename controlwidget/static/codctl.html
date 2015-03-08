@@ -74,7 +74,7 @@
 	{{#tracks}}
 
           {{#trackHasTitle}}
-          <span id="track-{{number}}" class="full-track-info-box">
+          <span id="track-{{index}}" class="full-track-info-box">
             <span class="track-number">{{number}}.</span>
             <span class="track-length">{{lengthTime}}</span>
             <span class="track-info">
@@ -84,7 +84,7 @@
           {{/trackHasTitle}}
           
           {{^title}}
-          <span id="track-{{number}}" class="short-track-info-box">
+          <span id="track-{{index}}" class="short-track-info-box">
             <span class="track-number">{{number}}.</span>
             <span class="track-length">{{lengthTime}}</span>
           </span>

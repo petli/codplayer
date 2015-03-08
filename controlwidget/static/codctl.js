@@ -198,6 +198,14 @@ $(function(){
                     return this.artist === disc.artist ? '' : this.artist;
                 };
 
+                // Add in continuous track indices to support correct
+                // highlighting of current track, since the state
+                // object reports on the index in the list, not the
+                // track source numbers.
+                for (var i = 0; i < disc.tracks.length; i++) {
+                    disc.tracks[i].index = i + 1;
+                }
+
                 album = $.mustache(template, disc);
             }
             else {
