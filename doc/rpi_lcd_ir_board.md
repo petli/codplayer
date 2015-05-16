@@ -31,11 +31,14 @@ There are four connectors on the board:
 
 The other components are:
 
-* R1: 10 kOhm
-* R2: 150 Ohm
-* R3: TBD kOhm
-* R4: 1 kOhm
+* R1:  10K
+* R2: 150
+* R3: 100
+* R4:   1K
+* R5:   1K
+* R6: 100
 * Q1, Q2: PN2222A (or similar NPN)
+* IC1: opamp TLV2462 (or similar)
 
 GPIO pinout
 -----------
@@ -79,14 +82,19 @@ the ground rail instead.
 The LCD backlight I've got seems to consume some 60mA at 5V, but let's
 assume 100mA to get some margin.  1 mA base current should be enough
 to switch that on, even assuming a beta of 100 (more likely it is
-200).  The 1 kOhm resistor R4 here ensures that no more than 2 mA is
-taken from the RPi, even if the output is configured for more.
+200).  The 1K resistor R5 here ensures that no more than 2 mA is taken
+from the RPi, even if the output is configured for more.
 
 The status LED should get 20mA with a voltage drop of 2.1 V, which R2
 controls.  R3 limits base current to the 200 uA or so that's needed.
 
 It seems that the LCD contrast pin has a useful range of about 0-1 V,
 with the highest contrast at 0 V and at 1 V barely anything is
-visible.  1 V hits at only about 10% on the potentiometer, but would
-be nicer to move the range a bit further down.  R3 was intended to do
-that, but doesn't seem to help much.  TBD.
+visible.  To complicate things further, there seems to be a pullup
+resistor of 10K on the LCD board, so just connecting a voltage
+splitting potentiometer doesn't work: half of it ends up in a parallel
+resistor network with the pullup.  Instead an opamp is used in a
+simple voltage following configuration to isolate the potentiometer
+from the pullup resistor.  The output voltage is split by R3 and R4,
+so that 5V out from IC1 gives 0.5V on the contrast pin, which is the
+lowest meaningful contrast.
