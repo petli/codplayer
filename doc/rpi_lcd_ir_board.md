@@ -40,6 +40,15 @@ The other components are:
 * Q1, Q2: PN2222A (or similar NPN)
 * IC1: opamp TLV2462 (or similar)
 
+Off-board there are additional components which are situated in the
+front of the chassis, connected via cables:
+
+* Red LED (forward voltage about 2.1V)
+* IR reciever: TSOP38238
+* Potentiometer: 10k or more
+* LCD: HD44780 compatible
+
+
 GPIO pinout
 -----------
 

@@ -28,20 +28,20 @@
      borderopacity="1.0"
      inkscape:pageopacity="1"
      inkscape:pageshadow="2"
-     inkscape:zoom="1.4142136"
-     inkscape:cx="592.54731"
-     inkscape:cy="125.71974"
+     inkscape:zoom="2.0000001"
+     inkscape:cx="291.73618"
+     inkscape:cy="146.05684"
      inkscape:document-units="px"
-     inkscape:current-layer="layer2"
+     inkscape:current-layer="layer3"
      showgrid="false"
      fit-margin-top="50"
      fit-margin-left="50"
      fit-margin-right="50"
      fit-margin-bottom="50"
-     inkscape:window-width="1916"
-     inkscape:window-height="1140"
+     inkscape:window-width="1920"
+     inkscape:window-height="1200"
      inkscape:window-x="0"
-     inkscape:window-y="39"
+     inkscape:window-y="0"
      inkscape:window-maximized="0" />
   <metadata
      id="metadata7">
@@ -51,7 +51,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -181,8 +181,8 @@
        id="path4904"
        inkscape:connector-curvature="0" />
     <path
-       style="fill:none;stroke:#729fcf;stroke-width:5;stroke-linecap:round;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:none"
-       d="m 165.80339,122.71797 391.71051,2.76339"
+       style="fill:none;stroke:#729fcf;stroke-width:5;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
+       d="m 165.80339,122.71797 406.55974,2.76339"
        id="path5133"
        inkscape:connector-curvature="0" />
     <path
@@ -206,18 +206,8 @@
        d="m 154.74983,172.8044 a 3.4542375,3.1088138 0 1 1 -6.90847,0 3.4542375,3.1088138 0 1 1 6.90847,0 z"
        transform="matrix(1.0132482,0,0,1.1258314,434.25636,77.65849)" />
     <path
-       style="fill:none;stroke:#73d216;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
-       d="M 584.06031,272.03901 201.99603,253.6681"
-       id="path4003"
-       inkscape:connector-type="polyline"
-       inkscape:connector-curvature="0"
-       inkscape:connection-start="#path3862-9"
-       inkscape:connection-start-point="d4"
-       inkscape:connection-end="#path3862-1"
-       inkscape:connection-end-point="d4" />
-    <path
        style="fill:none;stroke:#8f5902;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
-       d="M 169.46021,285.4705 471.59614,239.2366"
+       d="M 0,0 0,0"
        id="path4046"
        inkscape:connector-type="polyline"
        inkscape:connector-curvature="0"
@@ -232,7 +222,7 @@
        inkscape:connector-curvature="0" />
     <path
        style="fill:none;stroke:#edd400;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
-       d="m 458.09161,251.70728 0.58023,-57.58614"
+       d="M 0,0 0,0"
        id="path4073"
        inkscape:connector-type="polyline"
        inkscape:connector-curvature="0"
@@ -242,7 +232,7 @@
        inkscape:connection-end-point="d4" />
     <path
        style="fill:none;stroke:#3465a4;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none"
-       d="m 638.50491,193.61496 28.60287,42.68429"
+       d="M 0,0 0,0"
        id="path4100"
        inkscape:connector-type="polyline"
        inkscape:connector-curvature="0"
@@ -275,6 +265,16 @@
        d="m 377.59502,238.43284 0,-50.54396"
        id="path3841-9-6-5"
        inkscape:connector-curvature="0" />
+    <path
+       style="fill:none;stroke:#73d216;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:none"
+       d="m 201.99603,253.6681 382.06428,18.37091"
+       id="path3904"
+       inkscape:connector-type="polyline"
+       inkscape:connector-curvature="0"
+       inkscape:connection-start="#path3862-1"
+       inkscape:connection-start-point="d4"
+       inkscape:connection-end="#path3862-9"
+       inkscape:connection-end-point="d4" />
   </g>
   <g
      inkscape:groupmode="layer"
