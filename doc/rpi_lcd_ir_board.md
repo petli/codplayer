@@ -12,9 +12,9 @@ In addition it is connected to a potentiometer that controls the LCD
 contrast.
 
 The IR reciever is handled by the RPi lirc kernel driver, and the
-button presses are read and forwarded using ZeroMQ by `codlircd`.
+button presses are read and forwarded using ZeroMQ by `codird`.
 
-The LCD display and status LED are controlled by `codgpiod`, which
+The LCD display and status LED are controlled by `codlcd`, which
 recieve button presses and status updates over ZeroMQ.
 
 Board layout
@@ -22,9 +22,9 @@ Board layout
 
 A full-sized AdaFruit RPi perma-proto board is used.
 
-There are four connectors on the board:
+There are five connectors on the board:
 
-* LCD: 16-pin (could be two 6-pin connectors too)
+* LCD: 2 6-pin connectors
 * LCD contrast pot: 3-pin
 * IR sensor: 3-pin
 * Status LED: 2-pin
@@ -38,7 +38,7 @@ The other components are:
 * R5:   1K
 * R6: 100
 * Q1, Q2: PN2222A (or similar NPN)
-* IC1: opamp TLV2462 (or similar)
+* U1: opamp TLV2462 (or similar)
 
 Off-board there are additional components which are situated in the
 front of the chassis, connected via cables:
@@ -102,8 +102,8 @@ with the highest contrast at 0 V and at 1 V barely anything is
 visible.  To complicate things further, there seems to be a pullup
 resistor of 10K on the LCD board, so just connecting a voltage
 splitting potentiometer doesn't work: half of it ends up in a parallel
-resistor network with the pullup.  Instead an opamp is used in a
+resistor network with the pullup.  Instead an opamp (U1) is used in a
 simple voltage following configuration to isolate the potentiometer
 from the pullup resistor.  The output voltage is split by R3 and R4,
-so that 5V out from IC1 gives 0.5V on the contrast pin, which is the
+so that 5V out from U1 gives 0.5V on the contrast pin, which is the
 lowest meaningful contrast.
