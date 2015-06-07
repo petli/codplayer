@@ -125,7 +125,7 @@ that a disc has been inserted into the reader:
    a cdparanoia process.
 4. Start playing, expecting that cdparanoia will rip faster than
    playback speed (if not the player will pause waiting for more data)
-5. Check if the full TOC has bean read.  If not, run cdrdao to get a
+5. Check if the full TOC has been read.  If not, run cdrdao to get a
    `.toc` file.  When done, read the file and merge it with the
    existing disc info keeping the best data from each source.
 6. Stop spinning the disc.
@@ -135,7 +135,7 @@ that a disc has been inserted into the reader:
 License
 =======
 
-Copyright 2013-2014 Peter Liljenberg <peter.liljenberg@gmail.com>
+Copyright 2013-2015 Peter Liljenberg <peter.liljenberg@gmail.com>
 
 codplayer is licensed under an MIT license, please see the file
 LICENSE.

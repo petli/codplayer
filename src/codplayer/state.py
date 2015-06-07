@@ -5,9 +5,10 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 """
-The player state, and various ways of publishing it and reading it.
+The player states and a subscriber for state updates.
 """
 
+from . import zerohub
 from . import serialize
 from . import model
 
@@ -141,6 +142,34 @@ class RipState(serialize.Serializable):
         serialize.Attr('error', serialize.str_unicode),
         )
 
+
+
+class StateClient(object):
+    """Subscribe to state published on a zerohub.Topic."""
+
+    def __init__(self, channel, on_state = None, on_rip_state = None, on_disc = None):
+        subscriptions = {}
+        if on_state:
+            subscriptions['state'] = (lambda receiver, msg: on_state(self._parse_message(msg, State)))
+        if on_rip_state:
+            subscriptions['rip_state'] = (lambda receiver, msg: on_state(self._parse_message(msg, RipState)))
+        if on_disc:
+            subscriptions['disc'] = (lambda receiver, msg: on_state(self._parse_message(msg, model.ExtDisc)))
+
+        self._reciever = zerohub.Receiver(channel, callbacks = subscriptions)
+
+    def _parse_message(self, msg, cls):
+        if len(msg) < 2:
+            raise StateError('zeromq: missing message parts: {0}'.format(msg))
+
+        try:
+            return serialize.load_jsons(cls, msg[1])
+        except serialize.LoadError, e:
+            raise StateError('zeromq: malformed message object: {0}'.format(msg))
+
+#
+# OLD STUFF BELOW - to be removed when the new zerohub code is in place
+#
 
 # And here we go all Java style, including long clumsy names, but it
 # does make the configuration much more useful for both server and

@@ -14,7 +14,7 @@ import os
 from . import serialize
 from . import state
 from . import command
-
+from . import zerohub
 
 class ConfigError(Exception):
     pass
@@ -50,6 +50,17 @@ class Config(object):
                               .format(config_file, e))
         
             
+class MQConfig(Config):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codmq.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('state', zerohub.Topic),
+        serialize.Attr('input', zerohub.Topic),
+        serialize.Attr('player_rpc', zerohub.RPC),
+        serialize.Attr('player_commands', zerohub.Queue),
+        )
+
+
 class PlayerConfig(Config):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codplayer.conf')
 
