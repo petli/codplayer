@@ -22,8 +22,6 @@ import Queue
 import traceback
 import copy
 
-import zmq
-
 from . import serialize
 from . import db
 from . import model
@@ -32,6 +30,7 @@ from . import sink
 from . import rip
 from .state import State, RipState
 from .command import CommandError
+from . import zerohub
 from . import full_version
 
 class PlayerError(Exception):
@@ -39,10 +38,9 @@ class PlayerError(Exception):
 
 
 class Player(object):
-    COMMAND_ENDPOINT = 'inproc://player-commands'
-
-    def __init__(self, cfg, database, log_file):
+    def __init__(self, cfg, mq_cfg, database, log_file):
         self.cfg = cfg
+        self.mq_cfg = mq_cfg
         self.db = database
         self.log_file = log_file
         self.log_debug = True
@@ -50,8 +48,6 @@ class Player(object):
         self.transport = None
         
         self.ripper = None
-
-        self.keep_running = True
 
         # Figure out which IDs to run as, if any
         self.uid = None
@@ -87,15 +83,11 @@ class Player(object):
         self.log('starting {}', full_version())
 
         try:
-            # Prepare for in-process commands
-            self.zmq_context = zmq.Context()
-
-            self.command_socket = self.zmq_context.socket(zmq.REP)
-            self.command_socket.bind(self.COMMAND_ENDPOINT)
-
-            # Kick off command servers and publishers
-            commands = [c.server(self) for c in self.cfg.commands]
-            self.publishers = [p.publisher(self) for p in self.cfg.publishers]
+            # Set up messaging endpoints before dropping privs, in case
+            # privileged ports are used
+            self.io_loop = zerohub.IOLoop.instance()
+            self.setup_command_reciever()
+            self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
 
             # Drop any privs to get ready for full operation.  Do this
             # before opening the sink, since we generally need to be
@@ -115,77 +107,63 @@ class Player(object):
                     
             self.transport = Transport(
                 self,
-                sink.SINKS[self.cfg.audio_device_type](self),
-                self.publishers)
+                sink.SINKS[self.cfg.audio_device_type](self))
+
+            self.log('sending state to {}', self.mq_cfg.state)
+            self.log('receiving commands on {}', self.mq_cfg.player_commands)
+            self.log('receiving RPC on {}', self.mq_cfg.player_rpc)
+
 
             # Force out a bunch of updates at the start to improve the
             # chance that already running state subscribers get the
             # update
-            force_updates = 30
+            for i in range(30):
+                self.io_loop.add_timeout(time.time() + i, self.force_state_update)
 
-            # Main loop, executing until a quit command is received.
-            # However, don't stop if a rip process is currently running.
-
-            while self.keep_running or self.ripper is not None:
-                self.run_once(1000)
-
-                if force_updates > 0:
-                    force_updates -= 1
-                    self.transport.force_state_update()
-
-                    # Also announce that we're not ripping anything (unless we are)
-                    if self.ripper:
-                        rip_state = self.ripper.state
-                    else:
-                        # Dummy inactive state
-                        rip_state = RipState()
-
-                    for p in self.publishers:
-                        p.update_rip_state(rip_state)
+            # Kick off IO loop to drive the rest of the events
+            self.io_loop.start()
 
         finally:
             if self.transport:
                 self.transport.shutdown()
         
-            # Give state and command sockets a chance to get the
-            # shutdown info to the clients.
-            time.sleep(1)
 
     #
-    # Internal methods
-    # 
+    # Command processing
+    #
 
-    def run_once(self, ms_timeout):
-        ev = self.command_socket.poll(ms_timeout, zmq.POLLIN)
-        if ev:
-            cmd_args = self.command_socket.recv_multipart()
-            result = self.handle_command(cmd_args)
-            self.command_socket.send_multipart(result)
+    def setup_command_reciever(self):
+        # Discover command handlers dynamically
+        callbacks = {}
+        for name in dir(self):
+            if name.startswith('cmd_'):
+               func = getattr(self, name)
+               if callable(func):
+                   callbacks[name[4:]] = (
+                       lambda reciever, msg, func2 = func:
+                       self.handle_command(msg, func2))
 
-        # Allow any ripping to update status, possibly closing it
-        if self.ripper:
-            try:
-                if not self.ripper.tick():
-                    self.ripper = None
-            except rip.RipError, e:
-                self.debug('dropping failed ripper')
-                self.ripper = None
+        self.command_reciever = zerohub.Receiver(
+            self.mq_cfg.player_commands,
+            name = 'player',
+            io_loop = self.io_loop,
+            callbacks = callbacks,
+            fallback = self.handle_unknown_command)
 
-            if not self.ripper:
-                self.transport.ripping_done()
+        self.rpc_reciever = zerohub.Receiver(
+            self.mq_cfg.player_rpc,
+            name = 'player',
+            io_loop = self.io_loop,
+            callbacks = callbacks,
+            fallback = self.handle_unknown_command)
 
 
-    def handle_command(self, cmd_args):
+    def handle_command(self, cmd_args, cmd_func):
         try:
             self.debug('got command: {0}', cmd_args)
 
             cmd = cmd_args[0]
             args = cmd_args[1:]
-
-            try:
-                cmd_func = getattr(self, 'cmd_' + cmd)
-            except AttributeError:
-                raise CommandError('invalid command: {0}', cmd)
 
             result = cmd_func(args)
 
@@ -211,9 +189,10 @@ class Player(object):
                 traceback.format_exc()))
 
 
-    #
-    # Command processing
-    #
+    def handle_unknown_command(self, receiver, msg_parts):
+        self.log('got unknown command on {0}: {1}', receiver, msg_parts)
+        return ('error', 'unknown command: {0}'.format(msg_parts))
+
 
     def cmd_disc(self, args):
         source_disc_id = None
@@ -239,9 +218,12 @@ class Player(object):
                 ripper = rip.Ripper(self)
                 disc = ripper.read_disc()
 
+                # Do first tick immediately to trigger any RipErrors here
                 if ripper.tick():
-                    # Ripper is running, so keep track of it
+                    # Ok, keep track of it and tick it
                     self.ripper = ripper
+                    self.io_loop.add_timeout(time.time() + 1, self.tick_ripper)
+
             except rip.RipError, e:
                 raise CommandError('rip failed: {}'.format(e))
 
@@ -285,7 +267,9 @@ class Player(object):
         if self.ripper:
             self.log('but letting currently running ripping process finish first')
 
-        self.keep_running = False
+        # Stop after a delay
+        self.io_loop.add_timeout(time.time() + 0.5, self.eventually_stop)
+
         return self.transport.shutdown()
 
 
@@ -334,6 +318,44 @@ class Player(object):
 
     def cmd_version(self, args):
         return full_version()
+
+
+    #
+    # Internal methods
+    #
+
+    def eventually_stop(self):
+        """Called when shutdown has been requested after a
+        timeout to allow any IO to wrap up.
+
+        Will reschedule itself until any running ripping
+        process is finished.
+        """
+
+        if self.ripper:
+            self.io_loop.add_timeout(time.time() + 3, self.eventually_stop)
+        else:
+            self.io_loop.stop()
+
+
+    def tick_ripper(self):
+        """Run once a second as long as there is a ripper.
+        Sets up the next call to itself if relevant.
+        """
+        try:
+            if self.ripper.tick():
+                # Ok, keep going
+                self.io_loop.add_timeout(time.time() + 1, self.tick_ripper)
+            else:
+                # Done
+                self.ripper = None
+
+        except rip.RipError, e:
+            self.debug('dropping failed ripper')
+            self.ripper = None
+
+        if not self.ripper:
+            self.transport.ripping_done()
 
 
     def resolve_alias_links(self, disc):
@@ -392,6 +414,32 @@ class Player(object):
         return self.transport.new_source(src, track_number)
 
 
+    #
+    # State publishing
+    #
+
+    def publish_state(self, state):
+        self.state_pub.send_multipart(['state', serialize.get_jsons(state)])
+
+    def publish_rip_state(self, rip_state):
+        self.state_pub.send_multipart(['rip_state', serialize.get_jsons(rip_state)])
+
+    def publish_disc(self, disc):
+        self.state_pub.send_multipart(['disc', serialize.get_jsons(disc)])
+
+    def force_state_update(self):
+        self.publish_state(self.transport.get_state())
+
+        if self.ripper:
+            self.publish_rip_state(self.ripper.state)
+        else:
+            # Send a dummy state
+            self.publish_rip_state(RipState())
+
+    #
+    # Utility
+    #
+
     def log(self, msg, *args, **kwargs):
         m = (time.strftime('%Y-%m-%d %H:%M:%S ') + threading.current_thread().name + ': '
              + msg.format(*args, **kwargs) + '\n')
@@ -444,12 +492,12 @@ class Transport(object):
             self.context = context
 
 
-    def __init__(self, player, sink, publishers):
+    def __init__(self, player, sink):
+        self.player = player
         self.log = player.log
         self.debug = player.debug
 
         self.sink = sink
-        self.publishers = publishers
 
         self.queue = Queue.Queue(self.PACKETS_PER_SECOND * self.MAX_BUFFER_SECS)
 
@@ -496,10 +544,6 @@ class Transport(object):
                 return model.ExtDisc(self.source.disc)
             else:
                 return None
-
-    def force_state_update(self):
-        with self.lock:
-            return self.update_state(log_state = False)
 
 
     #
@@ -778,14 +822,12 @@ class Transport(object):
         if log_state:
             self.debug('state: {0}', self.state)
 
-        for p in self.publishers:
-            p.update_state(self.state)
+        self.player.publish_state(self.state)
 
 
     def update_disc(self):
         disc = model.ExtDisc(self.source.disc) if self.source else None
-        for p in self.publishers:
-            p.update_disc(disc)
+        self.player.publish_disc(disc)
 
     #
     # Source thread

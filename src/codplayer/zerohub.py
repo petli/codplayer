@@ -54,7 +54,12 @@ class Channel(object):
         """
         raise NotImplementedError()
 
-    def dispatch_message(self, stream, callbacks, receiver, msg_parts):
+    def get_client_rpc_stream(self, io_loop = None):
+        """Return a ZMQStream for client-side RPC messaging to a channel.
+        """
+        raise NotImplementedError()
+
+    def dispatch_message(self, stream, callbacks, fallback, receiver, msg_parts):
         """Dispatch a received message to the correct callback or callbacks,
         using the channel semantics.
         """
@@ -74,6 +79,15 @@ class Topic(Channel):
         """
         self.name = name
         self._pub_addresses = pub_addresses
+
+
+    def __str__(self):
+        return '<Topic {0} on {1}>'.format(
+            self.name or id(self),
+            ', '.join(['{}={}'.format(k, v)
+                       for k, v
+                       in self._pub_addresses.iteritems()]))
+
 
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a SUB socket stream.
@@ -105,13 +119,17 @@ class Topic(Channel):
         return ZMQStream(socket, io_loop)
 
 
-    def dispatch_message(self, stream, callbacks, receiver, msg_parts):
+    def dispatch_message(self, stream, callbacks, fallback, receiver, msg_parts):
         """Send messages to all the callbacks matching a prefix of the message name.
         """
         msg_name = msg_parts[0]
         for sub, func in callbacks.iteritems():
             if msg_name.startswith(sub):
+                fallback = None
                 func(receiver, msg_parts)
+
+        if fallback:
+            fallback(receiver, msg_parts)
 
 
 class RPC(Channel):
@@ -128,6 +146,10 @@ class RPC(Channel):
         self._address = address
 
 
+    def __str__(self):
+        return '<RPC {0} on {1}>'.format(self.name or id(self), self._address)
+
+
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a REP socket stream.
         """
@@ -136,7 +158,7 @@ class RPC(Channel):
         return ZMQStream(socket, io_loop)
 
 
-    def get_sender_stream(self, name, io_loop = None):
+    def get_client_rpc_stream(self, io_loop = None):
         """Return a REQ socket stream.
         """
         socket = context.socket(zmq.REQ)
@@ -145,15 +167,16 @@ class RPC(Channel):
         return ZMQStream(socket, io_loop)
 
 
-    def dispatch_message(self, stream, callbacks, receiver, msg_parts):
+    def dispatch_message(self, stream, callbacks, fallback, receiver, msg_parts):
         """Send messages to all the callbacks matching a prefix of the message name.
         """
-        func = callbacks.get(msg_parts[0])
-        if func:
-            reply = func(receiver, msg_parts)
-            if reply is None:
-                reply = []
-            stream.send(reply)
+        func = callbacks.get(msg_parts[0], fallback)
+        reply = func(receiver, msg_parts) if func else None
+
+        if reply is None:
+            reply = ['']
+        stream.send_multipart(reply)
+
 
 
 class Queue(Channel):
@@ -168,6 +191,11 @@ class Queue(Channel):
         """
         self.name = name
         self._address = address
+
+
+    def __str__(self):
+        return '<Queue {0} on {1}>'.format(self.name or id(self), self._address)
+
 
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a PULL socket stream.
@@ -185,10 +213,10 @@ class Queue(Channel):
         return ZMQStream(socket, io_loop)
 
 
-    def dispatch_message(self, stream, callbacks, receiver, msg_parts):
+    def dispatch_message(self, stream, callbacks, fallback, receiver, msg_parts):
         """Send messages to all the callbacks matching a prefix of the message name.
         """
-        func = callbacks.get(msg_parts[0])
+        func = callbacks.get(msg_parts[0], fallback)
         if func:
             func(receiver, msg_parts)
 
@@ -196,8 +224,8 @@ class Queue(Channel):
 class Receiver(object):
     """A message receiver for a channel."""
 
-    def __init__(self, channel, io_loop = None,
-                 callbacks = {}, **kw_callbacks):
+    def __init__(self, channel, name = None, io_loop = None,
+                 callbacks = {}, fallback = None, **kw_callbacks):
         """Create a message receiver for a channel, passing received messages
         to callback functions. The callbacks are called with two
         argument:
@@ -219,33 +247,47 @@ class Receiver(object):
         parameters.  If a name is defined in both places the dict has
         precedence.
 
-        The semantics of the names are specific to each kind of channel.
+        The semantics of the callback names are specific to each kind
+        of channel.
 
+        If no callback match and fallback is provided, it is called
+        instead.
         """
         self.io_loop = io_loop or IOLoop.instance()
         self.channel = channel
+        self.name = name
         self._callbacks = kw_callbacks
         self._callbacks.update(callbacks)
+        self._fallback = fallback
         self._stream = channel.get_receiver_stream(
             callbacks.iterkeys(), io_loop)
         self._stream.on_recv(self._on_message)
+
+
+    def __str__(self):
+        return '<Receiver {0} for {1}>'.format(
+            self.name or id(self), str(self.channel))
+
 
     def close(self):
         """Close the channel.
         """
         self.io_loop.add_callback(self._do_close)
 
+
     def _do_close(self):
         if self._stream:
             self._stream.close()
             self._stream = None
+
 
     def _on_message(self, msg_parts):
         """Callback when receiving a message on the channel.  Dispatches the
         message to the matching callback (or callbacks).
         """
         assert len(msg_parts) > 0
-        self.channel.dispatch_message(self._stream, self._callbacks, self, msg_parts)
+        self.channel.dispatch_message(
+            self._stream, self._callbacks, self._fallback, self, msg_parts)
 
 
 class AsyncSender(object):
@@ -263,19 +305,28 @@ class AsyncSender(object):
         self.name = name
         self._stream = channel.get_sender_stream(name, io_loop)
 
+
+    def __str__(self):
+        return '<AsyncSender {0} for {1}>'.format(
+            self.name or id(self), str(self.channel))
+
+
     def send(self, msg):
         """Send a message to the channel.
         """
-        self._stream.send(msg)
+        self.io_loop.add_callback(lambda: self._stream.send(msg))
 
     def send_multipart(self, msg_parts):
         """Send a multipart message to the channel.
         """
-        self._stream.send_multipart(msg_parts)
+        self.io_loop.add_callback(lambda: self._stream.send_multipart(msg_parts))
 
     def close(self, linger = None):
         """Close the channel.
         """
+        self.io_loop.add_callback(lambda: self._do_close(linger))
+
+    def _do_close(self, linger):
         if self._stream:
             self._stream.close(linger = linger)
             self._stream = None
@@ -294,7 +345,7 @@ class AsyncRPCClient(object):
         self.io_loop = io_loop or IOLoop.instance()
         self.channel = channel
         self.name = name
-        self._stream = channel.get_sender_stream(name, io_loop)
+        self._stream = channel.get_client_rpc_stream(io_loop)
 
         # Since REQ sockets enforce a strict
         # send->receive->send->receive pattern, we must be careful to
@@ -307,6 +358,11 @@ class AsyncRPCClient(object):
 
         self._queue = []
         self._stream.on_send(self._on_send)
+
+
+    def __str__(self):
+        return '<AsyncRPCClient {0} for {1}>'.format(
+            self.name or id(self), str(self.channel))
 
 
     def call(self, request_msg_parts, callback):
@@ -326,6 +382,16 @@ class AsyncRPCClient(object):
         # Do everything via the ioloop to avoid any threading issues
         self.io_loop.add_callback(lambda: self._queue_call(request_msg_parts, callback))
 
+
+    def close(self, linger = None):
+        """Close the channel.
+        """
+        self.io_loop.add_callback(lambda: self._do_close(linger))
+
+    def _do_close(self, linger):
+        if self._stream:
+            self._stream.close(linger = linger)
+            self._stream = None
 
     def _queue_call(self, msg, callback):
         self._queue.append((msg, callback))

@@ -28,8 +28,7 @@ class Config(object):
         configuration if not provided.
         """
 
-        if config_file is None:
-            config_file = self.DEFAULT_FILE
+        self.config_path = config_file or self.DEFAULT_FILE
 
         # Loading config as a python file is convenient, but possibly
         # unsafe.  Let's not worry too much though, as whoever runs
@@ -38,16 +37,16 @@ class Config(object):
             
         try:
             params = {}
-            execfile(config_file, params)
+            execfile(self.config_path, params)
         except (IOError, SyntaxError) as e:
             raise ConfigError('error reading config file {0}: {1}'
-                              .format(config_file, e))
+                              .format(self.config_path, e))
 
         try:
             serialize.populate_object(params, self, self.CONFIG_PARAMS)
         except serialize.LoadError, e:
             raise ConfigError('error reading config file {0}: {1}'
-                              .format(config_file, e))
+                              .format(self.config_path, e))
         
             
 class MQConfig(Config):
@@ -65,13 +64,12 @@ class PlayerConfig(Config):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codplayer.conf')
 
     CONFIG_PARAMS = (
+        serialize.Attr('codmq_conf_path', str),
         serialize.Attr('database', str),
         serialize.Attr('user', str),
         serialize.Attr('group', str),
         serialize.Attr('pid_file', str),
         serialize.Attr('log_file', str),
-        serialize.Attr('commands', list_type = command.CommandFactory),
-        serialize.Attr('publishers', list_type = state.PublisherFactory),
         serialize.Attr('cdrom_device', str),
         serialize.Attr('cdrom_read_speed', int, optional = True),
         serialize.Attr('cdparanoia_command', str),
