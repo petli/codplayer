@@ -8,63 +8,51 @@
 
 import sys
 import os
+import time
 import argparse
 
-from codplayer import player
+from codplayer import zerohub
 from codplayer import config
 from codplayer import db
-from codplayer.state import StateError
-from codplayer.command import CommandError, ClientError
+from codplayer import command
+from codplayer import state
 from codplayer import full_version
 
-def state_getter(cfg):
-    for p in cfg.publishers:
-        pg = p.getter()
-        if pg:
-            return pg
-
-    return None
-
-
-def state_publisher(cfg):
-    for p in cfg.publishers:
-        ps = p.subscriber()
-        if ps:
-            return ps
-
-    return None
-
+return_code = 0
 
 def main(args):
     try:
-        cfg = config.PlayerConfig(args.config)
+        cfg = config.MQConfig(args.config)
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
-    if args.command == 'state':
-        pg = state_getter(cfg)
-        if not pg:
-            sys.exit('no way to get player state')
+    client = command.AsyncCommandRPCClient(
+        zerohub.AsyncRPCClient(cfg.player_rpc, name = 'codctl'),
+        on_error = handle_error)
 
-        print pg.get_state(timeout = args.timeout)
-        print pg.get_rip_state(timeout = args.timeout)
-        print pg.get_disc(timeout = args.timeout)
+    if args.command == 'state':
+        client.call('state', on_response = print_response)
+        client.call('rip_state', on_response = print_response)
 
         if args.follow:
-            ps = state_publisher(cfg)
-            if not ps:
-                sys.exit('no publisher supports subscribing to state updates')
+            # set up a state subscription
+            subscriber = state.StateClient(
+                cfg.state,
+                on_state = print_response,
+                on_rip_state = print_response,
+                on_disc = print_response
+            )
+            client.call('source', on_response = print_response)
 
-            for obj in ps.iter(timeout = args.timeout):
-                print obj
+            if args.timeout:
+                zerohub.IOLoop.instance().add_timeout(time.time() + args.timeout, stop)
 
+        else:
+            # Otherwise stop on getting the last response
+            client.call('source', on_response = print_response_and_stop)
 
-    elif args.command == 'source':
-        pg = state_getter(cfg)
-        if not pg:
-            sys.exit('no way to get player state')
-
-        print pg.get_disc(timeout = args.timeout)
+            if args.timeout:
+                zerohub.IOLoop.instance().add_timeout(time.time() + args.timeout, handle_timeout)
 
     # All other commands get sent to the daemon
     else:
@@ -79,29 +67,55 @@ def main(args):
                     sys.exit('invalid disc or db id: {0}'.format(args.id))
 
 
-        # Try sending through one of the command channels
-        for cf in cfg.commands:
-            c = cf.client()
-            try:
-                ret = c.send(args.command, cmd_args, timeout = args.timeout)
-            except CommandError, e:
-                sys.exit('codplayerd: error: {1}'.format(c.__class__.__name__, e))
-            except ClientError, e:
-                sys.stderr.write('{0} error: {1}\n'.format(c.__class__.__name__, e))
-            else:
-                if ret:
-                    print ret
-                return
+        client.call(args.command, cmd_args, on_response = print_response_and_stop)
 
-        sys.exit('failed sending command')
+        if args.timeout:
+            zerohub.IOLoop.instance().add_timeout(time.time() + args.timeout, handle_timeout)
+
+    # Kick off IO loop
+    zerohub.IOLoop.instance().start()
+
+
+def stop():
+    zerohub.IOLoop.instance().stop()
+
+
+def print_response(response):
+    if response:
+        print response
+
+
+def print_response_and_stop(response):
+    if response:
+        print response
+    stop()
+
+
+def handle_error(error):
+    return_code = 1
+    if isinstance(error, command.CommandError):
+        sys.stderr.write('codplayerd error: {0}\n'.format(error))
+        stop()
+
+    elif isinstance(error, command.ClientError):
+        sys.stderr.write('codctl error: {0}\n'.format(error))
+
+    else:
+        # Just throw unknown errors
+        raise error
+
+
+def handle_timeout():
+    sys.stderr.write('codctl error: timeout waiting for response\n')
+    stop()
 
 
 #
 # Set up the command argument parsing
 #
 
-parser = argparse.ArgumentParser(description = 'codplayer daemon')
-parser.add_argument('-c', '--config', help = 'alternative configuration file')
+parser = argparse.ArgumentParser(description = 'codplayer control tool')
+parser.add_argument('-c', '--config', help = 'path to codmq.conf')
 parser.add_argument('-t', '--timeout', type = int,
                     help = 'give up command/stop updates after TIMEOUT seconds')
 parser.add_argument('--version', action = 'version', version = full_version())
@@ -114,7 +128,7 @@ parser_state.add_argument('-f', '--follow', action = 'store_true',
                           help = 'follow state updates, if supported by the publisher')
 
 parser_source = subparsers.add_parser(
-    'source', help = 'get the current source disc as JSON')
+    'source', help = 'get the current source disc')
 
 parser_disc = subparsers.add_parser(
     'disc', help = 'notify player that a new disc has been inserted, or play disc from database')

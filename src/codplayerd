@@ -9,6 +9,7 @@
 import sys
 import os
 import argparse
+import threading
 
 
 # http://www.python.org/dev/peps/pep-3143/
@@ -17,6 +18,7 @@ import lockfile
 
 from codplayer import db, player, config, sink
 from codplayer import command
+from codplayer import zerohub
 from codplayer import full_version
 
 def main(args):
@@ -28,6 +30,8 @@ def main(args):
         preserve_files = []
 
         cfg = config.PlayerConfig(args.config)
+        mq_cfg = config.MQConfig(os.path.join(os.path.dirname(cfg.config_path),
+                                              cfg.codmq_conf_path))
         database = db.Database(cfg.database)
 
         if cfg.audio_device_type not in sink.SINKS:
@@ -35,7 +39,6 @@ def main(args):
 
         if args.debug:
             log_file = sys.stderr
-            cfg.commands.append(command.StdinCommandFactory())
         else:
             try:
                 log_file = open(cfg.log_file, 'at')
@@ -45,7 +48,7 @@ def main(args):
             preserve_files.append(log_file)
 
         # All set, create the player object
-        p = player.Player(cfg, database, log_file)
+        p = player.Player(cfg, mq_cfg, database, log_file)
 
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
@@ -54,7 +57,9 @@ def main(args):
         sys.exit('error opening database:\n{0}'.format(e))
 
     if args.debug:
-        # Just run directly without forking off
+        # Just run directly without forking off.  Also start a CLI on stdin
+        p.log('reading commands on stdin')
+        start_stdin_cli(mq_cfg)
         p.run()
     else:
         context = daemon.DaemonContext(
@@ -68,7 +73,21 @@ def main(args):
         with context:
             p.run()
 
-    
+
+def start_stdin_cli(mq_cfg):
+    sender = zerohub.AsyncSender(mq_cfg.player_commands, name = 'stdin_cli')
+    t = threading.Thread(
+        target = stdin_cli, args = (sender, ), name = 'stdin_cli')
+    t.daemon = True
+    t.start()
+
+def stdin_cli(sender):
+    reader = command.CommandReader()
+    while True:
+        data = os.read(0, 500)
+        for cmd_args in reader.handle_data(data):
+            sender.send_multipart(cmd_args)
+
 #
 # Set up the command argument parsing
 #

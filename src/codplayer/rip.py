@@ -24,11 +24,11 @@ class Ripper(object):
     """
 
     def __init__(self, player):
+        self.player = player
         self.cfg = player.cfg
         self.db = player.db
         self.log = player.log
         self.debug = player.debug
-        self.publishers = player.publishers
 
         self.state = RipState()
         # Clean out any previous state file
@@ -295,5 +295,4 @@ class Ripper(object):
         if log_state:
             self.debug('state: {0}', self.state)
 
-        for p in self.publishers:
-            p.update_rip_state(self.state)
+        self.player.publish_rip_state(self.state)

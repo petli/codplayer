@@ -1,6 +1,29 @@
 codplayer releases
 ==================
 
+X.Y ????-??-??
+--------------
+
+### Breaking changes
+
+The old state publishing and command factory classes used in
+`codplayer.conf` has been removed.  In its place are ZeroMQ channel
+definitions in `codmq.conf`.  The purpose of this is to more easily
+handle the additional topics and components when adding IR remote
+control and LCD display support.
+
+`codctl` now reads `codmq.conf`, instead of `codplayer.conf`.
+
+`codplayer.conf` has changed format, removing the state and command
+factory lists and instead just having a new parameter referencing the
+`codmq.conf` file.
+
+The old FIFO command interface and the state files have been removed,
+on the assumption that the ZeroMQ interface is much more useful.  If
+these old interfaces are needed, they could be reimplemented as
+components using the the ZeroMQ API.
+
+
 1.1 2015-03-08
 --------------
 
