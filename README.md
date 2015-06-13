@@ -45,7 +45,7 @@ The disc database
 
 Each CD is stored in a directory of its own, with the raw PCM data and
 the table of contents stored in files.  The format of the database is
-described in the documentation for the class codplayer.db.Database.
+described in the documentation for the class `codplayer.db.Database`.
 The disc database must be accessible in the file system of the player.
 
 
@@ -69,6 +69,18 @@ interfaces.  E.g.:
 * Web interface (a simple one is in `controlwidget`)
 * Control apps (none implemented yet)
 * Physical button and LED display interfaces (not implemented either)
+
+
+ZeroMQ
+------
+
+The control and state update interfaces are all based on ZeroMQ
+sockets.  This is used to allow a clear separation of duties between
+different components (even if they might sometimes be running in the
+same process).
+
+For details on the configuration and message formats, see
+`doc/zeromq.md`.
 
 
 Database administration
