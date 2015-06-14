@@ -147,16 +147,19 @@ class RipState(serialize.Serializable):
 class StateClient(object):
     """Subscribe to state published on a zerohub.Topic."""
 
-    def __init__(self, channel, on_state = None, on_rip_state = None, on_disc = None):
+    def __init__(self, channel, io_loop = None,
+                 on_state = None, on_rip_state = None, on_disc = None):
+
         subscriptions = {}
         if on_state:
             subscriptions['state'] = (lambda receiver, msg: on_state(self._parse_message(msg, State)))
         if on_rip_state:
-            subscriptions['rip_state'] = (lambda receiver, msg: on_state(self._parse_message(msg, RipState)))
+            subscriptions['rip_state'] = (lambda receiver, msg: on_rip_state(self._parse_message(msg, RipState)))
         if on_disc:
-            subscriptions['disc'] = (lambda receiver, msg: on_state(self._parse_message(msg, model.ExtDisc)))
+            subscriptions['disc'] = (lambda receiver, msg: on_disc(self._parse_message(msg, model.ExtDisc)))
 
-        self._reciever = zerohub.Receiver(channel, callbacks = subscriptions)
+        self._reciever = zerohub.Receiver(
+            channel, io_loop = io_loop, callbacks = subscriptions, )
 
     def _parse_message(self, msg, cls):
         if len(msg) < 2:
