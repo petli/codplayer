@@ -15,6 +15,7 @@ from . import serialize
 from . import state
 from . import command
 from . import zerohub
+from . import lcd
 
 class ConfigError(Exception):
     pass
@@ -107,3 +108,12 @@ class RestConfig(Config):
         serialize.Attr('players', list),
         )
 
+
+class LCDConfig(DaemonConfig):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codlcd.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('codmq_conf_path', str),
+        serialize.Attr('lcd_factory', lcd.ILCDFactory),
+        serialize.Attr('formatter', lcd.ILCDFormatter),
+        )

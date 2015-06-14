@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+#
+# Hey Emacs, this is -*-python-*-
+#
+# Copyright 2015 Peter Liljenberg <peter.liljenberg@gmail.com>
+#
+# Distributed under an MIT license, please see LICENSE in the top dir.
+
+import sys
+import os
+import argparse
+
+from codplayer import config
+from codplayer import lcd
+from codplayer import full_version
+
+def main(args):
+    try:
+        cfg = config.LCDConfig(args.config)
+        mq_cfg = config.MQConfig(os.path.join(os.path.dirname(cfg.config_path),
+                                              cfg.codmq_conf_path))
+
+    except config.ConfigError, e:
+        sys.exit('invalid configuration:\n{0}'.format(e))
+
+    # Kick off the daemon
+    lcd.LCD(cfg, mq_cfg, debug = args.debug)
+
+#
+# Set up the command argument parsing
+#
+
+parser = argparse.ArgumentParser(description = 'codplayer lcd and led daemon')
+parser.add_argument('-c', '--config', help = 'alternative codlcd.conf file')
+parser.add_argument('-d', '--debug', action = 'store_true',
+                    help = 'run in debug mode instead of deamon')
+parser.add_argument('--version', action = 'version', version = full_version())
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    main(args)

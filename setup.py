@@ -19,6 +19,7 @@ setup(
                 'src/codadmin',
                 'src/codmousectl',
                 'src/codrestd',
+                'src/codlcd',
                 ],
 
     package_dir = { '': 'src' },
@@ -61,6 +62,11 @@ setup(
         'python-musicbrainz2',
         'musicbrainzngs >= 0.5',
         'pyzmq',
+        'Adafruit_CharLCD',
+    ],
+
+    dependency_links = [
+        'git+https://github.com/adafruit/Adafruit_Python_CharLCD.git#egg=Adafruit_CharLCD',
     ],
 
     extras_require = {

@@ -26,14 +26,14 @@ def cmd_init(args):
 
 def cmd_config(args):
     dest_dir = args.config_dir or ''
-    for f in ('codplayer.conf', 'codrest.conf'):
+    for f in ('codplayer.conf', 'codrest.conf', 'codmq.conf', 'codlcd.conf'):
         src = resource_filename('codplayer', 'data/config/' + f)
         dest = os.path.join(dest_dir, f)
         if os.path.exists(dest) and not args.force:
-            sys.exit('file already exists (use -f to overwrite): {0}'.format(dest))
-
-        sys.stderr.write('creating {0}\n'.format(dest))
-        shutil.copyfile(src, dest)
+            sys.stderr.write('file already exists (use -f to overwrite): {0}\n'.format(dest))
+        else:
+            sys.stderr.write('creating {0}\n'.format(dest))
+            shutil.copyfile(src, dest)
 
 
 def cmd_list(args):
