@@ -12,8 +12,6 @@ The unit of time in all objects is one audio frame.
 
 import sys
 import os
-import pwd
-import grp
 import errno
 import subprocess
 import time
@@ -31,80 +29,41 @@ from . import rip
 from .state import State, RipState
 from .command import CommandError
 from . import zerohub
-from . import full_version
+from .codaemon import Daemon, DaemonError
 
-class PlayerError(Exception):
+
+class PlayerError(DaemonError):
     pass
 
 
-class Player(object):
-    def __init__(self, cfg, mq_cfg, database, log_file):
+class Player(Daemon):
+    def __init__(self, cfg, mq_cfg, database, debug = False):
         self.cfg = cfg
         self.mq_cfg = mq_cfg
         self.db = database
-        self.log_file = log_file
         self.log_debug = True
 
         self.transport = None
         
         self.ripper = None
 
-        # Figure out which IDs to run as, if any
-        self.uid = None
-        self.gid = None
-
-        if self.cfg.user:
-            try:
-                pw = pwd.getpwnam(self.cfg.user)
-                self.uid = pw.pw_uid
-                self.gid = pw.pw_gid
-            except KeyError:
-                raise PlayerError('unknown user: {0}'.format(self.cfg.user))
-
-        if self.cfg.group:
-            if not self.cfg.user:
-                raise PlayerError("can't set group without user in config")
-            
-            try:
-                gr = grp.getgrnam(self.cfg.group)
-                self.gid = gr.gr_gid
-            except KeyError:
-                raise PlayerError('unknown group: {0}'.format(self.cfg.user))
-
-
         if self.cfg.log_performance:
             self.audio_streamer_perf_log = open('/tmp/cod_audio_streamer.log', 'wt')
         else:
             self.audio_streamer_perf_log = None
-            
-        
+
+        # Init parent last, since it will run the main loop
+        super(Player, self).__init__(cfg, debug)
+
+
+    def setup_postfork(self):
+        self.io_loop = zerohub.IOLoop.instance()
+        self.setup_command_reciever()
+        self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
+
+
     def run(self):
-        self.log('-' * 60)
-        self.log('starting {}', full_version())
-
         try:
-            # Set up messaging endpoints before dropping privs, in case
-            # privileged ports are used
-            self.io_loop = zerohub.IOLoop.instance()
-            self.setup_command_reciever()
-            self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
-
-            # Drop any privs to get ready for full operation.  Do this
-            # before opening the sink, since we generally need to be
-            # able to reopen it with the reduced privs anyway
-            if self.uid and self.gid:
-                if os.geteuid() == 0:
-                    try:
-                        self.log('dropping privs to uid {0} gid {1}',
-                                 self.uid, self.gid)
-
-                        os.setgid(self.gid)
-                        os.setuid(self.uid)
-                    except OSError, e:
-                        raise PlayerError("can't set UID or GID: {0}".format(e))
-                else:
-                    self.log('not root, not changing uid or gid')
-                    
             self.transport = Transport(
                 self,
                 sink.SINKS[self.cfg.audio_device_type](self))
@@ -436,20 +395,6 @@ class Player(object):
             # Send a dummy state
             self.publish_rip_state(RipState())
 
-    #
-    # Utility
-    #
-
-    def log(self, msg, *args, **kwargs):
-        m = (time.strftime('%Y-%m-%d %H:%M:%S ') + threading.current_thread().name + ': '
-             + msg.format(*args, **kwargs) + '\n')
-        self.log_file.write(m)
-        self.log_file.flush()
-
-        
-    def debug(self, msg, *args, **kwargs):
-        if self.log_debug:
-            self.log(msg, *args, **kwargs)
 
 
 class Transport(object):
