@@ -69,16 +69,18 @@ class State(serialize.Serializable):
                           'next', 'prev', 'eject')
 
 
-    def __init__(self):
-        self.state = self.NO_DISC
-        self.disc_id = None
-        self.source_disc_id = None
-        self.track = 0
-        self.no_tracks = 0
-        self.index = 0
-        self.position = 0
-        self.length = 0
-        self.error = None
+    def __init__(self, state = NO_DISC, disc_id = None, source_disc_id = None,
+                 track = 0, no_tracks = 0, index = 0, position = 0, length = 0,
+                 error = None):
+        self.state = state
+        self.disc_id = disc_id
+        self.source_disc_id = source_disc_id
+        self.track = track
+        self.no_tracks = no_tracks
+        self.index = index
+        self.position = position
+        self.length = length
+        self.error = error
 
 
     def __str__(self):
@@ -98,6 +100,7 @@ class State(serialize.Serializable):
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
         serialize.Attr('position', int),
+        serialize.Attr('length', int),
         serialize.Attr('error', serialize.str_unicode),
         )
 
