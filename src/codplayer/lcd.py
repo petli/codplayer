@@ -9,9 +9,10 @@
 #
 
 import sys
+import time
 
 from . import zerohub
-from . import state
+from .state import State, RipState, StateClient
 from . import command
 from .codaemon import Daemon, DaemonError
 from . import full_version
@@ -42,7 +43,7 @@ class ILCDFormatter(object):
     COLUMNS = None
     LINES = None
 
-    def format(self, state, rip_state, disc):
+    def format(self, state, rip_state, disc, now):
         """Format the current player state into a string
         that can be sent to the LCD display.
 
@@ -62,6 +63,11 @@ class ILCDFormatter(object):
 
         If disc is non-null, it corresponds to the disc currently
         loaded so the formatter does not need to check that.
+
+        now is the current time.time(), as considered by the LCD
+        display.  The formatter should use this rather than
+        time.time() directly to determine if the display should
+        change.
         """
         raise NotImplementedError()
 
@@ -98,7 +104,7 @@ class LCD(Daemon):
             self._update()
 
             # Set up subscriptions on relevant state updates
-            state_receiver = state.StateClient(
+            state_receiver = StateClient(
                 channel = self._mq_cfg.state,
                 io_loop = self._io_loop,
                 on_state = self._on_state,
@@ -152,7 +158,8 @@ class LCD(Daemon):
         else:
             disc = None
 
-        msg = self._cfg.formatter.format(self._state, self._rip_state, disc)
+        now = time.time()
+        msg = self._cfg.formatter.format(self._state, self._rip_state, disc, now)
         if type(msg) == type(()):
             msg, timeout = msg
             self._io_loop.add_timeout(timeout, self._update)
@@ -167,10 +174,21 @@ class LCD(Daemon):
 #
 
 class LCDFormatterBase(ILCDFormatter):
+    """Base class for LCD formatters of different sizes."""
+
+    COLUMNS = None
+    LINES = None
+    UNKNOWN_DISC = None
+
     PLAY = '\x10'
     PAUSE = '\x60'
-    STOP = ' ' # TODO: should upload a stop symbol in CGRAM
-    WORKING = '-/|\\'
+    UNKNOWN_STATE = '?'
+
+    def __init__(self):
+        self._state = None
+        self._rip_state = None
+        self._disc = None
+        self._generator = None
 
     def fill(self, *lines):
         """Return a set of lines filled out to the full width and height of
@@ -188,23 +206,91 @@ class LCDFormatterBase(ILCDFormatter):
         return '\n'.join(output_lines[:self.LINES])
 
 
-    def format(self, state, rip_state, disc):
+    def format(self, state, rip_state, disc, now):
         if state is None:
             return self.fill(
                 full_version(),
                 'Waiting on state')
 
-        # TODO: do this properly
+        if state.state == State.NO_DISC:
+            return self.fill('No disc')
 
-        line1 = '{0.state.__name__} {0.track}/{0.no_tracks} {0.position}/{0.length}'.format(state)
-        line2 = disc.disc_id if disc else ''
-        return self.fill(line1, line2)
+        self._state = state
+        self._rip_state = rip_state
 
+        if self._disc is not disc:
+            self._disc = disc
+
+        if self._disc:
+            # TODO
+            disc_lines = self.UNKNOWN_DISC
+        else:
+            disc_lines = self.UNKNOWN_DISC
+
+        return self.do_format(disc_lines)
+
+    def do_format(self, disc_lines):
+        raise NotImplementedError()
 
 
 class LCDFormatter16x2(LCDFormatterBase):
+    """Format output for a 16x2 LCD display.
+
+    See the TestLCDFormatter16x2 unit test for the expected
+    output of this class for different player states.
+    """
+
     COLUMNS = 16
     LINES = 2
+    UNKNOWN_DISC = 'Unknown disc'
+
+    def do_format(self, disc_lines):
+        s = self._state
+
+        if s.state == State.STOP:
+            state_line = 'Stop {0.no_tracks:>4d} tracks'.format(s)
+
+        elif s.state == State.WORKING:
+            state_line = 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
+
+        else:
+            if s.state == State.PLAY:
+                state_char = self.PLAY
+            elif s.state == State.PAUSE:
+                state_char = self.PAUSE
+            else:
+                state_char = self.UNKNOWN_STATE
+
+            if s.position < 0:
+                # pregap
+                track_pos = '-{0:d}:{1:02d}'.format(
+                    abs(s.position) / 60, abs(s.position) % 60)
+            else:
+                # Regular position
+                track_pos = ' {0:d}:{1:02d}'.format(
+                    s.position / 60, s.position % 60)
+
+            if s.length >= 600 and (s.track >= 10 or
+                    (s.position >= 600 and s.no_tracks >= 10)):
+                # Can only fit rough track length
+                track_len = '{0:d}+'.format(s.length / 60)
+            else:
+                # Full track length will fit
+                track_len = '{0:d}:{1:02d}'.format(
+                    s.length / 60, s.length % 60)
+
+            if s.length < 600:
+                # Can give space to track numbers at left
+                state_line = '{0}{1.track:>2d}/{1.no_tracks:<2d}{2}/{3}'.format(
+                    state_char, s, track_pos, track_len)
+            else:
+                # Need to shift track numbers far to the left
+                tracks = '{0}{1.track:d}/{1.no_tracks:d}'.format(state_char, s)
+                pos = '{0}/{1}'.format(track_pos, track_len)
+                fill = 16 - len(tracks) - len(pos)
+                state_line = tracks + (' ' * fill) + pos
+
+        return self.fill(state_line, disc_lines)
 
 
 #
@@ -291,6 +377,9 @@ class TestLCDController(object):
             self.clear()
 
     def message(self, text):
+        text = text.replace(LCDFormatterBase.PLAY, '>')
+        text = text.replace(LCDFormatterBase.PAUSE, '=')
+
         if self.enabled:
             sys.stdout.write(text)
             sys.stdout.write('\n')
