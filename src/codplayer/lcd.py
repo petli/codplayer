@@ -162,7 +162,8 @@ class LCD(Daemon):
         msg = self._cfg.formatter.format(self._state, self._rip_state, disc, now)
         if type(msg) == type(()):
             msg, timeout = msg
-            self._io_loop.add_timeout(timeout, self._update)
+            if timeout:
+                self._io_loop.add_timeout(timeout, self._update)
 
         self._lcd_controller.home()
         self._lcd_controller.message(msg)
@@ -184,11 +185,21 @@ class LCDFormatterBase(ILCDFormatter):
     PAUSE = '\x60'
     UNKNOWN_STATE = '?'
 
+    # Seconds between each scroll update
+    SCROLL_SPEED = 0.3
+
+    # Seconds scrolled text remains at end position
+    SCROLL_PAUSE = 1
+
     def __init__(self):
         self._state = None
         self._rip_state = None
         self._disc = None
-        self._generator = None
+        self._current_track_number = 0
+        self._info_generator = None
+        self._info_lines = self.UNKNOWN_DISC
+        self._next_info_lines = 0
+
 
     def fill(self, *lines):
         """Return a set of lines filled out to the full width and height of
@@ -206,6 +217,30 @@ class LCDFormatterBase(ILCDFormatter):
         return '\n'.join(output_lines[:self.LINES])
 
 
+    def scroll(self, text, now, prefix = ''):
+        """Iterator that scrolls through text if necessary to fit
+        within the line length.
+        """
+
+        columns = self.COLUMNS - len(prefix)
+
+        if len(text) <= columns:
+            # No need to scroll
+            yield prefix + text, None
+
+        else:
+            for i in range(len(text) - columns):
+                now += self.SCROLL_SPEED
+                yield prefix + text[i : i + columns], now
+
+            # Show last position a little longer
+            now += self.SCROLL_PAUSE
+            yield prefix + text[-columns:], now
+
+            # Then switch back to first position and scroll no more
+            yield prefix + text[:columns], None
+
+
     def format(self, state, rip_state, disc, now):
         if state is None:
             return self.fill(
@@ -218,18 +253,54 @@ class LCDFormatterBase(ILCDFormatter):
         self._state = state
         self._rip_state = rip_state
 
+        # Recreate info line generator when disc or track change
         if self._disc is not disc:
-            self._disc = disc
+            if disc is None:
+                self._disc = None
+                self._current_track_number = 0
+                self._info_generator = None
+                self._info_lines = self.UNKNOWN_DISC
+            else:
+                self._disc = disc
+                self._current_track_number = state.track
+                self._info_generator = self.generate_disc_lines(now)
+                self._next_info_lines = now
+        elif self._disc and self._current_track_number != state.track:
+            self._current_track_number = state.track
+            self._info_generator = self.generate_track_lines(now)
+            self._next_info_lines = now
 
-        if self._disc:
-            # TODO
-            disc_lines = self.UNKNOWN_DISC
-        else:
-            disc_lines = self.UNKNOWN_DISC
+        # Update info line if there is still a generator
+        # and the time has come
+        while (self._info_generator is not None and
+               self._next_info_lines is not None and
+               now >= self._next_info_lines):
+            try:
+                self._info_lines, self._next_info_lines = self._info_generator.next()
+            except StopIteration:
+                # Keep the current info and stop generating new lines
+                self._info_generator = None
+                self._next_info_lines = None
 
-        return self.do_format(disc_lines)
+        return self.do_format(), self._next_info_lines
 
-    def do_format(self, disc_lines):
+    def do_format(self):
+        raise NotImplementedError()
+
+    def generate_disc_lines(self, now):
+        """Return an iterator that provides information for a new disc.
+        The generated values should be a tuple: (lines, next_update)
+
+        next_update is the unix time when the next value should be
+        shown.  The final generated value should have next_update = None
+        """
+        raise NotImplementedError()
+
+
+    def generate_track_lines(self, now):
+        """Return an iterator that provides information for a new track.
+        Behaves the same way as generate_disc_lines().
+        """
         raise NotImplementedError()
 
 
@@ -244,7 +315,10 @@ class LCDFormatter16x2(LCDFormatterBase):
     LINES = 2
     UNKNOWN_DISC = 'Unknown disc'
 
-    def do_format(self, disc_lines):
+    # Seconds that disc title and artist is kept visible
+    DISC_INFO_SWITCH_SPEED = 3
+
+    def do_format(self):
         s = self._state
 
         if s.state == State.STOP:
@@ -290,7 +364,58 @@ class LCDFormatter16x2(LCDFormatterBase):
                 fill = 16 - len(tracks) - len(pos)
                 state_line = tracks + (' ' * fill) + pos
 
-        return self.fill(state_line, disc_lines)
+        return self.fill(state_line, self._info_lines)
+
+
+    def generate_disc_lines(self, now):
+        """Show album title and artist in sequence, then switch to track title.
+        All are scrolled if necessary
+        """
+
+        disc_title = self._disc.title or 'Unknown album'
+        for line, next_update in self.scroll(disc_title, now):
+            if next_update is None:
+                # Pause until switching to disc artist
+                now += self.DISC_INFO_SWITCH_SPEED
+                yield line, now
+            else:
+                now = next_update
+                yield line, next_update
+
+        disc_artist = self._disc.artist or 'Unknown artist'
+        for line, next_update in self.scroll(disc_artist, now):
+            if next_update is None:
+                # Pause until switching to track title
+                now += self.DISC_INFO_SWITCH_SPEED
+                yield line, now
+            else:
+                now = next_update
+                yield line, next_update
+
+        for line, next_update in self.generate_track_lines(now):
+            yield line, next_update
+
+
+    def generate_track_lines(self, now):
+        """Show track title, scrolled initially.
+        """
+
+        if self._state.track == 0:
+            return self.scroll(self._disc.title or 'Unknown album', now)
+
+        else:
+            track_index = self._state.track - 1
+            if track_index >= len(self._disc.tracks):
+                return iter([('Bad track list!', None)])
+            else:
+                track = self._disc.tracks[track_index]
+                track_title = track.title or 'Unknown track'
+                if track.number != self._state.track:
+                    # Track numbering is off, so show actual number here
+                    prefix = '{}. '.format(track.number)
+                else:
+                    prefix = ''
+                return self.scroll(track_title, now, prefix)
 
 
 #
