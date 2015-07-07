@@ -24,10 +24,11 @@ class TestLCDFormatter16x2(unittest.TestCase):
         #           0123456789abcdef  0123456789abcdef
         expected = "No disc         \n                "
 
-        msg = self._formatter.format(State(state = State.NO_DISC),
+        msg, update = self._formatter.format(State(state = State.NO_DISC),
                                      RipState(), None, time.time())
 
         self.assertEqual(msg, expected)
+        self.assertIsNone(update)
 
 
     def test_state_row(self):
@@ -82,7 +83,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
             ]
 
         for row, state in states:
-            row += '\nUnknown disc    '
+            row += '\n                '
             msg, update = self._formatter.format(state, RipState(), None, time.time())
             self.assertEqual(msg, row)
             self.assertIsNone(update)
@@ -258,3 +259,129 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, rip_state, disc, now)
         self.assertEqual(msg, state_line + 'Unknown albu TOC')
 
+
+    def test_player_errors(self):
+        state = State(state = State.WORKING, track = 10, no_tracks = 12)
+        state_line = 'Working 10/12...\n'
+
+        # Scroll error continuously
+        now = 0
+
+        # Initial display is just disc info
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        #                                   0123456789abcdef
+        self.assertEqual(msg, state_line + '                ')
+        self.assertIsNone(update)
+
+        # Switch to error message immediately
+        #              0123456789abcdef
+        state.error = 'Test error message'
+
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + 'Test error messa')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + 'est error messag')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + 'st error message')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + 'Test error messa')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + 'est error messag')
+
+        # Drop back to (empty) disc info when error clears
+        state.error = None
+        msg, update = self._formatter.format(state, RipState(), None, now)
+        self.assertEqual(msg, state_line + '                ')
+        self.assertIsNone(update)
+
+
+    def test_rip_errors(self):
+        state = State(state = State.WORKING, track = 10, no_tracks = 12)
+
+        rip_state = State(state = RipState.TOC)
+
+        state_line = 'Working 10/12...\n'
+
+        # Scroll error continuously
+        now = 0
+
+        # Initial display is just disc info
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        #                                   0123456789abcdef
+        self.assertEqual(msg, state_line + '             TOC')
+        self.assertIsNone(update)
+
+        #                  0123456789ab
+        rip_state.error = 'Test rip error'
+
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'Test rip err TOC')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'est rip erro TOC')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'st rip error TOC')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'Test rip err TOC')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'est rip erro TOC')
+
+        # Drop back to (empty) disc info when error clears
+        rip_state.error = None
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + '             TOC')
+        self.assertIsNone(update)
+
+
+    def test_multiple_errors(self):
+        state = State(state = State.WORKING, track = 10, no_tracks = 12,
+                      error = 'Player')
+        rip_state = State(state = RipState.TOC, error = 'Ripper')
+
+        state_line = 'Working 10/12...\n'
+
+        # Scroll messages continously
+        now = 0
+
+        #                                   0123456789abcdef
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'Player; Ripp TOC')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'layer; Rippe TOC')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'ayer; Ripper TOC')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'Player; Ripp TOC')
+
+        # If player error now clears, switch to rip error only
+        state.error = None
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + 'Ripper       TOC')
+        self.assertIsNone(update)
+
+        # And when that clears, back to (empty) disc info
+        rip_state.error = None
+        msg, update = self._formatter.format(state, rip_state, None, now)
+        self.assertEqual(msg, state_line + '             TOC')
+        self.assertIsNone(update)

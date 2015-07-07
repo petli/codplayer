@@ -178,7 +178,6 @@ class LCDFormatterBase(ILCDFormatter):
 
     COLUMNS = None
     LINES = None
-    UNKNOWN_DISC = None
 
     PLAY = '\x10'
     PAUSE = '\x60'
@@ -196,8 +195,9 @@ class LCDFormatterBase(ILCDFormatter):
         self._disc = None
         self._current_track_number = 0
         self._info_generator = None
-        self._info_lines = self.UNKNOWN_DISC
+        self._info_lines = ''
         self._next_info_lines = None
+        self._errors = None
 
 
     def fill(self, *lines):
@@ -216,7 +216,7 @@ class LCDFormatterBase(ILCDFormatter):
         return '\n'.join(output_lines[:self.LINES])
 
 
-    def scroll(self, text, now, prefix = '', columns = None):
+    def scroll(self, text, now, prefix = '', columns = None, loop = False):
         """Iterator that scrolls through text if necessary to fit
         within the line length.
         """
@@ -231,16 +231,19 @@ class LCDFormatterBase(ILCDFormatter):
             yield prefix + text, None
 
         else:
-            for i in range(len(text) - columns):
-                now += self.SCROLL_SPEED
-                yield prefix + text[i : i + columns], now
+            while True:
+                for i in range(len(text) - columns):
+                    now += self.SCROLL_SPEED
+                    yield prefix + text[i : i + columns], now
 
-            # Show last position a little longer
-            now += self.SCROLL_PAUSE
-            yield prefix + text[-columns:], now
+                # Show last position a little longer
+                now += self.SCROLL_PAUSE
+                yield prefix + text[-columns:], now
 
-            # Then switch back to first position and scroll no more
-            yield prefix + text[:columns], None
+                if not loop:
+                    # Switch back to first position and scroll no more
+                    yield prefix + text[:columns], None
+                    return
 
 
     def format(self, state, rip_state, disc, now):
@@ -249,28 +252,50 @@ class LCDFormatterBase(ILCDFormatter):
                 full_version(),
                 'Waiting on state'), None
 
-        if state.state == State.NO_DISC:
-            return self.fill('No disc'), None
-
         self._state = state
         self._rip_state = rip_state
 
-        # Recreate info line generator when disc or track change
-        if self._disc is not disc:
-            if disc is None:
-                self._disc = None
-                self._current_track_number = 0
-                self._info_generator = None
-                self._info_lines = self.UNKNOWN_DISC
+        # Check if there are error messages
+        errors = None
+        if state and state.error:
+            errors = [state.error]
+        if rip_state and rip_state.error:
+            if errors:
+                errors.append(rip_state.error)
             else:
-                self._disc = disc
-                self._current_track_number = state.track
-                self._info_generator = self.generate_disc_lines(now)
+                errors = [rip_state.error]
+
+        if errors:
+            if self._errors != errors:
+                self._errors = errors
+                # Need new formatter
+                self._info_generator = self.generate_error_lines(now)
                 self._next_info_lines = now
-        elif self._disc and self._current_track_number != state.track:
-            self._current_track_number = state.track
-            self._info_generator = self.generate_track_lines(now)
-            self._next_info_lines = now
+
+        else:
+            # No current errors, show disc info
+
+            # Show new disc info lines when disc change, or
+            # when coming back from error
+            if self._disc is not disc or self._errors:
+                self._errors = None
+                if disc is None:
+                    self._disc = None
+                    self._current_track_number = 0
+                    self._info_generator = None
+                    self._next_info_lines = None
+                    self._info_lines = ''
+                else:
+                    self._disc = disc
+                    self._current_track_number = state.track
+                    self._info_generator = self.generate_disc_lines(now)
+                    self._next_info_lines = now
+
+            # Show new track info when switching track on a disc
+            elif self._disc and self._current_track_number != state.track:
+                self._current_track_number = state.track
+                self._info_generator = self.generate_track_lines(now)
+                self._next_info_lines = now
 
         # Update info line if there is still a generator
         # and the time has come
@@ -293,15 +318,26 @@ class LCDFormatterBase(ILCDFormatter):
         """Return an iterator that provides information for a new disc.
         The generated values should be a tuple: (lines, next_update)
 
+        This is not called if self._errors is non-empty.
+
         next_update is the unix time when the next value should be
         shown.  The final generated value should have next_update = None
         """
         raise NotImplementedError()
 
-
     def generate_track_lines(self, now):
         """Return an iterator that provides information for a new track.
         Behaves the same way as generate_disc_lines().
+
+        This is not called if self._errors is non-empty.
+        """
+        raise NotImplementedError()
+
+    def generate_error_lines(self, now):
+        """Return an iterator that provides information for errors.
+        Behaves the same way as generate_disc_lines().
+
+        This is only called if self._errors is non-empty.
         """
         raise NotImplementedError()
 
@@ -315,13 +351,12 @@ class LCDFormatter16x2(LCDFormatterBase):
 
     COLUMNS = 16
     LINES = 2
-    UNKNOWN_DISC = 'Unknown disc'
 
     # Seconds that disc title and artist is kept visible
     DISC_INFO_SWITCH_SPEED = 3
 
 
-    def scroll(self, text, now, prefix = ''):
+    def scroll(self, text, now, prefix = '', loop = False):
         """Override to fit info line scroll into available space, which is
         shortened when ripping is in progress and should be shown at
         the end of the line.
@@ -331,11 +366,11 @@ class LCDFormatter16x2(LCDFormatterBase):
         """
 
         scroll_columns = self.COLUMNS
-        if self._rip_state.state != RipState.INACTIVE:
+        if self._rip_state and self._rip_state.state != RipState.INACTIVE:
             scroll_columns -= 4
 
         return super(LCDFormatter16x2, self).scroll(
-            text, now, prefix = prefix, columns = scroll_columns)
+            text, now, prefix = prefix, columns = scroll_columns, loop = loop)
 
 
     def do_format(self):
@@ -346,11 +381,14 @@ class LCDFormatter16x2(LCDFormatterBase):
     def do_format_state_line(self):
         s = self._state
 
-        if s.state == State.STOP:
-            state_line = 'Stop {0.no_tracks:>4d} tracks'.format(s)
+        if s.state == State.NO_DISC:
+            return 'No disc'
+
+        elif s.state == State.STOP:
+            return 'Stop {0.no_tracks:>4d} tracks'.format(s)
 
         elif s.state == State.WORKING:
-            state_line = 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
+            return 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
 
         else:
             if s.state == State.PLAY:
@@ -389,18 +427,18 @@ class LCDFormatter16x2(LCDFormatterBase):
                 fill = 16 - len(tracks) - len(pos)
                 state_line = tracks + (' ' * fill) + pos
 
-        return state_line
+            return state_line
 
 
     def do_format_info_line(self):
         s = self._rip_state
 
-        if s.state == RipState.AUDIO:
+        if s and s.state == RipState.AUDIO:
             if s.progress is not None:
                 return '{0:<12s}{1:3d}%'.format(self._info_lines[:12], s.progress)
             else:
                 return '{0:<12s} RIP'.format(self._info_lines[:12])
-        elif s.state == RipState.TOC:
+        elif s and s.state == RipState.TOC:
             return '{0:<12s} TOC'.format(self._info_lines[:12])
         else:
             return self._info_lines
@@ -455,6 +493,9 @@ class LCDFormatter16x2(LCDFormatterBase):
                 else:
                     prefix = ''
                 return self.scroll(track_title, now, prefix)
+
+    def generate_error_lines(self, now):
+        return self.scroll('; '.join(self._errors), now, loop = True)
 
 
 #
