@@ -158,7 +158,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Title ')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Disc Title Y')
 
@@ -175,7 +175,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Artist')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Disc Artist ')
 
@@ -192,7 +192,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Track 1 Tit')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Track 1 Titl')
 
@@ -218,7 +218,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + '3. Track Title #')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + '3. rack Title #3')
 
@@ -249,7 +249,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
 
         # Update progress, and scroll a step
         rip_state.progress = 15
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, disc, now)
         self.assertEqual(msg, state_line + 'nknown album 15%')
 
@@ -280,7 +280,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), None, now)
         self.assertEqual(msg, state_line + 'Test error messa')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), None, now)
         self.assertEqual(msg, state_line + 'est error messag')
 
@@ -292,7 +292,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), None, now)
         self.assertEqual(msg, state_line + 'Test error messa')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), None, now)
         self.assertEqual(msg, state_line + 'est error messag')
 
@@ -325,7 +325,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'Test rip err TOC')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'est rip erro TOC')
 
@@ -337,7 +337,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'Test rip err TOC')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'est rip erro TOC')
 
@@ -362,7 +362,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'Player; Ripp TOC')
 
-        now += self._formatter.SCROLL_SPEED
+        now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + 'layer; Rippe TOC')
 

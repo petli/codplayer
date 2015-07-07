@@ -232,7 +232,12 @@ class LCDFormatterBase(ILCDFormatter):
 
         else:
             while True:
-                for i in range(len(text) - columns):
+                # Show first part a little longer
+                now += self.SCROLL_PAUSE
+                yield prefix + text[:columns], now
+
+                # Then start scrolling
+                for i in range(1, len(text) - columns):
                     now += self.SCROLL_SPEED
                     yield prefix + text[i : i + columns], now
 
