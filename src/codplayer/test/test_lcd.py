@@ -83,8 +83,9 @@ class TestLCDFormatter16x2(unittest.TestCase):
 
         for row, state in states:
             row += '\nUnknown disc    '
-            msg = self._formatter.format(state, RipState(), None, time.time())
+            msg, update = self._formatter.format(state, RipState(), None, time.time())
             self.assertEqual(msg, row)
+            self.assertIsNone(update)
 
 
     def test_null_disc_info(self):
@@ -102,25 +103,25 @@ class TestLCDFormatter16x2(unittest.TestCase):
         now = 0
 
         #                                   0123456789abcdef
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Unknown album   ')
 
         # Don't change yet
-        msg = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
+        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
         self.assertEqual(msg, state_line + 'Unknown album   ')
 
         # But change now
         now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Unknown artist  ')
 
         # Don't change yet
-        msg = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
+        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
         self.assertEqual(msg, state_line + 'Unknown artist  ')
 
         # But change now
         now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Unknown track   ')
 
 
@@ -153,58 +154,58 @@ class TestLCDFormatter16x2(unittest.TestCase):
         # Scroll disc title on new disc
         now = 0
 
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Title ')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Disc Title Y')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'st Disc Title YZ')
 
         now += self._formatter.SCROLL_PAUSE
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Title ')
 
         # Then switch to scrolling the artist
         now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Artist')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Disc Artist ')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'st Disc Artist X')
 
         now += self._formatter.SCROLL_PAUSE
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Artist')
 
         # Finally to track title
         now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Track 1 Tit')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Track 1 Titl')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'st Track 1 Title')
 
         now += self._formatter.SCROLL_PAUSE
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Track 1 Tit')
 
         # And there it should remain
         now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Track 1 Tit')
 
         # Until the second track
@@ -213,14 +214,47 @@ class TestLCDFormatter16x2(unittest.TestCase):
                       position = 10, length = 200)
         state_line = '> 2/2  0:10/3:20\n'
 
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + '3. Track Title #')
 
         now += self._formatter.SCROLL_SPEED
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + '3. rack Title #3')
 
         now += self._formatter.SCROLL_PAUSE
-        msg = self._formatter.format(state, RipState(), disc, now)
+        msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + '3. Track Title #')
+
+
+    def test_ripping(self):
+        # Arrange a disc object with no info
+        disc = model.ExtDisc()
+        t = model.ExtTrack()
+        t.number = 1
+        disc.tracks = [t]
+
+        state = State(state = State.PLAY, track = 1, no_tracks = 2,
+                      position = 10, length = 200)
+        state_line = '> 1/2  0:10/3:20\n'
+
+        rip_state = RipState(state = RipState.AUDIO, progress = 5)
+
+        # Will have to scroll since the rip state takes up place
+        now = 0
+
+        #                                   0123456789abcdef
+        msg, update = self._formatter.format(state, rip_state, disc, now)
+        self.assertEqual(msg, state_line + 'Unknown albu  5%')
+
+        # Update progress, and scroll a step
+        rip_state.progress = 15
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, rip_state, disc, now)
+        self.assertEqual(msg, state_line + 'nknown album 15%')
+
+        # Switch to TOC, and reset scroll
+        rip_state = RipState(state = RipState.TOC)
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, rip_state, disc, now)
+        self.assertEqual(msg, state_line + 'Unknown albu TOC')
 

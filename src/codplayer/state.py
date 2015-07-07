@@ -125,11 +125,12 @@ class RipState(serialize.Serializable):
     class AUDIO: pass
     class TOC: pass
 
-    def __init__(self):
-        self.state = self.INACTIVE
-        self.disc_id = None
-        self.progress = None
-        self.error = None
+    def __init__(self, state = INACTIVE, disc_id = None,
+                 progress = None, error = None):
+        self.state = state
+        self.disc_id = disc_id
+        self.progress = progress
+        self.error = error
 
 
     def __str__(self):
