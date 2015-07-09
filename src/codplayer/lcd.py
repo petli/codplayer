@@ -10,6 +10,7 @@
 
 import sys
 import time
+from string import maketrans
 
 from . import zerohub
 from .state import State, RipState, StateClient
@@ -30,6 +31,13 @@ class ILCDFactory(object):
 
     def get_led_controller(self):
         """Create a LED controller."""
+        raise NotImplementedError()
+
+    def get_text_encoder(self):
+        """Return a function that encodes a string into
+        another string that can be passed to
+        lcd_controller.message().
+        """
         raise NotImplementedError()
 
 
@@ -99,6 +107,7 @@ class LCD(Daemon):
         self._lcd_controller = self._cfg.lcd_factory.get_lcd_controller(
             self._cfg.formatter.COLUMNS, self._cfg.formatter.LINES)
         self._led_controller = self._cfg.lcd_factory.get_led_controller()
+        self._text_encoder = self._cfg.lcd_factory.get_text_encoder()
 
         self._io_loop = zerohub.IOLoop.instance()
 
@@ -177,7 +186,7 @@ class LCD(Daemon):
             self._io_loop.add_timeout(timeout, self._lcd_update)
 
         self._lcd_controller.home()
-        self._lcd_controller.message(msg)
+        self._lcd_controller.message(self._text_encoder(msg))
 
 
     def _led_update(self):
@@ -216,8 +225,10 @@ class LCDFormatterBase(ILCDFormatter):
     COLUMNS = None
     LINES = None
 
-    PLAY = '\x10'
-    PAUSE = '\x60'
+    # Custom CGRAM positions
+    PLAY = '\x00'
+    PAUSE = '\x01'
+
     UNKNOWN_STATE = '?'
 
     # Seconds between each scroll update
@@ -622,57 +633,122 @@ class LEDPatternSelector(object):
 #
 
 class GPIO_LCDFactory(ILCDFactory):
+    PLAY_CHAR = (0x10,0x18,0x1c,0x1e,0x1c,0x18,0x10,0x0)
+    PAUSE_CHAR = (0x0,0x1b,0x1b,0x1b,0x1b,0x1b,0x0,0x0)
+
     def __init__(self, led,
                  rs, en, d4, d5, d6, d7,
-                 backlight = None):
-        self.pin_led = led
-        self.pin_rs = rs
-        self.pin_en = en
-        self.pin_d4 = d4
-        self.pin_d5 = d5
-        self.pin_d6 = d6
-        self.pin_d7 = d7
-        self.pin_backlight = backlight
+                 backlight = None,
+                 custom_chars = None):
+        """Create an LCD and LED controller using RPi GPIO pins
+        (using AdaFruit libraries).
+
+        led, rs, en, d4, d5, d6, d7, backlight are BCM pin numbers, passed
+        to the Adafruit_CharLCD interface.
+
+        custom_chars can be a mapping of up to six characters that
+        should be defined as custom CGRAMs in the LCD, in case its ROM
+        lack some important characters for you.  The key is a
+        single-char string, the value is a tuple of eight byte values
+        defining the bit pattern.  These can be created using
+        http://www.quinapalus.com/hd44780udg.html
+        """
+
+        self._pin_led = led
+        self._pin_rs = rs
+        self._pin_en = en
+        self._pin_d4 = d4
+        self._pin_d5 = d5
+        self._pin_d6 = d6
+        self._pin_d7 = d7
+        self._pin_backlight = backlight
+
+        # First two CGRAM positions are already taken
+        self._custom_char_patterns = [self.PLAY_CHAR, self.PAUSE_CHAR]
+
+        # Remaining can be defined by user
+        if custom_chars:
+            assert len(custom_chars) <= 6
+
+            i = 2
+            trans_from = ''
+            trans_to = ''
+            for char, pattern in custom_chars.items():
+                assert len(char) == 1
+                assert len(pattern) == 8
+
+                self._custom_char_patterns.append(pattern)
+                trans_from += char
+                trans_to += chr(i)
+                i += 1
+
+            self._custom_trans = maketrans(trans_from, trans_to)
+        else:
+            self._custom_trans = None
+
 
     def get_lcd_controller(self, columns, lines):
         from Adafruit_CharLCD import Adafruit_CharLCD
-        return Adafruit_CharLCD(
+        lcd = Adafruit_CharLCD(
             cols = columns,
             lines = lines,
-            rs = self.pin_rs,
-            en = self.pin_en,
-            d4 = self.pin_d4,
-            d5 = self.pin_d5,
-            d6 = self.pin_d6,
-            d7 = self.pin_d7,
-            backlight = self.pin_backlight,
+            rs = self._pin_rs,
+            en = self._pin_en,
+            d4 = self._pin_d4,
+            d5 = self._pin_d5,
+            d6 = self._pin_d6,
+            d7 = self._pin_d7,
+            backlight = self._pin_backlight,
             invert_polarity = False,
         )
 
+        # Create custom chars, since not all ROMS have the PLAY and
+        # PAUSE chars or other ones the user might need
+        for i, pattern in enumerate(self._custom_char_patterns):
+            lcd.create_char(i, pattern)
+
+        return lcd
+
     def get_led_controller(self):
         import Adafruit_GPIO as GPIO
-        return GPIO_LEDController(GPIO.get_platform_gpio(), self.pin_led)
+        return GPIO_LEDController(GPIO.get_platform_gpio(), self._pin_led)
+
+
+    def get_text_encoder(self):
+        return self._encode
+
+    def _encode(self, text):
+        # TODO: this could be much more advanced, but for now squish into iso-8859-1
+        # (which maps decently to an HD44780 ROM type 02)
+
+        text = text.encode('iso-8859-1')
+
+        # Apply any custom translations.  OK now that this is no longer unicode.
+        if self._custom_trans:
+            text = text.translate(self._custom_trans)
+
+        return text
 
 
 class GPIO_LEDController(object):
     def __init__(self, gpio, pin):
         import Adafruit_GPIO as GPIO
 
-        self.gpio = gpio
-        self.pin = pin
+        self._gpio = gpio
+        self._pin = pin
 
         # Setup for output
         gpio.setup(pin, GPIO.OUT)
         self.off()
 
     def on(self):
-        self.gpio.output(self.pin, 1)
+        self._gpio.output(self._pin, 1)
 
     def off(self):
-        self.gpio.output(self.pin, 0)
+        self._gpio.output(self._pin, 0)
 
     def set(self, value):
-        self.gpio.output(self.pin, value)
+        self._gpio.output(self._pin, value)
 
 
 #
@@ -688,6 +764,10 @@ class TestLCDFactory(ILCDFactory):
 
     def get_led_controller(self):
         return self._led_controller
+
+    def get_text_encoder(self):
+        # No-op function
+        return lambda text: text
 
 
 class TestLCDController(object):
