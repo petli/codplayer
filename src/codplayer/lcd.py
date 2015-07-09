@@ -423,19 +423,22 @@ class LCDFormatter16x2(LCDFormatterBase):
     def do_format_state_line(self):
         s = self._state
 
-        if s.state == State.NO_DISC:
+        if s.state is State.OFF:
+            return 'Player shut down'
+
+        if s.state is State.NO_DISC:
             return 'No disc'
 
-        elif s.state == State.STOP:
+        elif s.state is State.STOP:
             return 'Stop {0.no_tracks:>4d} tracks'.format(s)
 
-        elif s.state == State.WORKING:
+        elif s.state is State.WORKING:
             return 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
 
         else:
-            if s.state == State.PLAY:
+            if s.state is State.PLAY:
                 state_char = self.PLAY
-            elif s.state == State.PAUSE:
+            elif s.state is State.PAUSE:
                 state_char = self.PAUSE
             else:
                 state_char = self.UNKNOWN_STATE
@@ -475,7 +478,7 @@ class LCDFormatter16x2(LCDFormatterBase):
     def do_format_info_line(self):
         s = self._rip_state
 
-        if s and s.state == RipState.AUDIO:
+        if s and s.state is RipState.AUDIO:
             if s.progress is not None:
                 return '{0:<12s}{1:3d}%'.format(self._info_lines[:12], s.progress)
             else:
@@ -600,7 +603,10 @@ class LEDPatternSelector(object):
                 return self.PLAYER_ERROR
 
         if state:
-            if state.error:
+            if state.state is State.OFF:
+                return self.NO_PLAYER
+
+            elif state.error:
                 return self.PLAYER_ERROR
 
             elif state.state is State.WORKING:

@@ -38,6 +38,7 @@ class TestLCDFormatter16x2(unittest.TestCase):
 
         states = [
             # 0123456789abcdef
+            ("Player shut down", State(state = State.OFF)),
             ("Stop    9 tracks", State(state = State.STOP,
                                        no_tracks = 9)),
             ("Working 1/9...  ", State(state = State.WORKING,
