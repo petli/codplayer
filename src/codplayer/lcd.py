@@ -86,6 +86,11 @@ class LCD(Daemon):
         self._rip_state = None
         self._disc = None
 
+        self._led_selector = LEDPatternSelector()
+        self._led_pattern = None
+        self._led_generator = None
+        self._led_timeout = None
+
         # Kick off deamon
         super(LCD, self).__init__(cfg, debug = debug)
 
@@ -102,7 +107,9 @@ class LCD(Daemon):
         try:
             # Set up initial message
             self._lcd_controller.clear()
-            self._update()
+            self._lcd_update()
+
+            self._led_update()
 
             # Set up subscriptions on relevant state updates
             state_receiver = StateClient(
@@ -135,24 +142,29 @@ class LCD(Daemon):
 
 
     def _on_state(self, state):
-        self._state = state
-        self._update()
         self.debug('got state: {}', self._state)
+
+        self._state = state
+        self._lcd_update()
+        self._led_update()
 
 
     def _on_rip_state(self, rip_state):
-        self._rip_state = rip_state
-        self._update()
         self.debug('got rip state: {}', self._rip_state)
+
+        self._rip_state = rip_state
+        self._lcd_update()
+        self._led_update()
 
 
     def _on_disc(self, disc):
-        self._disc = disc
-        self._update()
         self.debug('got disc: {}', self._disc)
 
+        self._disc = disc
+        self._lcd_update()
 
-    def _update(self):
+
+    def _lcd_update(self):
         # Only pass the formatter a disc object relevant to the state
         if self._state and self._disc and self._state.disc_id == self._disc.disc_id:
             disc = self._disc
@@ -162,15 +174,40 @@ class LCD(Daemon):
         now = time.time()
         msg, timeout = self._cfg.formatter.format(self._state, self._rip_state, disc, now)
         if timeout is not None:
-            self._io_loop.add_timeout(timeout, self._update)
+            self._io_loop.add_timeout(timeout, self._lcd_update)
 
         self._lcd_controller.home()
         self._lcd_controller.message(msg)
 
 
+    def _led_update(self):
+        pattern = self._led_selector.get_pattern(self._state, self._rip_state)
+        if pattern is not self._led_pattern:
+
+            self._led_pattern = pattern
+
+            # Stop any running blink pattern
+            self._led_generator = None
+            if self._led_timeout is not None:
+                self._io_loop.remove_timeout(self._led_timeout)
+                self._led_timeout = None
+
+            # Set solid light or start new pattern
+            if pattern is None:
+                self._led_controller.on()
+            else:
+                self._led_generator = pattern.generate(time.time())
+                self._blink_led()
+
+
+    def _blink_led(self):
+        value, timeout = self._led_generator.next()
+        self._led_controller.set(value)
+        self._led_timeout = self._io_loop.add_timeout(timeout, self._blink_led)
+
 
 #
-# Formatters
+# LCD Formatters
 #
 
 class LCDFormatterBase(ILCDFormatter):
@@ -504,6 +541,77 @@ class LCDFormatter16x2(LCDFormatterBase):
 
 
 #
+# LED blinkenlichts
+#
+
+class LEDState(object):
+    value = None
+
+    def __init__(self, duration):
+        self.duration = duration
+
+class ON(LEDState):
+    value = 1
+
+class OFF(LEDState):
+    value = 0
+
+class BlinkPattern(object):
+    """Define a LED blink pattern of alternating ON and OFF states.
+    """
+    def __init__(self, *states):
+        self.states = states
+
+    def generate(self, now):
+        """Return a iterator that generates the pattern.
+
+        Each generated value is a tuple (value, next_state) where
+        value is a value between 0 and 1 (typically either 1 or 0),
+        and next_state is the time_t when this value should be
+        replaced by the next one.
+        """
+
+        while True:
+            for state in self.states:
+                now += state.duration
+                yield state.value, now
+
+
+class LEDPatternSelector(object):
+
+    NO_PLAYER = BlinkPattern(ON(0.3), OFF(0.9))
+
+    WORKING = BlinkPattern(OFF(0.3), ON(0.3))
+
+    PLAYER_ERROR = BlinkPattern(OFF(0.9), ON(0.3), OFF(0.3), ON(0.3))
+
+    def get_pattern(self, state, rip_state):
+        """Return a BlinkPattern object for the current
+        state and rip_state.  If the returned object
+        is the same as the currently processed pattern, it
+        will not be restarted.
+
+        Return None to stop the current pattern and return
+        the LED to the default state.
+        """
+
+        if rip_state:
+            if rip_state.error:
+                return self.PLAYER_ERROR
+
+        if state:
+            if state.error:
+                return self.PLAYER_ERROR
+
+            elif state.state is State.WORKING:
+                return self.WORKING
+        else:
+            return self.NO_PLAYER
+
+        return None
+
+
+#
 # RPi GPIO interface
 #
 
@@ -547,9 +655,9 @@ class GPIO_LEDController(object):
         self.gpio = gpio
         self.pin = pin
 
-        # Setup for output, and light up by default
+        # Setup for output
         gpio.setup(pin, GPIO.OUT)
-        self.on()
+        self.off()
 
     def on(self):
         self.gpio.output(self.pin, 1)
@@ -557,53 +665,100 @@ class GPIO_LEDController(object):
     def off(self):
         self.gpio.output(self.pin, 0)
 
+    def set(self, value):
+        self.gpio.output(self.pin, value)
+
 
 #
 # Test classes for developing without the HW
 #
 
 class TestLCDFactory(ILCDFactory):
+    def __init__(self):
+        self._led_controller = TestLEDController()
+
     def get_lcd_controller(self, columns, lines):
-        return TestLCDController()
+        return TestLCDController(columns, lines, self._led_controller)
 
     def get_led_controller(self):
-        return TestLEDController()
+        return self._led_controller
 
 
 class TestLCDController(object):
-    def __init__(self):
-        self.enabled = True
+    """Use VT100 escape sequences to draw a LCD display on the second line
+    and down.
+    """
+    def __init__(self, columns, lines, led_controller):
+        self._columns = columns
+        self._lines = lines
+        self._led_controller = led_controller
 
     def home(self):
-        self.clear()
+        # Redraw LED controller first since it may have scrolled off
+        self._led_controller._redraw()
 
-    def clear(self):
-        sys.stdout.write('\x1bc')
+        sys.stdout.write('\x1B[s')    # save cursor
+        sys.stdout.write('\x1B[2;1H') # go to row 2, col 1
         sys.stdout.flush()
 
-    def enable_display(self, enable):
-        self.enabled = enable
-        if not enable:
-            self.clear()
+    def clear(self):
+        sys.stdout.write('\x1Bc') # clear screen
+        sys.stdout.write('\x1B[10;1H') # go to row 10, col 1
+        sys.stdout.flush()
 
     def message(self, text):
         text = text.replace(LCDFormatterBase.PLAY, '>')
         text = text.replace(LCDFormatterBase.PAUSE, '=')
 
-        if self.enabled:
-            sys.stdout.write(text)
-            sys.stdout.write('\n')
-            sys.stdout.flush()
+        header = '+' + '-' * self._columns + '+'
+        sys.stdout.write('\x1B[K')    # clear until end of line
+        sys.stdout.write(header)
+
+        for line in text.split('\n'):
+            sys.stdout.write('\x1B[B\r')    # down one line, first position
+            sys.stdout.write('\x1B[K')    # clear until end of line
+            sys.stdout.write('|' + line + '|')
+
+        sys.stdout.write('\x1B[B\r')    # down one line, first position
+        sys.stdout.write('\x1B[K')    # clear until end of line
+        sys.stdout.write(header)
+
+        sys.stdout.write('\x1B[u')    # unsave cursor
+        sys.stdout.flush()
 
     def set_backlight(self, backlight):
         pass
 
 
 class TestLEDController(object):
+    def __init__(self):
+        self._state = 0
+
     def on(self):
-        sys.stdout.write('LED ON\n')
-        sys.stdout.flush()
+        self._state = 1
+        self._redraw()
 
     def off(self):
-        sys.stdout.write('LED OFF\n')
+        self._state = 0
+        self._redraw()
+
+    def set(self, value):
+        assert value in (0, 1)
+        if value:
+            self.on()
+        else:
+            self.off()
+
+    def _redraw(self):
+        sys.stdout.write('\x1B[s')    # save cursor
+        sys.stdout.write('\x1B[1;1H') # go to row 1, col 1
+        sys.stdout.write('\x1B[K')    # clear until end of line
+
+        if self._state:
+            sys.stdout.write('LED: ***     ')
+        else:
+            sys.stdout.write('LED:  .      ')
+
+        sys.stdout.write('\x1B[u')    # unsave cursor
         sys.stdout.flush()
+
