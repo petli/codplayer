@@ -153,6 +153,35 @@ Frame format:
     1: JSON: model.ExtDisc object or null
 
 
+Topic: input
+------------
+
+This topic publishes input events, e.g. IR remote control button
+presses.
+
+### button.press.KEY
+
+Sent by codlircd when a remote control button is pressed.  `KEY` is
+the name of the button.  Example event name: `button.press.PLAY`.
+
+Frame format:
+
+    0: "button.press.KEY"
+    1: float: time.time() of the button press
+
+
+### button.repeat.KEY
+
+Sent by codlircd when a remote control button is held down to generate
+repeat button events.  `KEY` is the name of the button.
+
+Frame format:
+
+    0: "button.press.KEY"
+    1: float: time.time() of the button press
+    2: int: repeat count, from 1 and up
+
+
 Commands
 ========
 

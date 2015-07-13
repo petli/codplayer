@@ -117,3 +117,11 @@ class LCDConfig(DaemonConfig):
         serialize.Attr('lcd_factory', lcd.ILCDFactory),
         serialize.Attr('formatter', lcd.ILCDFormatter),
         )
+
+class LircConfig(DaemonConfig):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codlircd.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('codmq_conf_path', str),
+        serialize.Attr('lircd_socket', str),
+        )

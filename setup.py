@@ -20,6 +20,7 @@ setup(
                 'src/codmousectl',
                 'src/codrestd',
                 'src/codlcd',
+                'src/codlircd',
                 ],
 
     package_dir = { '': 'src' },
