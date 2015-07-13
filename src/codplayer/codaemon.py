@@ -74,8 +74,8 @@ class Daemon(object):
             context = daemon.DaemonContext(
                 files_preserve = preserve_files,
                 pidfile = lockfile.FileLock(cfg.pid_file),
-                stdout = log_file,
-                stderr = log_file,
+                stdout = self._log_file,
+                stderr = self._log_file,
                 )
 
             # Run in daemon context, forking off and all that
