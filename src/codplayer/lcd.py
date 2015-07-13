@@ -86,6 +86,9 @@ class ILCDFormatter(object):
 #
 
 class LCD(Daemon):
+    # LED blink duration on button presses
+    BUTTON_BLINK = 0.2
+
     def __init__(self, cfg, mq_cfg, debug = False):
         self._cfg = cfg
         self._mq_cfg = mq_cfg
@@ -128,6 +131,11 @@ class LCD(Daemon):
                 on_rip_state = self._on_rip_state,
                 on_disc = self._on_disc
             )
+
+            # Blink LED on button presses
+            button_receiver = zerohub.Receiver(
+                self._mq_cfg.input, name = 'codlcd', io_loop = self._io_loop,
+                callbacks = { 'button.': self._on_button_press })
 
             # Kickstart things by requesting the current state from the player
             rpc_client = command.AsyncCommandRPCClient(
@@ -173,6 +181,22 @@ class LCD(Daemon):
         self._lcd_update()
 
 
+    def _on_button_press(self, receiver, msg):
+        if self._led_pattern is None:
+            # Only blink on button press when there's no pattern blinking
+
+            if self._led_timeout is not None:
+                # LED is off due to button blink, so light it immediately to
+                # flicker LED with button repeats
+                self._led_controller.on()
+                self._io_loop.remove_timeout(self._led_timeout)
+                self._led_timeout = None
+            else:
+                # LED is on and no timeout, so start a new one
+                self._led_timeout = self._io_loop.add_timeout(time.time() + self.BUTTON_BLINK, self._stop_button_blink)
+                self._led_controller.off()
+
+
     def _lcd_update(self):
         # Only pass the formatter a disc object relevant to the state
         if self._state and self._disc and self._state.disc_id == self._disc.disc_id:
@@ -214,6 +238,11 @@ class LCD(Daemon):
         self._led_controller.set(value)
         self._led_timeout = self._io_loop.add_timeout(timeout, self._blink_led)
 
+
+    def _stop_button_blink(self):
+        if self._led_pattern is None:
+            self._led_timeout = None
+            self._led_controller.on()
 
 #
 # LCD Formatters
