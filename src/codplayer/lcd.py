@@ -102,6 +102,8 @@ class LCD(Daemon):
         self._led_generator = None
         self._led_timeout = None
 
+        self._lcd_backlight_level = 1
+
         # Kick off deamon
         super(LCD, self).__init__(cfg, debug = debug)
 
@@ -135,7 +137,10 @@ class LCD(Daemon):
             # Blink LED on button presses
             button_receiver = zerohub.Receiver(
                 self._mq_cfg.input, name = 'codlcd', io_loop = self._io_loop,
-                callbacks = { 'button.': self._on_button_press })
+                callbacks = {
+                    'button.': self._on_button_press,
+                    'button.press.DISPLAYTOGGLE': self._on_display_toggle,
+                })
 
             # Kickstart things by requesting the current state from the player
             rpc_client = command.AsyncCommandRPCClient(
@@ -159,7 +164,7 @@ class LCD(Daemon):
 
 
     def _on_state(self, state):
-        self.debug('got state: {}', self._state)
+        self.debug('got state: {}', state)
 
         self._state = state
         self._lcd_update()
@@ -167,7 +172,7 @@ class LCD(Daemon):
 
 
     def _on_rip_state(self, rip_state):
-        self.debug('got rip state: {}', self._rip_state)
+        self.debug('got rip state: {}', rip_state)
 
         self._rip_state = rip_state
         self._lcd_update()
@@ -175,7 +180,7 @@ class LCD(Daemon):
 
 
     def _on_disc(self, disc):
-        self.debug('got disc: {}', self._disc)
+        self.debug('got disc: {}', disc)
 
         self._disc = disc
         self._lcd_update()
@@ -195,6 +200,23 @@ class LCD(Daemon):
                 # LED is on and no timeout, so start a new one
                 self._led_timeout = self._io_loop.add_timeout(time.time() + self.BUTTON_BLINK, self._stop_button_blink)
                 self._led_controller.off()
+
+
+    def _on_display_toggle(self, receiver, msg):
+        now = time.time()
+        try:
+            ts = float(msg[1])
+        except (IndexError, ValueError):
+            self.log('error: no timestamp in button message: {}', msg)
+            ts = now
+
+        if ts > now or (now - ts) < 0.5:
+            # Accept button press as recent enough
+            # TODO: use PWM here
+            self._lcd_backlight_level = int(not self._lcd_backlight_level)
+            self._lcd_controller.set_backlight(self._lcd_backlight_level)
+        else:
+            self.log('warning: ignoring {}s old message', now - ts)
 
 
     def _lcd_update(self):
