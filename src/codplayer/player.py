@@ -147,7 +147,7 @@ class Player(Daemon):
 
         except:
             self.log('exception in command: {0}', cmd_args)
-            traceback.print_exc(file = self.log_file)
+            traceback.print_exc(file = self._log_file)
             return ('error', 'unexpected error: {0}'.format(
                 traceback.format_exc()))
 
@@ -251,7 +251,7 @@ class Player(Daemon):
                 subprocess.check_call(
                     args,
                     close_fds = True,
-                    stdout = self.log_file,
+                    stdout = self._log_file,
                     stderr = subprocess.STDOUT)
             except OSError, e:
                 self.log("error executing command {0!r}: {1}:", args, e)
