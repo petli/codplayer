@@ -30,6 +30,7 @@ from .state import State, RipState
 from .command import CommandError
 from . import zerohub
 from .codaemon import Daemon, DaemonError
+from . import remotecontrol
 
 
 class PlayerError(DaemonError):
@@ -60,6 +61,9 @@ class Player(Daemon):
         self.io_loop = zerohub.IOLoop.instance()
         self.setup_command_reciever()
         self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
+
+        # Set up a remote control handler.  TODO: make this a plugin using config.
+        self._remote_control = remotecontrol.RemoteControl(self, self.mq_cfg, self.io_loop)
 
 
     def run(self):
