@@ -11,6 +11,7 @@
 import sys
 import time
 from string import maketrans
+import codecs
 
 from . import zerohub
 from .state import State, RipState, StateClient
@@ -772,7 +773,7 @@ class GPIO_LCDFactory(ILCDFactory):
         # TODO: this could be much more advanced, but for now squish into iso-8859-1
         # (which maps decently to an HD44780 ROM type 02)
 
-        text = text.encode('iso-8859-1')
+        text = text.encode('iso-8859-1', errors = 'codplayer:lcd:simplify')
 
         # Apply any custom translations.  OK now that this is no longer unicode.
         if self._custom_trans:
@@ -800,6 +801,37 @@ class GPIO_LEDController(object):
 
     def set(self, value):
         self._gpio.output(self._pin, value)
+
+
+#
+# Encoding handling for LCD displays
+#
+
+_simplify_map = {
+    u'\u2018': u"'",   # Left single quotation mark
+    u'\u2019': u"'",   # Right single quotation mark
+    u'\u201a': u"'",   # Single low-9 quotation mark
+    u'\u201b': u'`',   # Single high-reversed-9 quotation mark
+    u'\u201c': u'"',   # Left double quotation mark
+    u'\u201d': u'"',   # Right double quotation mark
+    u'\u201e': u'"',   # Double low-9 quotation mark
+    u'\u2013': u'-',   # En dash
+    u'\u2014': u'--',  # Em dash
+    u'\u2026': u'...', # Horizontal ellipsis
+    }
+
+def _simplifying_error_handler(error):
+    """Simplify Unicode into latin-1, replacing fancy quote chars with basic 8-bit ones.
+    Anything else is replaced by a question mark.
+    """
+
+    replacement = u''
+    for c in error.object[error.start : error.end]:
+        replacement += _simplify_map.get(c, '?')
+
+    return (replacement, error.end)
+
+codecs.register_error('codplayer:lcd:simplify', _simplifying_error_handler)
 
 
 #

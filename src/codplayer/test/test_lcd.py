@@ -386,3 +386,33 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, rip_state, None, now)
         self.assertEqual(msg, state_line + '             TOC')
         self.assertIsNone(update)
+
+
+class TestGPIO_LCDFactory(unittest.TestCase):
+    def setUp(self):
+        self._lcd_factory = lcd.GPIO_LCDFactory(
+            led = 7, rs = 17, en = 27, d4 = 22, d5 = 23, d6 = 24, d7 = 25, backlight = 18,
+
+            # Remap a single char to ensure it's index is known
+            custom_chars = {
+                '\xe5': (0x4,0x0,0xe,0x1,0xf,0x11,0xf,0x0),
+            }
+        )
+
+    def test_encode_simplify_unicode(self):
+        encoder = self._lcd_factory.get_text_encoder()
+
+        text = encoder(u'\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u2013\u2014\u2026')
+        self.assertEqual(text, '\'\'\'`"""---...')
+
+    def test_encode_replace_unknown(self):
+        encoder = self._lcd_factory.get_text_encoder()
+
+        text = encoder(u'Sign \u201c\u262e\u201c the Times')
+        self.assertEqual(text, 'Sign "?" the Times')
+
+    def test_encode_custom_chars(self):
+        encoder = self._lcd_factory.get_text_encoder()
+
+        text = encoder(u'\xe5\xe4')
+        self.assertEqual(text, '\x02\xe4')
