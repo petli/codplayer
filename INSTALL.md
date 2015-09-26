@@ -24,6 +24,10 @@ Raspbian has an older version of ZeroMQ:
         libasound2-dev python-dev python-virtualenv python-pip \
         libzmq1 libzmq-dev
 
+If you want to run codlcd, you also need to install this:
+
+    apt-get install python-smbus
+
 
 Install released package
 ------------------------
@@ -35,6 +39,23 @@ recommended to install it in a virtualenv:
     ~/cod/bin/pip install codplayer
 
 Then continue with the configuration, described below.
+
+If you want to run codlcd, the virtual env needs access to the
+python-smbus package installed above, and additional dependencies are
+needed.  Set it up like this instead:
+
+    virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install 'codplayer[lcd]'
+
+It seems that on Raspbian setuptools may not be able to install
+non-pypi dependencies.  In that case, try installing them manually
+before installing codplayer:
+
+    virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
+    ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
+    ~/cod/bin/pip install 'codplayer[lcd]'
+
 
 Install from source
 -------------------
