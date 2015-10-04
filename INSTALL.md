@@ -54,7 +54,7 @@ before installing codplayer:
     virtualenv --system-site-packages ~/cod
     ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
     ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
-    ~/cod/bin/pip install 'codplayer[lcd]'
+    ~/cod/bin/pip install 'codplayer'
 
 
 Install from source
@@ -86,6 +86,26 @@ etc.
 `sys.prefix/local/etc` by default.  In the virtualenv setup above
 would be `~/cod/local/etc`, and in a system-wide install
 `/usr/local/etc`.
+
+
+### ZeroMQ configuration
+
+Central to everything is `codmq.conf`.  This files defines the topics
+where state updates are published and the queues where `codplayerd`
+receives commands.  The default configuration defines all of these to
+communicate on 127.0.0.1, which is fine for a single-box deployment.
+But if you want to publish state or receive commands to/from other
+machines, these must be edited:
+
+* On the machine running `codplayerd`, change the address to 0.0.0.0 to
+  publish on all interfaces (or limit it to a specific interface
+  address)
+
+* On the other machines, put the address of the `codplayerd` machine
+  in the configuration instead.
+
+
+### udev configuration
 
 To have codplayer trigger playing/ripping automatically when inserting
 a disc, copy

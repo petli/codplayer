@@ -64,11 +64,11 @@ Player interfaces
 codplayer is intended to support different platforms and control
 interfaces.  E.g.:
 
-* codctl - command line interface
-* codmousectl - use a wireless USB mouse as remote control
+* `codctl`: command line interface
 * Web interface (a simple one is in `controlwidget`)
+* `codlircd`: IR remote control input events
+* `codlcd`: display state on an LCD and status LED
 * Control apps (none implemented yet)
-* Physical button and LED display interfaces (not implemented either)
 
 
 ZeroMQ
@@ -149,19 +149,22 @@ License
 
 Copyright 2013-2015 Peter Liljenberg <peter.liljenberg@gmail.com>
 
-codplayer is licensed under an MIT license, please see the file
+codplayer is licensed under the MIT license, please see the file
 LICENSE.
 
 
 Third-party sources
 ------------------
 
-jQuery is licensed under an MIT license:
+jQuery is licensed under the MIT license:
 * Copyright (c) 2005, 2013 jQuery Foundation, Inc.
 
-mustache.js is licensed under an MIT license:
+mustache.js is licensed under thep MIT license:
 * Copyright (c) 2009 Chris Wanstrath (Ruby)
 * Copyright (c) 2010 Jan Lehnardt (JavaScript)
+
+bootstrap.js is licensed under the MIT license:
+* Copyright 2011-2015 Twitter, Inc.
 
 The icon font was generated from http://icomoon.io/
 
