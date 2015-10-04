@@ -90,43 +90,6 @@ class TestLCDFormatter16x2(unittest.TestCase):
             self.assertIsNone(update)
 
 
-    def test_null_disc_info(self):
-        # Arrange a disc object with no info
-        disc = model.ExtDisc()
-        t = model.ExtTrack()
-        t.number = 1
-        disc.tracks = [t]
-
-        state = State(state = State.PLAY, track = 1, no_tracks = 2,
-                      position = 10, length = 200)
-        state_line = '> 1/2  0:10/3:20\n'
-
-        # Scroll disc title on new disc
-        now = 0
-
-        #                                   0123456789abcdef
-        msg, update = self._formatter.format(state, RipState(), disc, now)
-        self.assertEqual(msg, state_line + 'Unknown album   ')
-
-        # Don't change yet
-        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
-        self.assertEqual(msg, state_line + 'Unknown album   ')
-
-        # But change now
-        now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg, update = self._formatter.format(state, RipState(), disc, now)
-        self.assertEqual(msg, state_line + 'Unknown artist  ')
-
-        # Don't change yet
-        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
-        self.assertEqual(msg, state_line + 'Unknown artist  ')
-
-        # But change now
-        now += self._formatter.DISC_INFO_SWITCH_SPEED
-        msg, update = self._formatter.format(state, RipState(), disc, now)
-        self.assertEqual(msg, state_line + 'Unknown track   ')
-
-
     def test_disc_info(self):
         # Arrange test objects
         disc = model.ExtDisc()
@@ -159,6 +122,10 @@ class TestLCDFormatter16x2(unittest.TestCase):
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'Test Disc Title ')
 
+        # Don't change yet
+        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.SCROLL_PAUSE)
+        self.assertEqual(msg, state_line + 'Test Disc Title ')
+
         now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
         self.assertEqual(msg, state_line + 'est Disc Title Y')
@@ -169,6 +136,10 @@ class TestLCDFormatter16x2(unittest.TestCase):
 
         now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, RipState(), disc, now)
+        self.assertEqual(msg, state_line + 'Test Disc Title ')
+
+        # Don't change yet
+        msg, update = self._formatter.format(state, RipState(), disc, now + 0.5 * self._formatter.DISC_INFO_SWITCH_SPEED)
         self.assertEqual(msg, state_line + 'Test Disc Title ')
 
         # Then switch to scrolling the artist
@@ -233,6 +204,8 @@ class TestLCDFormatter16x2(unittest.TestCase):
         disc = model.ExtDisc()
         t = model.ExtTrack()
         t.number = 1
+        #          0123456789abcdef
+        t.title = 'Track Title 1'
         disc.tracks = [t]
 
         state = State(state = State.PLAY, track = 1, no_tracks = 2,
@@ -246,19 +219,19 @@ class TestLCDFormatter16x2(unittest.TestCase):
 
         #                                   0123456789abcdef
         msg, update = self._formatter.format(state, rip_state, disc, now)
-        self.assertEqual(msg, state_line + 'Unknown albu  5%')
+        self.assertEqual(msg, state_line + 'Track Title   5%')
 
         # Update progress, and scroll a step
         rip_state.progress = 15
         now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, disc, now)
-        self.assertEqual(msg, state_line + 'nknown album 15%')
+        self.assertEqual(msg, state_line + 'rack Title 1 15%')
 
         # Switch to TOC, and reset scroll
         rip_state = RipState(state = RipState.TOC)
         now += self._formatter.SCROLL_PAUSE
         msg, update = self._formatter.format(state, rip_state, disc, now)
-        self.assertEqual(msg, state_line + 'Unknown albu TOC')
+        self.assertEqual(msg, state_line + 'Track Title  TOC')
 
 
     def test_player_errors(self):

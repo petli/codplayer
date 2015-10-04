@@ -557,25 +557,25 @@ class LCDFormatter16x2(LCDFormatterBase):
         All are scrolled if necessary
         """
 
-        disc_title = self._disc.title or 'Unknown album'
-        for line, next_update in self.scroll(disc_title, now):
-            if next_update is None:
-                # Pause until switching to disc artist
-                now += self.DISC_INFO_SWITCH_SPEED
-                yield line, now
-            else:
-                now = next_update
-                yield line, next_update
+        if self._disc.title:
+            for line, next_update in self.scroll(self._disc.title, now):
+                if next_update is None:
+                    # Pause until switching to disc artist
+                    now += self.DISC_INFO_SWITCH_SPEED
+                    yield line, now
+                else:
+                    now = next_update
+                    yield line, next_update
 
-        disc_artist = self._disc.artist or 'Unknown artist'
-        for line, next_update in self.scroll(disc_artist, now):
-            if next_update is None:
-                # Pause until switching to track title
-                now += self.DISC_INFO_SWITCH_SPEED
-                yield line, now
-            else:
-                now = next_update
-                yield line, next_update
+        if self._disc.artist:
+            for line, next_update in self.scroll(self._disc.artist, now):
+                if next_update is None:
+                    # Pause until switching to track title
+                    now += self.DISC_INFO_SWITCH_SPEED
+                    yield line, now
+                else:
+                    now = next_update
+                    yield line, next_update
 
         for line, next_update in self.generate_track_lines(now):
             yield line, next_update
@@ -586,7 +586,7 @@ class LCDFormatter16x2(LCDFormatterBase):
         """
 
         if self._state.track == 0:
-            return self.scroll(self._disc.title or 'Unknown album', now)
+            return self.scroll(self._disc.title or '', now)
 
         else:
             track_index = self._state.track - 1
@@ -594,7 +594,7 @@ class LCDFormatter16x2(LCDFormatterBase):
                 return iter([('Bad track list!', None)])
             else:
                 track = self._disc.tracks[track_index]
-                track_title = track.title or 'Unknown track'
+                track_title = track.title or ''
                 if track.number != self._state.track:
                     # Track numbering is off, so show actual number here
                     prefix = '{}. '.format(track.number)
