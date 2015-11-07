@@ -5,9 +5,10 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 import time
+from . import codaemon
 from . import zerohub
 
-class RemoteControl(object):
+class RemoteControl(codaemon.Plugin):
     """Listens for button.press.X events and sends
     commands to codplayer.
     """
@@ -22,25 +23,27 @@ class RemoteControl(object):
         ('EJECT', 'eject'),
     )
 
-    def __init__(self, daemon, mq_cfg, io_loop):
-        self.debug = daemon.debug
-        self.log = daemon.log
-        self._io_loop = io_loop
+    def setup_prefork(self, player, cfg, mq_cfg):
+        self._player = player
+        self._mq_cfg = mq_cfg
+        self.debug = player.debug
+        self.log = player.log
 
+    def setup_postfork(self):
         callbacks = {}
 
         for button, cmd in self.COMMAND_MAPPING:
             callbacks['button.press.' + button] = self._get_button_handler(cmd)
 
         button_receiver = zerohub.Receiver(
-            mq_cfg.input, name = 'remotecontrol', io_loop = self._io_loop,
+            self._mq_cfg.input, name = 'remotecontrol', io_loop = self._player.io_loop,
             callbacks = callbacks)
-        self.debug('remotecontrol: receiving button presses on {}', button_receiver)
+        self.log('remotecontrol: receiving button presses on {}', button_receiver)
 
         self._cmd_sender = zerohub.AsyncSender(
-            channel = mq_cfg.player_commands, name = 'remotecontrol',
-            io_loop = self._io_loop)
-        self.debug('remotecontrol: sending commands to {}', self._cmd_sender)
+            channel = self._mq_cfg.player_commands, name = 'remotecontrol',
+            io_loop = self._player.io_loop)
+        self.log('remotecontrol: sending commands to {}', self._cmd_sender)
 
 
     def _get_button_handler(self, cmd):

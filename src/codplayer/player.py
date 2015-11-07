@@ -30,7 +30,6 @@ from .state import State, RipState
 from .command import CommandError
 from . import zerohub
 from .codaemon import Daemon, DaemonError
-from . import remotecontrol
 
 
 class PlayerError(DaemonError):
@@ -54,16 +53,13 @@ class Player(Daemon):
             self.audio_streamer_perf_log = None
 
         # Init parent last, since it will run the main loop
-        super(Player, self).__init__(cfg, debug)
+        super(Player, self).__init__(cfg, debug, mq_cfg = mq_cfg)
 
 
     def setup_postfork(self):
         self.io_loop = zerohub.IOLoop.instance()
         self.setup_command_reciever()
         self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
-
-        # Set up a remote control handler.  TODO: make this a plugin using config.
-        self._remote_control = remotecontrol.RemoteControl(self, self.mq_cfg, self.io_loop)
 
 
     def run(self):

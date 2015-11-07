@@ -16,6 +16,7 @@ from . import state
 from . import command
 from . import zerohub
 from . import lcd
+from . import codaemon
 
 class ConfigError(Exception):
     pass
@@ -56,6 +57,7 @@ class DaemonConfig(Config):
         serialize.Attr('group', str, optional = True),
         serialize.Attr('pid_file', str),
         serialize.Attr('log_file', str),
+        serialize.Attr('plugins', list_type = codaemon.Plugin, optional = True),
     )
 
     def __init__(self, config_file = None):
