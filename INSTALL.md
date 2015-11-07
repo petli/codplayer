@@ -110,13 +110,18 @@ machines, these must be edited:
 To have codplayer trigger playing/ripping automatically when inserting
 a disc, copy
 [`etc/udev/rules.d/99-codplayer.rules`](https://github.com/petli/codplayer/blob/master/etc/udev/rules.d/99-codplayer.rules)
-to the corresponding `/etc/udev/rules.d` directory.  Edit the file if
-`codctl` isn't installed system-wide to its actual path.
+to the corresponding `/etc/udev/rules.d` directory.
+
+Copy these scripts to `/usr/local/bin` and make sure they are executable:
+* [`tools/on_cd_load.sh`](https://github.com/petli/codplayer/blob/master/tools/on_cd_load.sh)
+* [`tools/on_cd_eject.sh`](https://github.com/petli/codplayer/blob/master/tools/on_cd_eject.sh)
+
+Edit the files if `codctl` isn't installed in `/usr/local/bin` too.
 
 On a RaspberryPi, it seems that it doesn't detect any events unless
 someone uses the USB CDROM device.  The script
-[`etc/trigger_rpi_cdrom_udev.sh`](https://github.com/petli/codplayer/blob/master/tools/trigger_rpi_cdrom_udev.sh)
-can be run until that is resolved.
+[`tools/trigger_rpi_cdrom_udev.sh`](https://github.com/petli/codplayer/blob/master/tools/trigger_rpi_cdrom_udev.sh)
+can be run by a cron job to solve that.
 
 
 Database initialisation
