@@ -82,6 +82,17 @@ class ILCDFormatter(object):
         raise NotImplementedError()
 
 
+class Brightness(object):
+    """Define a brightness level for the LCD and LED.
+    """
+    def __init__(self, lcd, led):
+        """LCD and LED brightnesses are float values between 0.0
+        (unlit) and 1.0 (maximum brightness).
+        """
+        self.lcd = lcd
+        self.led = led
+
+
 #
 # LCD (and LED) main daemon
 #
@@ -89,6 +100,11 @@ class ILCDFormatter(object):
 class LCD(Daemon):
     # LED blink duration on button presses
     BUTTON_BLINK = 0.2
+
+    DEFAULT_BRIGHTNESS_LEVELS = [
+        Brightness(1, 1),
+        Brightness(0, 1),
+        ]
 
     def __init__(self, cfg, mq_cfg, debug = False):
         self._cfg = cfg
@@ -103,7 +119,10 @@ class LCD(Daemon):
         self._led_generator = None
         self._led_timeout = None
 
-        self._lcd_backlight_level = 1
+        self._brightness_levels = (cfg.brightness_levels
+                                   or self.DEFAULT_BRIGHTNESS_LEVELS)
+
+        self._brightness_index = 0
 
         # Kick off deamon
         super(LCD, self).__init__(cfg, debug = debug)
@@ -116,6 +135,11 @@ class LCD(Daemon):
         self._text_encoder = self._cfg.lcd_factory.get_text_encoder()
 
         self._io_loop = zerohub.IOLoop.instance()
+
+        # Set initial brightness level
+        level = self._brightness_levels[self._brightness_index]
+        self._lcd_controller.set_backlight(level.lcd)
+        self._led_controller.set_brightness(level.led)
 
 
     def run(self):
@@ -213,9 +237,17 @@ class LCD(Daemon):
 
         if ts > now or (now - ts) < 0.5:
             # Accept button press as recent enough
-            # TODO: use PWM here
-            self._lcd_backlight_level = int(not self._lcd_backlight_level)
-            self._lcd_controller.set_backlight(self._lcd_backlight_level)
+
+            # Go to next brightness level
+            self._brightness_index += 1
+            self._brightness_index %= len(self._brightness_levels)
+
+            level = self._brightness_levels[self._brightness_index]
+
+            self.debug('changing brightness: lcd = {0.lcd}, led = {0.led}', level)
+            
+            self._lcd_controller.set_backlight(level.lcd)
+            self._led_controller.set_brightness(level.led)
         else:
             self.log('warning: ignoring {}s old message', now - ts)
 
@@ -691,12 +723,16 @@ class GPIO_LCDFactory(ILCDFactory):
     def __init__(self, led,
                  rs, en, d4, d5, d6, d7,
                  backlight = None,
+                 enable_pwm = False,
                  custom_chars = None):
         """Create an LCD and LED controller using RPi GPIO pins
         (using AdaFruit libraries).
 
         led, rs, en, d4, d5, d6, d7, backlight are BCM pin numbers, passed
         to the Adafruit_CharLCD interface.
+
+        Set enable_pwm to True if the intensity of the backlight and
+        the LED should be controlled with PWM.
 
         custom_chars can be a mapping of up to six characters that
         should be defined as custom CGRAMs in the LCD, in case its ROM
@@ -714,6 +750,9 @@ class GPIO_LCDFactory(ILCDFactory):
         self._pin_d6 = d6
         self._pin_d7 = d7
         self._pin_backlight = backlight
+        self._enable_pwm = enable_pwm
+
+        self._pwm = None
 
         # First two CGRAM positions are already taken
         self._custom_char_patterns = [self.PLAY_CHAR, self.PAUSE_CHAR]
@@ -752,6 +791,8 @@ class GPIO_LCDFactory(ILCDFactory):
             d7 = self._pin_d7,
             backlight = self._pin_backlight,
             invert_polarity = False,
+            enable_pwm = self._enable_pwm,
+            pwm = self._get_pwm(),
         )
 
         # Create custom chars, since not all ROMS have the PLAY and
@@ -761,13 +802,22 @@ class GPIO_LCDFactory(ILCDFactory):
 
         return lcd
 
+
     def get_led_controller(self):
         import Adafruit_GPIO as GPIO
-        return GPIO_LEDController(GPIO.get_platform_gpio(), self._pin_led)
+        return GPIO_LEDController(GPIO.get_platform_gpio(), self._pin_led, self._get_pwm())
+
+
+    def _get_pwm(self):
+        if self._enable_pwm and self._pwm is None:
+            self._pwm = GPIO_PWM()
+
+        return self._pwm
 
 
     def get_text_encoder(self):
         return self._encode
+
 
     def _encode(self, text):
         # TODO: this could be much more advanced, but for now squish into iso-8859-1
@@ -783,25 +833,73 @@ class GPIO_LCDFactory(ILCDFactory):
 
 
 class GPIO_LEDController(object):
-    def __init__(self, gpio, pin):
+    def __init__(self, gpio, pin, pwm):
         import Adafruit_GPIO as GPIO
 
         self._gpio = gpio
         self._pin = pin
+        self._pwm = pwm
+        self._brightness = 1
+        self._state = 0
 
-        # Setup for output
-        gpio.setup(pin, GPIO.OUT)
-        self.off()
+        # Setup for PWM or plain output
+        if pwm:
+            pwm.start(pin, 0)
+        else:
+            gpio.setup(pin, GPIO.OUT)
+            self._gpio.output(self._pin, 0)
+
+    def set_brightness(self, value):
+        if self._pwm:
+            self._brightness = value
+            self.set(self._state)
 
     def on(self):
-        self._gpio.output(self._pin, 1)
+        self.set(1)
 
     def off(self):
-        self._gpio.output(self._pin, 0)
+        self.set(0)
 
     def set(self, value):
-        self._gpio.output(self._pin, value)
+        self._state = value
+        if self._pwm:
+            self._pwm.set_duty_cycle(self._pin, 100.0 * self._brightness * value)
+        else:
+            self._gpio.output(self._pin, 1 if value else 0)
 
+
+class GPIO_PWM(object):
+    """Provide an Adafruit_GPIO.PWM-compatible object
+    but that uses RPIO.PWM to control PWM with DMA.
+    """
+    def __init__(self):
+        from RPIO import PWM
+        # Defaults for PWM.Servo, but we need to work with them
+        self._subcycle_time_us = 20000
+        self._pulse_incr_us = 10
+
+        PWM.set_loglevel(PWM.LOG_LEVEL_ERRORS)
+        self._servo = PWM.Servo(
+            subcycle_time_us = self._subcycle_time_us,
+            pulse_incr_us = self._pulse_incr_us)
+
+    def start(self, pin, duty_cycle):
+        self._servo.set_servo(pin, 0)
+        self.set_duty_cycle(pin, duty_cycle)
+
+    def set_duty_cycle(self, pin, duty_cycle):
+        # Convert from 0.0-100.0 to pulse width.
+        # Max width is not a full duty cycle, but one increment less.
+        pulse_width = max(
+            0, min((duty_cycle / 100.0) * self._subcycle_time_us,
+                   self._subcycle_time_us - self._pulse_incr_us))
+
+        if pulse_width > 0:
+            self._servo.set_servo(pin, pulse_width)
+        else:
+            self._servo.stop_servo(pin)
+            
+        
 
 #
 # Encoding handling for LCD displays
@@ -902,6 +1000,11 @@ class TestLCDController(object):
 class TestLEDController(object):
     def __init__(self):
         self._state = 0
+        self._brightness = 1
+
+    def set_brightness(self, value):
+        self._brightness = value
+        self._redraw()
 
     def on(self):
         self._state = 1
@@ -924,9 +1027,10 @@ class TestLEDController(object):
         sys.stdout.write('\x1B[K')    # clear until end of line
 
         if self._state:
-            sys.stdout.write('LED: ***     ')
+            stars = '*' * max(1, int(self._brightness * 10))
+            sys.stdout.write('LED: {}         '.format(stars))
         else:
-            sys.stdout.write('LED:  .      ')
+            sys.stdout.write('LED: .          ')
 
         sys.stdout.write('\x1B[u')    # unsave cursor
         sys.stdout.flush()

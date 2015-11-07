@@ -118,6 +118,8 @@ class LCDConfig(DaemonConfig):
         serialize.Attr('codmq_conf_path', str),
         serialize.Attr('lcd_factory', lcd.ILCDFactory),
         serialize.Attr('formatter', lcd.ILCDFormatter),
+        serialize.Attr('brightness_levels',
+                       list_type = lcd.Brightness, optional = True),
         )
 
 class LircConfig(DaemonConfig):

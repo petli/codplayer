@@ -70,7 +70,10 @@ setup(
     ],
 
     extras_require = {
-        'lcd': [ 'Adafruit_CharLCD >= 1.0.0', ]
+        'lcd': [
+            'Adafruit_CharLCD >= 1.0.0',
+            'RPIO',
+            ]
     },
 
     setup_requires = [
