@@ -10,12 +10,14 @@ import pwd
 import grp
 import threading
 import time
+import traceback
 
 # http://www.python.org/dev/peps/pep-3143/
 import daemon
 import lockfile
 
 from . import full_version
+from . import zerohub
 
 class DaemonError(Exception): pass
 
@@ -33,6 +35,7 @@ class Daemon(object):
         """
 
         self._log_debug = debug
+        self._io_loop = None
         self._plugins = cfg.plugins or []
 
         preserve_files = []
@@ -143,6 +146,18 @@ class Daemon(object):
         pass
 
 
+    @property
+    def io_loop(self):
+        """Access the IOLoop instance for this daemon.  This should be used
+        instead of IOLoop.instance(), since this one will stop the
+        daemon on callback errors rather than just logging and continuing.
+        """
+        if self._io_loop is None:
+            self._io_loop = DaemonIOLoop()
+            self._io_loop._cod_daemon = self
+        return self._io_loop
+
+
     def log(self, msg, *args, **kwargs):
         m = (time.strftime('%Y-%m-%d %H:%M:%S ') + threading.current_thread().name + ': '
              + msg.format(*args, **kwargs) + '\n')
@@ -169,12 +184,20 @@ class Plugin(object):
         """
         pass
 
+
     def setup_postfork(self):
         """Called after Daemon.setup_postfork().
         """
         pass
 
+
     def setup_prerun(self):
         """Called after dropping privileges, before Daemon.run()
         """
         pass
+
+
+class DaemonIOLoop(zerohub.IOLoop):
+    def handle_callback_exception(self, callback):
+        self._cod_daemon.log('Unhandled exception:\n{}', traceback.format_exc())
+        sys.exit(1)

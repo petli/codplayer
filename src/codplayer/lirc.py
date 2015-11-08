@@ -37,8 +37,6 @@ class LircPublisher(Daemon):
 
 
     def setup_postfork(self):
-        self._io_loop = zerohub.IOLoop.instance()
-
         self.log('connecting to lircd on {}', self._cfg.lircd_socket)
         try:
             self._lirc_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
@@ -48,26 +46,26 @@ class LircPublisher(Daemon):
 
         self.log('connected to lircd')
 
-        self._sender = zerohub.AsyncSender(self._mq_cfg.input, 'lirc', io_loop = self._io_loop)
+        self._sender = zerohub.AsyncSender(self._mq_cfg.input, 'lirc', io_loop = self.io_loop)
         self.log('publishing button events on {}', self._sender)
 
 
     def run(self):
         # Set up event handler for the lirc socket
         self._lirc_socket.setblocking(False)
-        self._io_loop.add_handler(self._lirc_socket.fileno(), self._on_lirc_data, self._io_loop.READ)
+        self.io_loop.add_handler(self._lirc_socket.fileno(), self._on_lirc_data, self.io_loop.READ)
 
         # Let io loop take care of the rest
-        self._io_loop.start()
+        self.io_loop.start()
 
 
     def _on_lirc_data(self, fd, event):
-        if event & self._io_loop.READ:
+        if event & self.io_loop.READ:
             now = time.time()
             data = self._lirc_socket.recv(1024)
             if not data:
                 self.log('lircd socket unexpectedly closed, shutting down daemon')
-                self._io_loop.stop()
+                self.io_loop.stop()
 
             self._lirc_data += data
             lines = self._lirc_data.split('\n')

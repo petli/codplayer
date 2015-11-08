@@ -57,7 +57,6 @@ class Player(Daemon):
 
 
     def setup_postfork(self):
-        self.io_loop = zerohub.IOLoop.instance()
         self.setup_command_reciever()
         self.state_pub = zerohub.AsyncSender(self.mq_cfg.state, name = 'player')
 

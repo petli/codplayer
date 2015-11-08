@@ -134,8 +134,6 @@ class LCD(Daemon):
         self._led_controller = self._cfg.lcd_factory.get_led_controller()
         self._text_encoder = self._cfg.lcd_factory.get_text_encoder()
 
-        self._io_loop = zerohub.IOLoop.instance()
-
         # Set initial brightness level
         level = self._brightness_levels[self._brightness_index]
         self._lcd_controller.set_backlight(level.lcd)
@@ -143,49 +141,42 @@ class LCD(Daemon):
 
 
     def run(self):
-        try:
-            # Set up initial message
-            self._lcd_controller.clear()
-            self._lcd_update()
+        # Set up initial message
+        self._lcd_controller.clear()
+        self._lcd_update()
 
-            self._led_update()
+        self._led_update()
 
-            # Set up subscriptions on relevant state updates
-            state_receiver = StateClient(
-                channel = self._mq_cfg.state,
-                io_loop = self._io_loop,
-                on_state = self._on_state,
-                on_rip_state = self._on_rip_state,
-                on_disc = self._on_disc
-            )
+        # Set up subscriptions on relevant state updates
+        state_receiver = StateClient(
+            channel = self._mq_cfg.state,
+            io_loop = self.io_loop,
+            on_state = self._on_state,
+            on_rip_state = self._on_rip_state,
+            on_disc = self._on_disc
+        )
 
-            # Blink LED on button presses
-            button_receiver = zerohub.Receiver(
-                self._mq_cfg.input, name = 'codlcd', io_loop = self._io_loop,
-                callbacks = {
-                    'button.': self._on_button_press,
-                    'button.press.DISPLAYTOGGLE': self._on_display_toggle,
-                })
+        # Blink LED on button presses
+        button_receiver = zerohub.Receiver(
+            self._mq_cfg.input, name = 'codlcd', io_loop = self.io_loop,
+            callbacks = {
+                'button.': self._on_button_press,
+                'button.press.DISPLAYTOGGLE': self._on_display_toggle,
+            })
 
-            # Kickstart things by requesting the current state from the player
-            rpc_client = command.AsyncCommandRPCClient(
-                zerohub.AsyncRPCClient(
-                    channel = self._mq_cfg.player_rpc,
-                    name = 'codlcd',
-                    io_loop = self._io_loop))
+        # Kickstart things by requesting the current state from the player
+        rpc_client = command.AsyncCommandRPCClient(
+            zerohub.AsyncRPCClient(
+                channel = self._mq_cfg.player_rpc,
+                name = 'codlcd',
+                io_loop = self.io_loop))
 
-            rpc_client.call('source', on_response = self._on_disc)
-            rpc_client.call('state', on_response = self._on_state)
-            rpc_client.call('rip_state', on_response = self._on_rip_state)
+        rpc_client.call('source', on_response = self._on_disc)
+        rpc_client.call('state', on_response = self._on_state)
+        rpc_client.call('rip_state', on_response = self._on_rip_state)
 
-            # Let the IO loop take care of the rest
-            self._io_loop.start()
-
-        finally:
-            # Turn off LED and clear display on exit to tell user that
-            # there's no LED/LCD control anymore
-            self._lcd_controller.clear()
-            self._led_controller.off()
+        # Let the IO loop take care of the rest
+        self.io_loop.start()
 
 
     def _on_state(self, state):
@@ -219,11 +210,11 @@ class LCD(Daemon):
                 # LED is off due to button blink, so light it immediately to
                 # flicker LED with button repeats
                 self._led_controller.on()
-                self._io_loop.remove_timeout(self._led_timeout)
+                self.io_loop.remove_timeout(self._led_timeout)
                 self._led_timeout = None
             else:
                 # LED is on and no timeout, so start a new one
-                self._led_timeout = self._io_loop.add_timeout(time.time() + self.BUTTON_BLINK, self._stop_button_blink)
+                self._led_timeout = self.io_loop.add_timeout(time.time() + self.BUTTON_BLINK, self._stop_button_blink)
                 self._led_controller.off()
 
 
@@ -262,7 +253,7 @@ class LCD(Daemon):
         now = time.time()
         msg, timeout = self._cfg.formatter.format(self._state, self._rip_state, disc, now)
         if timeout is not None:
-            self._io_loop.add_timeout(timeout, self._lcd_update)
+            self.io_loop.add_timeout(timeout, self._lcd_update)
 
         self._lcd_controller.home()
         self._lcd_controller.message(self._text_encoder(msg))
@@ -277,7 +268,7 @@ class LCD(Daemon):
             # Stop any running blink pattern
             self._led_generator = None
             if self._led_timeout is not None:
-                self._io_loop.remove_timeout(self._led_timeout)
+                self.io_loop.remove_timeout(self._led_timeout)
                 self._led_timeout = None
 
             # Set solid light or start new pattern
@@ -291,7 +282,7 @@ class LCD(Daemon):
     def _blink_led(self):
         value, timeout = self._led_generator.next()
         self._led_controller.set(value)
-        self._led_timeout = self._io_loop.add_timeout(timeout, self._blink_led)
+        self._led_timeout = self.io_loop.add_timeout(timeout, self._blink_led)
 
 
     def _stop_button_blink(self):
