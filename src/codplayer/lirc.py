@@ -36,7 +36,7 @@ class LircPublisher(Daemon):
         super(LircPublisher, self).__init__(cfg, debug = debug)
 
 
-    def setup_postfork(self):
+    def setup_prefork(self):
         self.log('connecting to lircd on {}', self._cfg.lircd_socket)
         try:
             self._lirc_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
@@ -46,6 +46,10 @@ class LircPublisher(Daemon):
 
         self.log('connected to lircd')
 
+        self.preserve_file(self._lirc_socket)
+
+
+    def setup_postfork(self):
         self._sender = zerohub.AsyncSender(self._mq_cfg.input, 'lirc', io_loop = self.io_loop)
         self.log('publishing button events on {}', self._sender)
 
@@ -76,7 +80,7 @@ class LircPublisher(Daemon):
             for line in lines:
                 m = KEY_LINE_RE.match(line)
                 if not m:
-                    self.debug('unexpected lircd socket data: {}', line)
+                    self.log('unexpected lircd socket data: {}', line)
                 else:
                     repeat = int(m.group(1), 16)
                     button = m.group(2)
