@@ -13,8 +13,8 @@ import time
 import traceback
 
 # http://www.python.org/dev/peps/pep-3143/
-import daemon
-import lockfile
+from daemon import DaemonContext
+from lockfile.pidlockfile import PIDLockFile
 
 from . import full_version
 from . import zerohub
@@ -38,7 +38,7 @@ class Daemon(object):
         self._io_loop = None
         self._plugins = cfg.plugins or []
 
-        preserve_files = []
+        self._preserve_files = []
 
         if debug:
             self._log_file = sys.stderr
@@ -48,7 +48,7 @@ class Daemon(object):
             except IOError, e:
                 sys.exit('error opening {0}: {1}'.format(cfg.log_file, e))
 
-            preserve_files.append(self._log_file)
+            self._preserve_files.append(self._log_file)
 
 
         # Figure out which IDs to run as, if any
@@ -91,16 +91,23 @@ class Daemon(object):
             self.run()
 
         else:
-            context = daemon.DaemonContext(
-                files_preserve = preserve_files,
-                pidfile = lockfile.FileLock(cfg.pid_file),
-                stdout = self._log_file,
-                stderr = self._log_file,
-                )
+            # Fail early if daemon appear to be locked
+            pid_lock = PIDLockFile(path = cfg.pid_file, timeout = 0)
+            if pid_lock.is_locked():
+                sys.exit('daemon already running (pid {}) since lock file is present: {}'.format(
+                    pid_lock.read_pid(), cfg.pid_file))
 
             # Run in daemon context, forking off and all that
             self.setup_prefork()
             [p.setup_prefork(self, cfg, **kwargs) for p in self._plugins]
+
+            context = DaemonContext(
+                files_preserve = self._preserve_files,
+                pidfile = pid_lock,
+                stdout = self._log_file,
+                stderr = self._log_file,
+                )
+
             with context:
                 self.setup_postfork()
                 [p.setup_postfork() for p in self._plugins]
@@ -127,6 +134,13 @@ class Daemon(object):
                 self.log('not root, not changing uid or gid')
 
 
+    def preserve_file(self, fileno_object):
+        """Add a fileno() object to the list of files to keep
+        open across fork.  This only makes sense to call dfrom setup_prefork().
+        """
+        self._preserve_files.append(fileno_object)
+
+
     def run(self):
         """Override to implement the main logic of the daemon.
         This is called after forking and dropping privileges.
@@ -136,6 +150,9 @@ class Daemon(object):
     def setup_prefork(self):
         """Override to implement any setup that should be done before
         forking and dropping privileges.
+
+        Any files opened in this method must be registered by calling
+        Daemon.preserve_file(), otherwise it will not survive forking.
         """
         pass
 
