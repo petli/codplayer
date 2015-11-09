@@ -566,11 +566,11 @@ class LCDFormatter16x2(LCDFormatterBase):
 
         if s and s.state is RipState.AUDIO:
             if s.progress is not None:
-                return '{0:<12s}{1:3d}%'.format(self._info_lines[:12], s.progress)
+                return u'{0:<12s}{1:3d}%'.format(self._info_lines[:12], s.progress)
             else:
-                return '{0:<12s} RIP'.format(self._info_lines[:12])
+                return u'{0:<12s} RIP'.format(self._info_lines[:12])
         elif s and s.state == RipState.TOC:
-            return '{0:<12s} TOC'.format(self._info_lines[:12])
+            return u'{0:<12s} TOC'.format(self._info_lines[:12])
         else:
             return self._info_lines
 
