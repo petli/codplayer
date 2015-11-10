@@ -7,3 +7,4 @@ node_modules
 *.egg
 *.egg-info
 src/codplayer/c_alsa_sink.so
+.eggs
