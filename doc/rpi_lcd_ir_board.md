@@ -33,8 +33,8 @@ The other components are:
 
 * R1:  10K
 * R2: 150
-* R3: 100
-* R4:   1K
+* R3: 150
+* R4: 470
 * R5:   1K
 * R6: 100
 * Q1, Q2: PN2222A (or similar NPN)
@@ -97,13 +97,13 @@ from the RPi, even if the output is configured for more.
 The status LED should get 20mA with a voltage drop of 2.1 V, which R2
 controls.  R3 limits base current to the 200 uA or so that's needed.
 
-It seems that the LCD contrast pin has a useful range of about 0-1 V,
-with the highest contrast at 0 V and at 1 V barely anything is
+It seems that the LCD contrast pin has a useful range of about 0-1.5V,
+with the highest contrast at 0 V and at 1.5V barely anything is
 visible.  To complicate things further, there seems to be a pullup
 resistor of 10K on the LCD board, so just connecting a voltage
 splitting potentiometer doesn't work: half of it ends up in a parallel
 resistor network with the pullup.  Instead an opamp (U1) is used in a
 simple voltage following configuration to isolate the potentiometer
 from the pullup resistor.  The output voltage is split by R3 and R4,
-so that 5V out from U1 gives 0.5V on the contrast pin, which is the
+so that 5V out from U1 gives ~1.5V on the contrast pin, which is the
 lowest meaningful contrast.

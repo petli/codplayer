@@ -1,6 +1,6 @@
 # codplayer - common configuration
 #
-# Copyright 2013 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2015 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -15,6 +15,8 @@ from . import serialize
 from . import state
 from . import command
 from . import zerohub
+from . import lcd
+from . import codaemon
 
 class ConfigError(Exception):
     pass
@@ -48,7 +50,21 @@ class Config(object):
             raise ConfigError('error reading config file {0}: {1}'
                               .format(self.config_path, e))
         
-            
+
+class DaemonConfig(Config):
+    DAEMON_PARAMS = (
+        serialize.Attr('user', str, optional = True),
+        serialize.Attr('group', str, optional = True),
+        serialize.Attr('pid_file', str),
+        serialize.Attr('log_file', str),
+        serialize.Attr('plugins', list_type = codaemon.Plugin, optional = True),
+    )
+
+    def __init__(self, config_file = None):
+        self.CONFIG_PARAMS += self.DAEMON_PARAMS
+        super(DaemonConfig, self).__init__(config_file)
+
+
 class MQConfig(Config):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codmq.conf')
 
@@ -60,16 +76,12 @@ class MQConfig(Config):
         )
 
 
-class PlayerConfig(Config):
+class PlayerConfig(DaemonConfig):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codplayer.conf')
 
     CONFIG_PARAMS = (
         serialize.Attr('codmq_conf_path', str),
         serialize.Attr('database', str),
-        serialize.Attr('user', str),
-        serialize.Attr('group', str),
-        serialize.Attr('pid_file', str),
-        serialize.Attr('log_file', str),
         serialize.Attr('cdrom_device', str),
         serialize.Attr('cdrom_read_speed', int, optional = True),
         serialize.Attr('cdparanoia_command', str),
@@ -98,3 +110,22 @@ class RestConfig(Config):
         serialize.Attr('players', list),
         )
 
+
+class LCDConfig(DaemonConfig):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codlcd.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('codmq_conf_path', str),
+        serialize.Attr('lcd_factory', lcd.ILCDFactory),
+        serialize.Attr('formatter', lcd.ILCDFormatter),
+        serialize.Attr('brightness_levels',
+                       list_type = lcd.Brightness, optional = True),
+        )
+
+class LircConfig(DaemonConfig):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codlircd.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('codmq_conf_path', str),
+        serialize.Attr('lircd_socket', str),
+        )

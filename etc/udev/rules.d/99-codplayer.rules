@@ -1,5 +1,5 @@
 # Tell codplayerd when the user inserts an audio CD
-SUBSYSTEM=="block", KERNEL=="sr0", ACTION=="change", ENV{ID_CDROM_MEDIA_TRACK_COUNT_AUDIO}!="", RUN+="/usr/local/bin/codctl disc"
+SUBSYSTEM=="block", KERNEL=="sr0", ACTION=="change", ENV{ID_CDROM_MEDIA_TRACK_COUNT_AUDIO}!="", RUN+="/usr/local/bin/on_cd_load.sh"
 
 # And when the eject button is pressed
-SUBSYSTEM=="block", KERNEL=="sr0", ACTION=="change", ENV{DISK_EJECT_REQUEST}=="1", RUN+="/usr/local/bin/codctl eject"
+SUBSYSTEM=="block", KERNEL=="sr0", ACTION=="change", ENV{DISK_EJECT_REQUEST}=="1", RUN+="/usr/local/bin/on_cd_eject.sh"

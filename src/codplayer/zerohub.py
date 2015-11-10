@@ -31,7 +31,12 @@ from zmq.eventloop.ioloop import IOLoop
 
 
 # Common context
-context = zmq.Context()
+_context = None
+def get_context():
+    global _context
+    if _context is None:
+        _context = zmq.Context()
+    return _context
 
 class UndefinedSenderError(Exception): pass
 
@@ -92,7 +97,7 @@ class Topic(Channel):
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a SUB socket stream.
         """
-        socket = context.socket(zmq.SUB)
+        socket = get_context().socket(zmq.SUB)
         socket.set_hwm(10)
 
         for address in self._pub_addresses.itervalues():
@@ -112,7 +117,7 @@ class Topic(Channel):
         except KeyError:
             raise UndefinedSenderError(name)
 
-        socket = context.socket(zmq.PUB)
+        socket = get_context().socket(zmq.PUB)
         socket.set_hwm(10)
         socket.bind(address)
 
@@ -153,7 +158,7 @@ class RPC(Channel):
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a REP socket stream.
         """
-        socket = context.socket(zmq.REP)
+        socket = get_context().socket(zmq.REP)
         socket.bind(self._address)
         return ZMQStream(socket, io_loop)
 
@@ -161,7 +166,7 @@ class RPC(Channel):
     def get_client_rpc_stream(self, io_loop = None):
         """Return a REQ socket stream.
         """
-        socket = context.socket(zmq.REQ)
+        socket = get_context().socket(zmq.REQ)
         socket.setsockopt(zmq.LINGER, 0)
         socket.connect(self._address)
         return ZMQStream(socket, io_loop)
@@ -200,7 +205,7 @@ class Queue(Channel):
     def get_receiver_stream(self, subscriptions, io_loop = None):
         """Return a PULL socket stream.
         """
-        socket = context.socket(zmq.PULL)
+        socket = get_context().socket(zmq.PULL)
         socket.bind(self._address)
         return ZMQStream(socket, io_loop)
 
@@ -208,7 +213,7 @@ class Queue(Channel):
     def get_sender_stream(self, name, io_loop = None):
         """Return a PUSH socket stream.
         """
-        socket = context.socket(zmq.PUSH)
+        socket = get_context().socket(zmq.PUSH)
         socket.connect(self._address)
         return ZMQStream(socket, io_loop)
 

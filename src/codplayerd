@@ -12,23 +12,14 @@ import argparse
 import threading
 
 
-# http://www.python.org/dev/peps/pep-3143/
-import daemon
-import lockfile
-
 from codplayer import db, player, config, sink
 from codplayer import command
 from codplayer import zerohub
 from codplayer import full_version
+from codplayer import codaemon
 
 def main(args):
     try:
-        # As a general principle, parse as much config and open as
-        # many resources as possible before forking off a deamon
-        # process.  The flipside of that is that we must keep track of
-        # the files that should be kept open across the daemonization
-        preserve_files = []
-
         cfg = config.PlayerConfig(args.config)
         mq_cfg = config.MQConfig(os.path.join(os.path.dirname(cfg.config_path),
                                               cfg.codmq_conf_path))
@@ -37,19 +28,6 @@ def main(args):
         if cfg.audio_device_type not in sink.SINKS:
             sys.exit('unknown audio device type: {0}'.format(cfg.audio_device_type))
 
-        if args.debug:
-            log_file = sys.stderr
-        else:
-            try:
-                log_file = open(cfg.log_file, 'at')
-            except IOError, e:
-                sys.exit('error opening {0}: {1}'.format(cfg.log_file, e))
-
-            preserve_files.append(log_file)
-
-        # All set, create the player object
-        p = player.Player(cfg, mq_cfg, database, log_file)
-
     except config.ConfigError, e:
         sys.exit('invalid configuration:\n{0}'.format(e))
 
@@ -57,36 +35,31 @@ def main(args):
         sys.exit('error opening database:\n{0}'.format(e))
 
     if args.debug:
-        # Just run directly without forking off.  Also start a CLI on stdin
-        p.log('reading commands on stdin')
-        start_stdin_cli(mq_cfg)
-        p.run()
-    else:
-        context = daemon.DaemonContext(
-            files_preserve = preserve_files,
-            pidfile = lockfile.FileLock(cfg.pid_file),
-            stdout = log_file,
-            stderr = log_file,
-            )
+        if cfg.plugins:
+            cfg.plugins.append(StdinCli())
+        else:
+            cfg.plugins = [StdinCli()]
 
-        # Run in daemon context, forking off and all that
-        with context:
-            p.run()
+    # All set, kick off the player
+    player.Player(cfg, mq_cfg, database, debug = args.debug)
 
 
-def start_stdin_cli(mq_cfg):
-    sender = zerohub.AsyncSender(mq_cfg.player_commands, name = 'stdin_cli')
-    t = threading.Thread(
-        target = stdin_cli, args = (sender, ), name = 'stdin_cli')
-    t.daemon = True
-    t.start()
+class StdinCli(codaemon.Plugin):
+    def setup_prefork(self, player, cfg, mq_cfg):
+        self._sender = zerohub.AsyncSender(mq_cfg.player_commands,
+                                           name = 'stdin_cli', io_loop = player.io_loop)
 
-def stdin_cli(sender):
-    reader = command.CommandReader()
-    while True:
-        data = os.read(0, 500)
-        for cmd_args in reader.handle_data(data):
-            sender.send_multipart(cmd_args)
+    def setup_postfork(self):
+        t = threading.Thread(target = self._loop, name = 'stdin_cli')
+        t.daemon = True
+        t.start()
+
+    def _loop(self):
+        reader = command.CommandReader()
+        while True:
+            data = os.read(0, 500)
+            for cmd_args in reader.handle_data(data):
+                self._sender.send_multipart(cmd_args)
 
 #
 # Set up the command argument parsing

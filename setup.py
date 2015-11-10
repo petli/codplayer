@@ -19,6 +19,8 @@ setup(
                 'src/codadmin',
                 'src/codmousectl',
                 'src/codrestd',
+                'src/codlcd',
+                'src/codlircd',
                 ],
 
     package_dir = { '': 'src' },
@@ -63,7 +65,15 @@ setup(
         'pyzmq',
     ],
 
+    dependency_links = [
+        'git+https://github.com/adafruit/Adafruit_Python_CharLCD.git#egg=Adafruit_CharLCD-1.0.0',
+    ],
+
     extras_require = {
+        'lcd': [
+            'Adafruit_CharLCD >= 1.0.0',
+            'RPIO',
+            ]
     },
 
     setup_requires = [

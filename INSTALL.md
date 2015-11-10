@@ -24,6 +24,10 @@ Raspbian has an older version of ZeroMQ:
         libasound2-dev python-dev python-virtualenv python-pip \
         libzmq1 libzmq-dev
 
+If you want to run codlcd, you also need to install this:
+
+    apt-get install python-smbus
+
 
 Install released package
 ------------------------
@@ -35,6 +39,23 @@ recommended to install it in a virtualenv:
     ~/cod/bin/pip install codplayer
 
 Then continue with the configuration, described below.
+
+If you want to run codlcd, the virtual env needs access to the
+python-smbus package installed above, and additional dependencies are
+needed.  Set it up like this instead:
+
+    virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install 'codplayer[lcd]'
+
+It seems that on Raspbian setuptools may not be able to install
+non-pypi dependencies.  In that case, try installing them manually
+before installing codplayer:
+
+    virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
+    ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
+    ~/cod/bin/pip install 'codplayer'
+
 
 Install from source
 -------------------
@@ -66,16 +87,41 @@ etc.
 would be `~/cod/local/etc`, and in a system-wide install
 `/usr/local/etc`.
 
+
+### ZeroMQ configuration
+
+Central to everything is `codmq.conf`.  This files defines the topics
+where state updates are published and the queues where `codplayerd`
+receives commands.  The default configuration defines all of these to
+communicate on 127.0.0.1, which is fine for a single-box deployment.
+But if you want to publish state or receive commands to/from other
+machines, these must be edited:
+
+* On the machine running `codplayerd`, change the address to 0.0.0.0 to
+  publish on all interfaces (or limit it to a specific interface
+  address)
+
+* On the other machines, put the address of the `codplayerd` machine
+  in the configuration instead.
+
+
+### udev configuration
+
 To have codplayer trigger playing/ripping automatically when inserting
 a disc, copy
 [`etc/udev/rules.d/99-codplayer.rules`](https://github.com/petli/codplayer/blob/master/etc/udev/rules.d/99-codplayer.rules)
-to the corresponding `/etc/udev/rules.d` directory.  Edit the file if
-`codctl` isn't installed system-wide to its actual path.
+to the corresponding `/etc/udev/rules.d` directory.
+
+Copy these scripts to `/usr/local/bin` and make sure they are executable:
+* [`tools/on_cd_load.sh`](https://github.com/petli/codplayer/blob/master/tools/on_cd_load.sh)
+* [`tools/on_cd_eject.sh`](https://github.com/petli/codplayer/blob/master/tools/on_cd_eject.sh)
+
+Edit the files if `codctl` isn't installed in `/usr/local/bin` too.
 
 On a RaspberryPi, it seems that it doesn't detect any events unless
 someone uses the USB CDROM device.  The script
-[`etc/trigger_rpi_cdrom_udev.sh`](https://github.com/petli/codplayer/blob/master/tools/trigger_rpi_cdrom_udev.sh)
-can be run until that is resolved.
+[`tools/trigger_rpi_cdrom_udev.sh`](https://github.com/petli/codplayer/blob/master/tools/trigger_rpi_cdrom_udev.sh)
+can be run by a cron job to solve that.
 
 
 Database initialisation
