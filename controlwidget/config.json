@@ -1,5 +1,0 @@
-{
-  "serverPort": 8304,
-  "commandEndpoint": "tcp://127.0.0.1:7923",
-  "stateEndpoint": "tcp://127.0.0.1:7924"
-}

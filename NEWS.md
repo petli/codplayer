@@ -5,7 +5,8 @@ codplayer releases
 --------------
 
 Some significant and breaking changes merits bumping the major version
-number.
+number.  For this release the web control widget was moved to a
+separate repository to let it have its own version numbering.
 
 ### Breaking changes
 

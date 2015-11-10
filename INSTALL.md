@@ -9,8 +9,6 @@ Dependencies
 
 codplayer has been tested with Python 2.7.
 
-The `webui/controlwidget` has been tested with Node.js 0.10.x.
-
 codplayer depends on a number of libraries and utilities.  On a Ubuntu
 system this should install them all:
 
@@ -174,82 +172,3 @@ The database admin interface is started with
 It can be accessed on `http://localhost:8303` if running locally
 (otherwise substitute the hostname and possibly port number with the
 correct location).
-
-
-Installing the web control widget
-=================================
-
-The web control widget is a Node.js server, located in
-`controlwidget`.  It can be run on any machine which can connect to
-the ZeroMQ sockets of `codplayerd`.
-
-When installed, open `http://localhost:8304/` if running locally
-(otherwise substitute the hostname and possibly port number with the
-correct location).
-
-
-Getting Node.js
----------------
-
-Ubuntu 14.04 includes a modern Node.js, so it can be installed with
-apt-get:
-
-    apt-get install nodejs npm
-
-A precompiled package for Raspbian is available here:
-https://github.com/nathanjohnson320/node_arm
-
-
-Install released package
-------------------------
-
-The latest release of the control widget can be installed with npm.
-It is recommended to install it in a dedicated directory, e.g.:
-
-    mkdir ~/cod
-    cd ~/cod
-    npm install codplayer-control
-
-
-Configuration
--------------
-
-The default settings in `config.json` match the default ZeroMQ
-settings in `codplayer.conf`, but might have to be changed if you are
-running on different machines or have changed the ports.  It's best to
-do this by copying the file somewhere else and change the settings,
-then give the filename to `codplayer-control` on the command line.
-
-
-Running package installation
-----------------------------
-
-Assuming the control widget was installed in `~/cod` and using the
-default configuration, it can be run like this:
-
-    nohup ~/cod/node_modules/.bin/codplayer-control >> ~/cod/codctlwidget.log 2>&1 &
-
-The server does not fork (right now), so that's why it is run with
-nohup and in the background
-
-If you have changed the configuration, the path to the new config can
-be proved on the command line:
-
-    ~/cod/node_modules/.bin/codplayer-control /path/to/config.json
-
-
-Running from source dir
------------------------
-
-To just run the server from the source directory, the dependencies
-must first be installed:
-
-    cd controlwidget
-    npm install
-
-Then run the server with either
-
-    ./server.js [/path/to/config.json]
-
-or
-    /path/to/node server.js [/path/to/config.json]

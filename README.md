@@ -65,7 +65,7 @@ codplayer is intended to support different platforms and control
 interfaces.  E.g.:
 
 * `codctl`: command line interface
-* Web interface (a simple one is in `controlwidget`)
+* [Web interface](https://github.com/petli/codplayer-control-node)
 * `codlircd`: IR remote control input events
 * `codlcd`: display state on an LCD and status LED
 * Control apps (none implemented yet)
@@ -165,7 +165,5 @@ mustache.js is licensed under thep MIT license:
 
 bootstrap.js is licensed under the MIT license:
 * Copyright 2011-2015 Twitter, Inc.
-
-The icon font was generated from http://icomoon.io/
 
 
