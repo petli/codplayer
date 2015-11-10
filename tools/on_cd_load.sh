@@ -1,3 +1,3 @@
 #!/bin/sh
 
-/usr/local/bin/codctl disc >/dev/null 2>&1 &
+/usr/local/bin/codctl -t 10 disc >/dev/null 2>&1 &

@@ -1,3 +1,3 @@
 #!/bin/sh
 
-/usr/local/bin/codctl eject >/dev/null 2>&1 &
+/usr/local/bin/codctl -t 10 eject >/dev/null 2>&1 &
