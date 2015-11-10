@@ -1,16 +1,23 @@
 codplayer releases
 ==================
 
-X.Y ????-??-??
+2.0 ????-??-??
 --------------
+
+Some significant and breaking changes merits bumping the major version
+number.
 
 ### Breaking changes
 
+To support the additional daemons (see below) and simplifying the code
+in general, codplayer is now fully dependent on ZeroMQ for all
+intra-component communication.  This led to changes in the
+configuration file structure to make configuration of the
+all-important ZeroMQ endpoints easy.
+
 The old state publishing and command factory classes used in
 `codplayer.conf` has been removed.  In its place are ZeroMQ channel
-definitions in `codmq.conf`.  The purpose of this is to more easily
-handle the additional topics and components when adding IR remote
-control and LCD display support.
+definitions in `codmq.conf`.
 
 `codctl` now reads `codmq.conf`, instead of `codplayer.conf`.
 
@@ -22,6 +29,28 @@ The old FIFO command interface and the state files have been removed,
 on the assumption that the ZeroMQ interface is much more useful.  If
 these old interfaces are needed, they could be reimplemented as
 components using the the ZeroMQ API.
+
+
+### Hardware support
+
+An IO control board, connected to a Raspberry Pi GPIO port, is now
+supported (and described in the `doc` directory).  This board has two
+corresponding daemons:
+
+* `codlircd`: read remote control events from `lircd` and send
+  keypress ZeroMQ events
+
+* `codlcd`: Display player status on an LCD and status LED
+
+
+### Daemon plugins
+
+The various daemons can have plugins, listed in the config files.
+
+This release adds one such plugin for `codplayerd`:
+
+* `codplayer.remotecontrol.RemoteControl`: consumes keypress events
+  and translates them into commands.
 
 
 1.1 2015-03-08

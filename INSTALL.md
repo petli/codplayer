@@ -54,7 +54,7 @@ before installing codplayer:
     virtualenv --system-site-packages ~/cod
     ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
     ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
-    ~/cod/bin/pip install 'codplayer'
+    ~/cod/bin/pip install 'codplayer[lcd]'
 
 
 Install from source
@@ -68,6 +68,11 @@ in a virtualenv:
 
 This will link up the installation in the virtualenv with the source
 directory, so there's no need to re-install after changes.
+
+The LCD dependencies can be installed too by extending the command
+line:
+
+    ~/cod/bin/python setup.py develop easy_install 'codplayer[lcd]'
 
 To install fully in a virtual env:
 

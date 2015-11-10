@@ -6,18 +6,17 @@ from setuptools.command.test import test as TestCommand
 
 setup(
     name = 'codplayer',
-    version = '1.1',
+    version = '2.0',
     license = 'MIT',
     description = 'Complicated CD player',
     author = 'Peter Liljenberg',
     author_email = 'peter.liljenberg@gmail.com',
-    keywords = 'cd cdrdao cdplayer',
+    keywords = 'cd cdparanoia cdrdao cdplayer',
     url = 'https://github.com/petli/codplayer',
 
     scripts = [ 'src/codplayerd',
                 'src/codctl',
                 'src/codadmin',
-                'src/codmousectl',
                 'src/codrestd',
                 'src/codlcd',
                 'src/codlircd',
