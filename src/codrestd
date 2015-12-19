@@ -10,25 +10,30 @@
 import sys
 import argparse
 
+from codplayer import db
 from codplayer import rest
 from codplayer import config
 from codplayer import full_version
+
+def main(args):
+    try:
+        cfg = config.RestConfig(args.config)
+        database = db.Database(cfg.database)
+
+    except config.ConfigError, e:
+        sys.exit('invalid configuration:\n{0}'.format(e))
+
+    except db.DatabaseError, e:
+        sys.exit('error opening database:\n{0}'.format(e))
+
+    rest.RestDaemon(cfg, database, debug = args.debug)
+
 
 parser = argparse.ArgumentParser(description = 'codplayer database REST API')
 parser.add_argument('-c', '--config', help = 'alternative configuration file')
 parser.add_argument('-d', '--debug', action = 'store_true',
                     help = 'run in debug mode')
 parser.add_argument('--version', action = 'version', version = full_version())
-
-def main(args):
-    try:
-        cfg = config.RestConfig(args.config)
-    except config.ConfigError, e:
-        sys.exit('invalid configuration:\n{0}'.format(e))
-        
-    app = rest.rest_app(cfg)
-    app.run(host = cfg.host, port = cfg.port, debug = args.debug)
-
 
 if __name__ == '__main__':
     args = parser.parse_args()

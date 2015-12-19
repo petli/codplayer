@@ -31,6 +31,10 @@ on the assumption that the ZeroMQ interface is much more useful.  If
 these old interfaces are needed, they could be reimplemented as
 components using the the ZeroMQ API.
 
+`codrestd` is now a daemon and behaves in the same way as all the
+other codplayer daemons.  Thus `codrest.conf` have additional required
+configuration properties: `pid_file` and `log_file`.
+
 
 ### Hardware support
 

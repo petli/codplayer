@@ -100,7 +100,7 @@ class PlayerConfig(DaemonConfig):
         )
 
 
-class RestConfig(Config):
+class RestConfig(DaemonConfig):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codrest.conf')
 
     CONFIG_PARAMS = (
