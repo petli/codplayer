@@ -120,6 +120,7 @@ class LCDConfig(DaemonConfig):
         serialize.Attr('formatter', lcd.ILCDFormatter),
         serialize.Attr('brightness_levels',
                        list_type = lcd.Brightness, optional = True),
+        serialize.Attr('inactive_timeout', int, optional = True),
         )
 
 class LircConfig(DaemonConfig):

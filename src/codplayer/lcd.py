@@ -121,8 +121,11 @@ class LCD(Daemon):
 
         self._brightness_levels = (cfg.brightness_levels
                                    or self.DEFAULT_BRIGHTNESS_LEVELS)
-
         self._brightness_index = 0
+
+        # Set to any currently pending timeout to disable (or dim) the
+        # screen when state is NO_DISC.
+        self._lcd_off_timout = None
 
         # Kick off deamon
         super(LCD, self).__init__(cfg, debug = debug)
@@ -135,9 +138,7 @@ class LCD(Daemon):
         self._text_encoder = self._cfg.lcd_factory.get_text_encoder()
 
         # Set initial brightness level
-        level = self._brightness_levels[self._brightness_index]
-        self._lcd_controller.set_backlight(level.lcd)
-        self._led_controller.set_brightness(level.led)
+        self._set_brightness(self._brightness_levels[0])
 
 
     def run(self):
@@ -181,6 +182,28 @@ class LCD(Daemon):
 
     def _on_state(self, state):
         self.debug('got state: {}', state)
+
+        if self._cfg.inactive_timeout and self._cfg.inactive_timeout > 0:
+            if ((self._state is None or self._state.state is not State.NO_DISC)
+                and state.state is State.NO_DISC):
+                self.debug('transitioned to NO_DISC, disabling screen in {}s', self._cfg.inactive_timeout)
+
+                self._lcd_off_timout = self.io_loop.add_timeout(
+                    time.time() + self._cfg.inactive_timeout,
+                    self._dim_screen_on_inactivity)
+
+            elif (self._state and self._state.state is State.NO_DISC
+                  and state.state is not State.NO_DISC):
+                self.debug('transitioned from NO_DISC, enabling screen')
+
+                if self._lcd_off_timout:
+                    self.io_loop.remove_timeout(self._lcd_off_timout)
+                    self._lcd_off_timout = None
+
+                # Only change brightness if not already done by user
+                if self._brightness_index == len(self._brightness_levels) - 1:
+                    self._brightness_index = 0
+                    self._set_brightness(self._brightness_levels[0])
 
         self._state = state
         self._lcd_update()
@@ -233,14 +256,22 @@ class LCD(Daemon):
             self._brightness_index += 1
             self._brightness_index %= len(self._brightness_levels)
 
-            level = self._brightness_levels[self._brightness_index]
-
-            self.debug('changing brightness: lcd = {0.lcd}, led = {0.led}', level)
-            
-            self._lcd_controller.set_backlight(level.lcd)
-            self._led_controller.set_brightness(level.led)
+            self._set_brightness(self._brightness_levels[self._brightness_index])
         else:
             self.log('warning: ignoring {}s old message', now - ts)
+
+
+    def _dim_screen_on_inactivity(self):
+        self._lcd_off_timout = None
+        self._brightness_index = len(self._brightness_levels) - 1
+        self._set_brightness(self._brightness_levels[-1])
+
+
+    def _set_brightness(self, level):
+        self.debug('changing brightness: lcd = {0.lcd}, led = {0.led}', level)
+        self._lcd_controller.enable_display(level.lcd != 0)
+        self._lcd_controller.set_backlight(level.lcd)
+        self._led_controller.set_brightness(level.led)
 
 
     def _lcd_update(self):
@@ -950,6 +981,8 @@ class TestLCDController(object):
         self._columns = columns
         self._lines = lines
         self._led_controller = led_controller
+        self._enabled = True
+        self._current_text = '\n'.join([' ' * self._columns] * self._lines)
 
     def home(self):
         # Redraw LED controller first since it may have scrolled off
@@ -965,8 +998,13 @@ class TestLCDController(object):
         sys.stdout.flush()
 
     def message(self, text):
-        text = text.replace(LCDFormatterBase.PLAY, '>')
-        text = text.replace(LCDFormatterBase.PAUSE, '=')
+        self._current_text = text
+
+        if self._enabled:
+            text = text.replace(LCDFormatterBase.PLAY, '>')
+            text = text.replace(LCDFormatterBase.PAUSE, '=')
+        else:
+            text = '\n'.join(['#' * self._columns] * self._lines)
 
         header = '+' + '-' * self._columns + '+'
         sys.stdout.write('\x1B[K')    # clear until end of line
@@ -983,6 +1021,11 @@ class TestLCDController(object):
 
         sys.stdout.write('\x1B[u')    # unsave cursor
         sys.stdout.flush()
+
+    def enable_display(self, enable):
+        self._enabled = enable
+        self.home()
+        self.message(self._current_text)
 
     def set_backlight(self, backlight):
         pass
