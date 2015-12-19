@@ -106,6 +106,10 @@ class Disc(serialize.Serializable):
         self.link_type = None
         self.linked_disc_id = None
 
+        # Set by Player() to inform users about the physical disc if a
+        # disc link is followed.  Thus not persisted in the database.
+        self.source_disc_id = None
+
 
     def __str__(self):
         return u'{self.disc_id}: {self.artist}/{self.title}'.format(self = self).encode('utf-8')

@@ -24,7 +24,7 @@ debug = os.getenv('DEBUG_TEST', 'fake-string-to-disable-logging')
 # Transport test and helper classes
 #
 
-class TestPublisher(state.StatePublisher):
+class TestPublisher(object):
     """Some synchronisation to let the test cases detect when the
     Transport has updated the state.
     """
@@ -45,9 +45,6 @@ class TestPublisher(state.StatePublisher):
             sys.stderr.write('{0.test_id}: {1}\n'.format(self, state))
         self.updated.set()
 
-    def update_disc(self, disc):
-        pass
-        
 
 class DummySource(source.Source):
     """Packet source generating dummy packets, each a second long.
@@ -156,22 +153,29 @@ class Expect(object):
         
 
 class DummyPlayer:
-    def __init__(self, test):
-        self.id = test.id()
+    def __init__(self, test, publisher):
+        self._id = test.id()
+        self._publisher = publisher
         
     def log(self, msg, *args, **kwargs):
-        if debug in self.id:
+        if debug in self._id:
             sys.stderr.write('{0}: {1}: {2}\n'.format(
-                    self.id, threading.current_thread().name,
+                    self._id, threading.current_thread().name,
                     msg.format(*args, **kwargs)))
-        
+
+    def publish_state(self, state):
+        self._publisher.update_state(state)
+
+    def publish_disc(self, disc):
+        pass
+
     debug = log
     cfg = None
 
 
 def create_transport(test, sink):
     publisher = TestPublisher(test)
-    return player.Transport(DummyPlayer(test), sink, [publisher]), publisher
+    return player.Transport(DummyPlayer(test, publisher), sink), publisher
 
 
 # Actual test cases follow
