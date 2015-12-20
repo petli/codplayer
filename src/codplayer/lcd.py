@@ -935,6 +935,9 @@ _simplify_map = {
     u'\u201c': u'"',   # Left double quotation mark
     u'\u201d': u'"',   # Right double quotation mark
     u'\u201e': u'"',   # Double low-9 quotation mark
+    u'\u2010': u'-',   # Hyphen
+    u'\u2011': u'-',   # Non-breaking hyphen
+    u'\u2012': u'-',   # Figure dash
     u'\u2013': u'-',   # En dash
     u'\u2014': u'--',  # Em dash
     u'\u2026': u'...', # Horizontal ellipsis
