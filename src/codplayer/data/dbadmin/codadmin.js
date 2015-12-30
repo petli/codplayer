@@ -10,6 +10,16 @@ $(function(){
     'use strict';
 
     //
+    // Alerts
+    //
+
+    var showAlert = function(info) {
+        var template = _.template($('#alert-template').html());
+        $('#alert-area').append(template(info));
+    };
+
+
+    //
     // Disc model and collection
     //
 
@@ -72,19 +82,6 @@ $(function(){
         model: MBDisc,
     });
 
-    //
-    // Keep track of alerts
-    //
-    
-    var Alert = Backbone.Model.extend({
-        initialize: function() {
-            this.set('header', null);
-            this.set('message', null);
-        },
-    });
-
-    var currentAlert = new Alert();
-    
     //
     // Player instances
     //
@@ -300,9 +297,10 @@ $(function(){
                     },
 
                     error: function(model, response) {
-                        currentAlert.set({
+                        showAlert({
                             header: 'Error fetching disc details:',
-                            message: response.statusText + ' (' + response.status + ')',
+                            message: (response.statusText + ' (' + response.status +
+                                      ') [' + model.get('disc_id') + ']'),
                         });
                     },
                 });
@@ -375,9 +373,9 @@ $(function(){
 
             if (mbDiscs.length === 0) {
                 // This should be a 404, but handle it in any case
-                currentAlert.set({
+                showAlert({
                     header: 'Sorry,',
-                    message: 'Musicbrainz has no information about this disc',
+                    message: 'Musicbrainz has no information about this disc. [' + this.model.get('disc_id') + ']',
                 });
             }
             else if (mbDiscs.length === 1) {
@@ -393,15 +391,15 @@ $(function(){
             this.$('fieldset').prop('disabled', false);
 
             if (response.status === 404) {
-                currentAlert.set({
+                showAlert({
                     header: 'Sorry,',
-                    message: 'Musicbrainz has no information about this disc',
+                    message: 'Musicbrainz has no information about this disc. [' + this.model.get('disc_id') + ']',
                 });
             }
             else {
-                currentAlert.set({
+                showAlert({
                     header: 'Error fetching info:',
-                    message: response.statusText + ' (' + response.status + ')',
+                    message: response.statusText + ' (' + response.status + ') [' + this.model.get('disc_id') + ']',
                 });
             }
         },
@@ -580,10 +578,10 @@ $(function(){
                     // Unlock fields so the user can cancel or retry save
                     self.$('fieldset').prop('disabled', false);
 
-                    // Show alert
-                    currentAlert.set({
+                    showAlert({
                         header: 'Error saving changes:',
-                        message: xhr.statusText + ' (' + xhr.status + ')',
+                        message: (xhr.statusText + ' (' + xhr.status +
+                                  ') [' + self.model.get('disc_id') + ']'),
                     });
                 },
             });
@@ -693,36 +691,6 @@ $(function(){
 
 
     //
-    // Alert view
-    //
-
-    var AlertView = Backbone.View.extend({
-        el: $('#alert-area'),
-
-        events: {
-            'closed.bs.alert': 'onClosed',
-        },
-
-        template: _.template($('#alert-template').html()),
-
-        initialize: function() {
-            this.listenTo(this.model, 'change', this.render);
-        },
-
-        render: function() {
-            this.$el.html(this.template(this.model.toJSON()));
-            return this;
-        },
-
-        onClosed: function() {
-            this.model.set({ header: null, message: null });
-        },
-    });
-
-    var alertView = new AlertView({ model: currentAlert }); // jshint ignore:line
-
-
-    //
     // Player views
     //
 
@@ -755,7 +723,7 @@ $(function(){
                         self.headingState.text(data.codplayer.state.summary);
                     }
                     else {
-                        console.warning('unexpected message: %j', data);
+                        console.warn('unexpected message: %j', data);
                     }
                 }
             });

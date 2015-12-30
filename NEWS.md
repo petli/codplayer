@@ -58,6 +58,12 @@ This release adds one such plugin for `codplayerd`:
   and translates them into commands.
 
 
+### Other fixes
+
+* https://github.com/petli/codplayer/issues/37: handle multiple error
+  alerts in the database admin web UI.
+
+
 1.1 2015-03-08
 --------------
 

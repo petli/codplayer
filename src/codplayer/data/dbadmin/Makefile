@@ -1,5 +1,5 @@
 
-JSHINT = ../../../../controlwidget/node_modules/.bin/jshint
+JSHINT = jshint
 
 REPORTER=
 ifeq ($(EMACS),t)

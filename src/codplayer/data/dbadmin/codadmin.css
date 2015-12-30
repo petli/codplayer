@@ -127,7 +127,7 @@ table.mb-disc {
 /* Alerts are shown in a fixed box at the top */
 #alert-area {
     position: fixed;
-    top: 0px;
+    top: 10px;
     left: 0px;
     right: 0px;
     bottom: auto;
