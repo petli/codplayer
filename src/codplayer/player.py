@@ -20,6 +20,7 @@ import Queue
 import traceback
 import copy
 
+from . import full_version
 from . import serialize
 from . import db
 from . import model

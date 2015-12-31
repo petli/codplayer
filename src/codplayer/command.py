@@ -8,6 +8,7 @@
 Classes for handling command input to the player.
 """
 
+import json
 
 from . import state
 from . import model
