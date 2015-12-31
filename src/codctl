@@ -66,8 +66,11 @@ def main(args):
                 else:
                     sys.exit('invalid disc or db id: {0}'.format(args.id))
 
+        on_response = print_response_and_stop
+        if args.quiet:
+            on_response = quiet_and_stop
 
-        client.call(args.command, cmd_args, on_response = print_response_and_stop)
+        client.call(args.command, cmd_args, on_response = on_response)
 
         if args.timeout:
             zerohub.IOLoop.instance().add_timeout(time.time() + args.timeout, handle_timeout)
@@ -88,6 +91,10 @@ def print_response(response):
 def print_response_and_stop(response):
     if response:
         print response
+    stop()
+
+
+def quiet_and_stop(response):
     stop()
 
 
@@ -118,6 +125,8 @@ parser = argparse.ArgumentParser(description = 'codplayer control tool')
 parser.add_argument('-c', '--config', help = 'path to codmq.conf')
 parser.add_argument('-t', '--timeout', type = int,
                     help = 'give up command/stop updates after TIMEOUT seconds')
+parser.add_argument('-q', '--quiet', action = 'store_true',
+                    help = "don't print resulting state for action commands")
 parser.add_argument('--version', action = 'version', version = full_version())
 
 subparsers = parser.add_subparsers(help = 'command', dest = 'command')

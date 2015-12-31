@@ -60,6 +60,8 @@ This release adds one such plugin for `codplayerd`:
 
 ### Other fixes
 
+* codctl: new flag -q/--quiet to suppress output from action commands.
+
 * https://github.com/petli/codplayer/issues/37: handle multiple error
   alerts in the database admin web UI.
 
