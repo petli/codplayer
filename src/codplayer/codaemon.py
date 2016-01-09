@@ -34,6 +34,7 @@ class Daemon(object):
         kwargs: anything else is passed to plugin constructors.
         """
 
+        self._daemon_config = cfg
         self._log_debug = debug
         self._io_loop = None
         self._plugins = cfg.plugins or []
@@ -102,6 +103,7 @@ class Daemon(object):
             [p.setup_prefork(self, cfg, **kwargs) for p in self._plugins]
 
             context = DaemonContext(
+                initgroups = False, # We'll drop privs ourselves
                 files_preserve = self._preserve_files,
                 pidfile = pid_lock,
                 stdout = self._log_file,
@@ -123,10 +125,14 @@ class Daemon(object):
         if self._uid and self._gid:
             if os.geteuid() == 0:
                 try:
-                    self.log('dropping privs to uid {0} gid {1}',
-                             self._uid, self._gid)
+                    self.log('dropping privs to uid {0} gid {1}, initgroups={2}',
+                             self._uid, self._gid, self._daemon_config.initgroups)
 
-                    os.setgid(self._gid)
+                    if self._daemon_config.initgroups:
+                        os.initgroups(self._daemon_config.user, self._gid)
+                    else:
+                        os.setgid(self._gid)
+
                     os.setuid(self._uid)
                 except OSError, e:
                     raise DaemonError("can't set UID or GID: {0}".format(e))

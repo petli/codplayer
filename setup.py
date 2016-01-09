@@ -56,7 +56,7 @@ setup(
 
     # Core player dependencies
     install_requires = [
-        'python-daemon',
+        'python-daemon >= 2.1',
         'bottle',
         'lockfile',
         'discid >= 1.1',

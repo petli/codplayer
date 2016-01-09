@@ -60,6 +60,11 @@ This release adds one such plugin for `codplayerd`:
 
 ### Other fixes
 
+* All daemons support new config parameter `initgroups`.  If set to
+  `True` and the daemons are started with root and then drops
+  privileges, they will acquire all the groups the daemon user
+  belongs to, and not just the one specified in the config.
+
 * codctl: new flag -q/--quiet to suppress output from action commands.
 
 * https://github.com/petli/codplayer/issues/37: handle multiple error

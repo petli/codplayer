@@ -55,6 +55,7 @@ class DaemonConfig(Config):
     DAEMON_PARAMS = (
         serialize.Attr('user', str, optional = True),
         serialize.Attr('group', str, optional = True),
+        serialize.Attr('initgroups', bool, optional = True, default = False),
         serialize.Attr('pid_file', str),
         serialize.Attr('log_file', str),
         serialize.Attr('plugins', list_type = codaemon.Plugin, optional = True),
