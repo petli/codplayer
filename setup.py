@@ -59,7 +59,7 @@ setup(
         'python-daemon',
         'bottle',
         'lockfile',
-        'python-musicbrainz2',
+        'discid >= 1.1',
         'musicbrainzngs >= 0.5',
         'pyzmq',
     ],

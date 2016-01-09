@@ -8,6 +8,7 @@
 from pkg_resources import resource_string
 import unittest
 import os
+import discid
 
 from .. import toc
 from .. import model
@@ -326,18 +327,6 @@ FILE "data.cdr" 0 03:27:10
 
 
 
-class MusicbrainzDiscDummy(object):
-    def __init__(self, tracks, disc_id = 'testId'):
-        self.tracks = tracks
-        self.disc_id = disc_id
-
-    def getId(self):
-        return self.disc_id
-
-    def getTracks(self):
-        return self.tracks
-
-
 class TestMergeBasicToc(unittest.TestCase):
     def test_overwrite_offsets(self):
         # This is one of the rare discs that actually have indices on
@@ -346,11 +335,10 @@ class TestMergeBasicToc(unittest.TestCase):
         d = model.DbDisc.from_string(resource_string(
             'codplayer.test', 'data/sonicyouth-daydreamnation.cod'))
 
-        basic_disc = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
-            [(183, 31377), (31560, 17080), (48640, 34688), (83328, 31540),
-             (114868, 17152), (132020, 34018), (166038, 19730), (185768, 12130),
-             (197898, 22422), (220320, 20963), (241283, 14147), (255430, 63503)],
-            disc_id = d.disc_id))
+        basic_disc = model.DbDisc.from_discid_disc(discid.put(
+            1, 12, 255430 + 63503,
+            [183, 31560, 48640, 83328, 114868, 132020, 166038,
+             185768, 197898, 220320, 241283, 255430]))
 
         toc.merge_basic_toc(d, basic_disc)
 
@@ -382,17 +370,18 @@ class TestMergeBasicToc(unittest.TestCase):
 class TestMergeFullToc(unittest.TestCase):
     def read_toc(self, testfile):
         return toc.parse_toc(
-            resource_string('codplayer.test', 'data/' + testfile), 'testId')
+            resource_string('codplayer.test', 'data/' + testfile), 'dummyid')
 
     def test_plain_disc(self):
         """Addis Black Widow - Wait in Summer (single):
         Nothing fancy, just two tracks with regular separation.
         """
 
-        d = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
-            [(150, 17207), (17357, 14263)]))
+        d = model.DbDisc.from_discid_disc(discid.put(
+            1, 2, 17357 + 14263, [150, 17357]))
 
         tocd = self.read_toc('abw-waitinsummer.toc')
+        tocd.disc_id = d.disc_id
 
         toc.merge_full_toc(d, tocd)
 
@@ -422,14 +411,13 @@ class TestMergeFullToc(unittest.TestCase):
         the full TOC.  It should be turned into track 0.
         """
 
-        d = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
-            [(17285, 15590), (32875, 15987), (48862, 16303),
-             (65165, 17807), (82972, 18808), (101780, 18010),
-             (119790, 16030), (135820, 18635), (154455, 16727),
-             (171182, 18710), (189892, 15293), (205185, 15992),
-             (221177, 19503), (240680, 21557)]))
+        d = model.DbDisc.from_discid_disc(discid.put(
+            1, 14, 240680 + 21557,
+            [17285, 32875, 48862, 65165, 82972, 101780, 119790,
+             135820, 154455, 171182, 189892, 205185, 221177, 240680]))
 
         tocd = self.read_toc('kylie-lightyears.toc')
+        tocd.disc_id = d.disc_id
 
         toc.merge_full_toc(d, tocd)
 
@@ -468,12 +456,14 @@ class TestMergeFullToc(unittest.TestCase):
 
 
     def test_use_cdtext(self):
-        d = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
-            [(150, 14435), (14585, 14556), (29141, 14900), (44041, 14266),
-             (58307, 22380), (80687, 15701), (96388, 15820), (112208, 15840),
-             (128048, 15086), (143134, 25354)]))
+        d = model.DbDisc.from_discid_disc(discid.put(
+            1, 10, 143134 + 25354,
+            [150, 14585, 29141, 44041, 58307, 80687, 96388, 112208,
+             128048, 143134]))
 
         tocd = self.read_toc('cocteautwins-heavenorlasvegas.toc')
+        tocd.disc_id = d.disc_id
+
         toc.merge_full_toc(d, tocd)
 
         self.assertEqual(d.title, 'HEAVEN OR LAS VEGAS')
@@ -485,10 +475,10 @@ class TestMergeFullToc(unittest.TestCase):
 
 
     def test_do_not_overwrite_track_info_with_cdtext(self):
-        d = model.DbDisc.from_musicbrainz_disc(MusicbrainzDiscDummy(
-            [(150, 14435), (14585, 14556), (29141, 14900), (44041, 14266),
-             (58307, 22380), (80687, 15701), (96388, 15820), (112208, 15840),
-             (128048, 15086), (143134, 25354)]))
+        d = model.DbDisc.from_discid_disc(discid.put(
+            1, 10, 143134 + 25354,
+            [150, 14585, 29141, 44041, 58307, 80687, 96388, 112208,
+             128048, 143134]))
 
         # Set some TOC info
         d.title = 'foo'
@@ -497,6 +487,8 @@ class TestMergeFullToc(unittest.TestCase):
         d.tracks[0].artist = 'bar'
 
         tocd = self.read_toc('cocteautwins-heavenorlasvegas.toc')
+        tocd.disc_id = d.disc_id
+
         toc.merge_full_toc(d, tocd)
 
         self.assertEqual(d.title, 'foo')

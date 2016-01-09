@@ -234,12 +234,12 @@ class DbDisc(Disc):
 
 
     @classmethod
-    def from_musicbrainz_disc(cls, mb_disc, filename = None):
-        """Translate a L{musicbrainz2.model.Disc} into a L{DbDisc}.
+    def from_discid_disc(cls, raw_disc, filename = None):
+        """Translate a L{discid.Disc} into a L{DbDisc}.
         This will just be a basic TOC with start/length for each track, but
         is sufficient for playing a raw data file.
 
-        @param mb_disc: a L{musicbrainz2.model.Disc} object
+        @param raw_disc: a L{discid.Disc} object
 
         @param filename: the filename for the data file that is
         expected to be written by the ripping process.
@@ -247,14 +247,14 @@ class DbDisc(Disc):
         @return: a L{DbDisc} object.
         """
 
-        tracks = mb_disc.getTracks()
+        tracks = raw_disc.tracks
 
-        # Make sure we have any tracks
+        # Make sure we have some tracks
         if not tracks:
             raise DiscInfoError('no audio tracks on disc')
 
         disc = cls()
-        disc.disc_id = mb_disc.getId()
+        disc.disc_id = str(raw_disc.id)
 
 
         if filename is not None:
@@ -267,15 +267,16 @@ class DbDisc(Disc):
                 raise DiscInfoError('unknown file format: "%s"'
                                     % filename)
 
-        for start, length in tracks:
+        for raw_track in tracks:
             # libdiscid adds a standard pregap of 2s to the track
             # start offset, so remove that to get to the real start
             # of the track.
-            start -= 2 * PCM.cd_frames_per_second
+            start = raw_track.offset - 2 * PCM.cd_frames_per_second
 
             track = DbTrack()
+            track.number = raw_track.number
             track.file_offset = start * PCM.audio_frames_per_cd_frame
-            track.length = length * PCM.audio_frames_per_cd_frame
+            track.length = raw_track.sectors * PCM.audio_frames_per_cd_frame
             track.file_length = track.length
             disc.add_track(track)
 

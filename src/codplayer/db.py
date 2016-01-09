@@ -104,7 +104,7 @@ class Database(object):
     def disc_to_db_id(cls, disc_id):
         """Translate a Musicbrainz Disc ID to database format."""
 
-        id64 = disc_id.translate(cls.DISC_ID_TO_BASE64)
+        id64 = str(disc_id).translate(cls.DISC_ID_TO_BASE64)
         idraw = base64.b64decode(id64)
         return base64.b16encode(idraw).lower()
 
@@ -114,7 +114,7 @@ class Database(object):
 
         idraw = base64.b16decode(db_id, True)
         id64 = base64.b64encode(idraw)
-        return id64.translate(cls.BASE64_TO_DISC_ID)
+        return str(id64).translate(cls.BASE64_TO_DISC_ID)
     
     @classmethod
     def is_valid_db_id(cls, db_id):

@@ -8,8 +8,7 @@
 import os
 import subprocess
 import time
-
-from musicbrainz2 import disc as mb2_disc
+import discid
 
 from . import serialize
 from . import db
@@ -56,16 +55,16 @@ class Ripper(object):
 
         # Use Musicbrainz code to get the disc signature
         try:
-            mbd = mb2_disc.readDisc(self.cfg.cdrom_device)
-        except mb2_disc.DiscError, e:
+            raw_disc = discid.read(self.cfg.cdrom_device, features = ['read'])
+        except discid.DiscError, e:
             raise RipError('error reading disc in {0}: {1}'.format(
                 self.cfg.cdrom_device, e))
 
         # Look up in database
-        db_id = self.db.disc_to_db_id(mbd.getId())
+        db_id = self.db.disc_to_db_id(raw_disc.id)
         old_disc = self.db.get_disc_by_db_id(db_id)
-        new_disc = model.DbDisc.from_musicbrainz_disc(
-            mbd, filename = self.db.get_audio_file(db_id))
+        new_disc = model.DbDisc.from_discid_disc(
+            raw_disc, filename = self.db.get_audio_file(db_id))
 
         if old_disc is None:
             # This is new, so create it from the basic TOC we

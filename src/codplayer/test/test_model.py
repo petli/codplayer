@@ -8,6 +8,7 @@
 from pkg_resources import resource_string
 import unittest
 import os
+import discid
 
 from .. import model
 from .. import serialize
@@ -22,35 +23,12 @@ class TestMSF(unittest.TestCase):
         self.assertEquals(s, (8 * 60 + 17) * model.PCM.rate + 74 * 588)
 
 
-# Helper object to avoid dragging in musicbrainz2 just for testing
-class MusicbrainzDiscDummy(object):
-    def __init__(self, *tracks):
-        self.tracks = tracks
-
-    def getId(self):
-        return 'testId'
-
-    def getTracks(self):
-        return self.tracks
-    
-
-class TestDiscFromMusicbrainz(unittest.TestCase):
-    def test_notracks(self):
-        mb_d = MusicbrainzDiscDummy()
-
-        with self.assertRaises(model.DiscInfoError):
-            model.DbDisc.from_musicbrainz_disc(mb_d)
-
-
+class TestDiscFromDiscId(unittest.TestCase):
     def test_tracks(self):
-        mb_d = MusicbrainzDiscDummy(
-            (150, 34630),
-            (34780, 37470),
-            (72250, 9037))
+        raw = discid.put(1, 3, 72250 + 9037, [150, 34780, 72250])
+        d = model.DbDisc.from_discid_disc(raw, 'test.cdr')
 
-        d = model.DbDisc.from_musicbrainz_disc(mb_d, 'test.cdr')
-
-        self.assertEqual(d.disc_id, 'testId')
+        self.assertEqual(d.disc_id, raw.id)
 
         self.assertEqual(d.catalog, None)
         self.assertEqual(d.data_file_name, "test.cdr")
