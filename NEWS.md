@@ -70,6 +70,9 @@ This release adds one such plugin for `codplayerd`:
 * https://github.com/petli/codplayer/issues/37: handle multiple error
   alerts in the database admin web UI.
 
+* Eject discs in background process to avoid hanging the IO loop 
+  while the hardware spits out the disc.
+
 
 1.1 2015-03-08
 --------------

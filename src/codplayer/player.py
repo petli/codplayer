@@ -239,21 +239,7 @@ class Player(Daemon):
             self.ripper = None
 
         state = self.transport.eject()
-
-        # Eject the disc with the help of an external command. There's
-        # far too many ioctls to keep track of to do it ourselves.
-        if self.cfg.eject_command:
-            args = [self.cfg.eject_command, self.cfg.cdrom_device]
-            try:
-                subprocess.check_call(
-                    args,
-                    close_fds = True,
-                    stdout = self._log_file,
-                    stderr = subprocess.STDOUT)
-            except OSError, e:
-                self.log("error executing command {0!r}: {1}:", args, e)
-            except subprocess.CalledProcessError, e:
-                self.log("{0}", e)
+        self.eject_disc()
 
         return state
 
@@ -373,6 +359,33 @@ class Player(Daemon):
         src = source.PCMDiscSource(self, disc, is_ripping)
         return self.transport.new_source(src, track_number)
 
+
+    def eject_disc(self):
+        """Eject the disc with the help of an external command. (There's
+        far too many ioctls to keep track of to do it ourselves.)
+        """
+
+        if self.cfg.eject_command:
+            args = [self.cfg.eject_command, self.cfg.cdrom_device]
+            try:
+                process = subprocess.Popen(
+                    args,
+                    close_fds = True,
+                    stdout = self._log_file,
+                    stderr = subprocess.STDOUT)
+            except OSError, e:
+                self.log("error executing command {0!r}: {1}:", args, e)
+                return
+
+            def wait_for_eject():
+                if process.poll() == None:
+                    self.io_loop.add_callback(wait_for_eject)
+                elif process.returncode != 0:
+                    self.log("{} finished with error code: {}", args, process.returncode)
+                else:
+                    self.debug("{} finished ok", args)
+
+            self.io_loop.add_callback(wait_for_eject)
 
     #
     # State publishing
