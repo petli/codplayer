@@ -1,7 +1,7 @@
 codplayer releases
 ==================
 
-2.0 ????-??-??
+2.0 2016-04-09
 --------------
 
 Some significant and breaking changes merits bumping the major version
