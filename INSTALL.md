@@ -16,12 +16,6 @@ system this should install them all:
         libasound2-dev python-dev python-virtualenv python-pip \
         libzmq3 libzmq3-dev
 
-Raspbian has an older version of ZeroMQ:
-
-    apt-get install libdiscid0 cdrdao cdparanoia eject \
-        libasound2-dev python-dev python-virtualenv python-pip \
-        libzmq1 libzmq-dev
-
 If you want to run codlcd, you also need to install this:
 
     apt-get install python-smbus
@@ -31,9 +25,11 @@ Install released package
 ------------------------
 
 The latest release of codplayer can be installed with `pip`.  It is
-recommended to install it in a virtualenv:
+recommended to install it in a virtualenv, and ensure pip is updated
+before installing codplayer:
 
     virtualenv ~/cod
+    ~/cod/bin/pip install -U pip
     ~/cod/bin/pip install codplayer
 
 Then continue with the configuration, described below.
@@ -43,6 +39,7 @@ python-smbus package installed above, and additional dependencies are
 needed.  Set it up like this instead:
 
     virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install -U pip
     ~/cod/bin/pip install 'codplayer[lcd]'
 
 It seems that on Raspbian setuptools may not be able to install
@@ -50,6 +47,7 @@ non-pypi dependencies.  In that case, try installing them manually
 before installing codplayer:
 
     virtualenv --system-site-packages ~/cod
+    ~/cod/bin/pip install -U pip
     ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
     ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
     ~/cod/bin/pip install 'codplayer[lcd]'
