@@ -1,12 +1,16 @@
-# codplayer - REST API using bottle.py
+# codplayer - REST API using tornado and sockjs
 #
-# Copyright 2014 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2014-2017 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 from pkg_resources import resource_filename
+import traceback
 
-import bottle
+from tornado import web
+from tornado import httpserver
+from tornado import netutil
+from tornado import ioloop
 import musicbrainzngs
 
 from . import version
@@ -35,129 +39,169 @@ class DiscOverview(model.Disc):
 
 class RestDaemon(Daemon):
     def __init__(self, cfg, database, debug = False):
-        self._cfg = cfg
         self._database = database
         super(RestDaemon, self).__init__(cfg, debug = debug)
 
+    @property
+    def database(self):
+        return self._database
+
+
+    @property
+    def io_loop(self):
+        # Use full tornado IOLoop here instead of ZMQ mini version
+        if self._io_loop is None:
+            self._io_loop = ioloop.IOLoop()
+
+            # Force logging onto cod log file
+            self._io_loop.handle_callback_exception = self._log_exception
+
+        return self._io_loop
+
+
     def setup_prefork(self):
-        self._create_app()
+        params = { 'daemon': self }
+
+        urls = [
+            web.URLSpec('^/discs$', DiscListHandler, params),
+            web.URLSpec('^/discs/([^/]+)$', DiscHandler, params),
+            web.URLSpec('^/discs/([^/]+)/musicbrainz$', MusicbrainzHandler, params),
+            web.URLSpec('^/players$', PlayersHandler, params),
+            web.URLSpec('^/(.*)', web.StaticFileHandler, {
+                'path': resource_filename('codplayer', 'data/dbadmin'),
+                'default_filename': 'codadmin.html'
+            })
+        ]
+
+        self._app = web.Application(
+            urls,
+            serve_traceback=True,
+            compress_response=True,
+            log_function=self._log_request)
+
+        # Create sockets manually before fork so they can open privileged ports
+        self._server_sockets = netutil.bind_sockets(port=self.config.port, address=self.config.host, reuse_port=True)
+        for s in self._server_sockets:
+            self.preserve_file(s)
+
 
     def run(self):
-        # Ideally, a server should be created in setup_postfork() (or
-        # even setup_prefork() and keeping the listen socket alive
-        # across the fork) and then go into the loop here.  That would
-        # allow listening on a privileged port while still dropping
-        # privileges.  In this simple setup, that won't work.
-        self._app.run(host = self._cfg.host, port = self._cfg.port)
+        # Cannot access IOLoop until after fork, since the epoll FD is lost otherwise
+        server = httpserver.HTTPServer(self._app, io_loop=self.io_loop)
+        server.add_sockets(self._server_sockets)
+
+        self.log('listening on {}:{}', self.config.host, self.config.port)
+        self.io_loop.start()
 
 
-    def _create_app(self):
-        static_dir = resource_filename('codplayer', 'data/dbadmin')
-        self._app = app = bottle.Bottle()
+    def _log_request(self, handler):
+        status = handler.get_status()
+        self.log('{0.method} {0.uri} {1} {0.remote_ip}', handler.request, status)
 
 
-        @app.route('/discs')
-        def server_discs():
-            """Return an array of DiscOverview JSON objects for all discs
-            in the database.
-            """
-            discs = []
-            for db_id in self._database.iterdiscs_db_ids():
-                try:
-                    disc = self._database.get_disc_by_db_id(db_id)
-                    if disc:
-                        discs.append(DiscOverview(disc))
-                except model.DiscInfoError, e:
-                    pass
-
-            bottle.response.content_type = 'application/json'
-            return serialize.get_jsons(discs, pretty = False)
+    def _log_exception(self, callback):
+        self.log('Unhandled exception:\n{}', traceback.format_exc())
 
 
-        @app.get('/discs/<disc_id>')
-        def server_disc(disc_id):
-            """Return a full model.ExtDisc JSON object for the disc
-            with the provided Musicbrainz disc ID.
-            """
-            if not self._database.is_valid_disc_id(disc_id):
-                bottle.abort(400, 'Invalid disc_id')
+class BaseHandler(web.RequestHandler):
+    def initialize(self, daemon):
+        self._daemon = daemon
+        self._database = daemon.database
 
-            disc = self._database.get_disc_by_disc_id(disc_id)
-            if disc is None:
-                bottle.abort(404, 'Unknown disc_id')
+    def _send_json(self, obj, pretty=True):
+        self.set_header('Content-type', 'application/json')
+        self.finish(serialize.get_jsons(obj, pretty=pretty))
 
-            bottle.response.content_type = 'application/json'
-            return serialize.get_jsons(model.ExtDisc(disc), pretty = True)
-
-
-        @app.put('/discs/<disc_id>')
-        def server_disc(disc_id):
-            """Parse a model.ExtDisc JSON object and update the database
-            record for the given Musicbrainz disc ID.
-            """
-            if not self._database.is_valid_disc_id(disc_id):
-                bottle.abort(400, 'Invalid disc_id')
-
-            if not bottle.request.json:
-                bottle.abort(400, 'Missing disc JSON')
-
-            input_disc = serialize.load_jsono(model.ExtDisc, bottle.request.json)
-
-            if disc_id != input_disc.disc_id:
-                bottle.abort(400, 'disc_id mismatch: got "{0}" in URL, "{1}" in JSON'.format(
-                        disc_id, input_disc.disc_id))
-
-            db_disc = self._database.update_disc(input_disc)
-
-            bottle.response.content_type = 'application/json'
-            return serialize.get_jsons(model.ExtDisc(db_disc), pretty = True)
+    def log_exception(self, exc_type, exc_value, exc_tb):
+        if not isinstance(exc_value, web.HTTPError):
+            self._daemon.log('Unhandled exception:\n{}', ''.join(
+                traceback.format_exception(exc_type, exc_value, exc_tb)))
 
 
-        @app.get('/discs/<disc_id>/musicbrainz')
-        def server_disc_musicbrainz(disc_id):
-            """Return an array of model.ExtDisc JSON objects containing
-            all matching records from Musicbrainz.
-            """
+class DiscListHandler(BaseHandler):
+    """Return an array of DiscOverview JSON objects for all discs
+    in the database.
+    """
 
+    def get(self):
+        discs = []
+        for db_id in self._database.iterdiscs_db_ids():
             try:
-                musicbrainzngs.set_useragent('codplayer', version, 'https://github.com/petli/codplayer')
+                disc = self._database.get_disc_by_db_id(db_id)
+                if disc:
+                    discs.append(DiscOverview(disc))
+            except model.DiscInfoError, e:
+                pass
 
-                # TODO: cache the response XML
-                mb_dict = musicbrainzngs.get_releases_by_discid(
-                    disc_id, includes = ['recordings', 'artist-credits'])
-
-                discs = model.ExtDisc.get_from_mb_dict(mb_dict, disc_id)
-                if not discs:
-                    bottle.abort(404, 'No Musicbrainz releases matching {0}'.format(disc_id))
-
-                bottle.response.content_type = 'application/json'
-                return serialize.get_jsons(discs, pretty = False)
-
-            except musicbrainzngs.WebServiceError, e:
-                if e.cause and e.cause.code:
-                    # Pass on the response code
-                    bottle.abort(e.cause.code, 'Musicbrainz web service error: {0}'.format(e))
-                else:
-                    bottle.abort(500, 'Musicbrainz web service error: {0}'.format(e))
-
-            except musicbrainzngs.MusicBrainzError, e:
-                bottle.abort(500, 'Musicbrainz web service error: {0}'.format(e))
+        self._send_json(discs, pretty=False)
 
 
-        @app.route('/players')
-        def server_players():
-            """Return an array of JSON objects for all configured players.
-            """
-            bottle.response.content_type = 'application/json'
-            return serialize.get_jsons(self._cfg.players, pretty = True)
+class DiscHandler(BaseHandler):
+    """GET or PUT full model.ExtDisc JSON object for the disc with the
+    provided Musicbrainz disc ID.
+    """
+
+    def get(self, disc_id):
+        if not self._database.is_valid_disc_id(disc_id):
+            raise web.HTTPError(400, 'Invalid disc_id')
+
+        disc = self._database.get_disc_by_disc_id(disc_id)
+        if disc is None:
+            raise web.HTTPError(404, 'Unknown disc_id')
+
+        self._send_json(model.ExtDisc(disc))
 
 
-        # Serve static files from the Python package
-        @app.route('/<filename:path>')
-        def server_static(filename):
-            return bottle.static_file(filename, root = static_dir)
+    def put(self, disc_id):
+        if not self._database.is_valid_disc_id(disc_id):
+            raise web.HTTPError(400, 'Invalid disc_id')
 
-        @app.route('/')
-        def server_root():
-            return bottle.static_file('codadmin.html', root = static_dir)
+        if not self.request.body:
+            raise web.HTTPError(400, 'Missing disc JSON')
 
+        try:
+            input_disc = serialize.load_jsons(model.ExtDisc, self.request.body)
+        except serialize.LoadError as e:
+            raise web.HTTPError(400, str(e))
+
+        if disc_id != input_disc.disc_id:
+            raise web.HTTPError(400, 'disc_id mismatch: got "{0}" in URL, "{1}" in JSON'.format(
+                disc_id, input_disc.disc_id))
+
+        db_disc = self._database.update_disc(input_disc)
+        self._send_json(model.ExtDisc(db_disc))
+
+
+class MusicbrainzHandler(BaseHandler):
+    """Return an array of model.ExtDisc JSON objects containing
+    all matching records from Musicbrainz.
+    """
+
+    def get(self, disc_id):
+        try:
+            musicbrainzngs.set_useragent('codplayer', version, 'https://github.com/petli/codplayer')
+
+            # TODO: cache the response XML
+            mb_dict = musicbrainzngs.get_releases_by_discid(
+                disc_id, includes = ['recordings', 'artist-credits'])
+
+            discs = model.ExtDisc.get_from_mb_dict(mb_dict, disc_id)
+            if not discs:
+                raise web.HTTPError(404, 'No Musicbrainz releases matching {0}'.format(disc_id))
+
+            self._send_json(discs)
+
+        except musicbrainzngs.WebServiceError, e:
+            if e.cause and e.cause.code:
+                # Pass on the response code
+                raise web.HTTPError(e.cause.code, 'Musicbrainz web service error: {0}'.format(e))
+            else:
+                raise web.HTTPError(500, 'Musicbrainz web service error: {0}'.format(e))
+
+        except musicbrainzngs.MusicBrainzError, e:
+            raise web.HTTPError(500, 'Musicbrainz web service error: {0}'.format(e))
+
+
+class PlayersHandler(BaseHandler):
+    def get(self):
+        self._send_json(self._daemon.config.players)

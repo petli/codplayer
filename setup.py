@@ -57,10 +57,8 @@ setup(
     # Core player dependencies
     install_requires = [
         'python-daemon >= 2.1',
-        'bottle',
         'lockfile',
         'discid >= 1.1',
-        'musicbrainzngs >= 0.5',
         'pyzmq',
     ],
 
@@ -72,7 +70,12 @@ setup(
         'lcd': [
             'Adafruit_CharLCD >= 1.0.0',
             'RPIO',
-            ]
+        ],
+
+        'rest': [
+            'tornado ~= 4.4',
+            'musicbrainzngs >= 0.5',
+        ],
     },
 
     setup_requires = [
