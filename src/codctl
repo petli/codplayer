@@ -162,7 +162,10 @@ parser_stop = subparsers.add_parser(
     'stop', help = 'stop playing the disc')
 
 parser_eject = subparsers.add_parser(
-    'eject', help = 'stop any playing disc and eject it')
+    'eject', help = 'stop any playing disc and eject it physically')
+
+parser_ejected = subparsers.add_parser(
+    'ejected', help = 'inform codplayerd that a disc has been ejected physically')
 
 parser_quit = subparsers.add_parser(
     'quit', help = 'tell player process to quit nicely')

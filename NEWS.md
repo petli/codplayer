@@ -1,6 +1,13 @@
 codplayer releases
 ==================
 
+2.1 ????-??-??
+--------------
+
+* New command: `ejected`.  This is used by the `on_cd_eject.sh` script
+  to avoid `codplayerd` trying to eject an already ejected disc.
+
+
 2.0 2016-04-09
 --------------
 

@@ -244,6 +244,16 @@ class Player(Daemon):
         return state
 
 
+    def cmd_ejected(self, args):
+        if self.ripper:
+            self.ripper.stop()
+            self.ripper = None
+
+        state = self.transport.eject()
+
+        return state
+
+
     def cmd_state(self, args):
         return self.transport.get_state()
 
