@@ -25,6 +25,9 @@ Installation
 Installation and configuration instructions are provided in
 [`INSTALL.md`](https://github.com/petli/codplayer/blob/master/INSTALL.md).
 
+Details on setting up the OS for various environments can be found in
+the `doc` directory.
+
 
 Architecture
 ============
@@ -147,7 +150,7 @@ that a disc has been inserted into the reader:
 License
 =======
 
-Copyright 2013-2015 Peter Liljenberg <peter.liljenberg@gmail.com>
+Copyright 2013-2017 Peter Liljenberg <peter.liljenberg@gmail.com>
 
 codplayer is licensed under the MIT license, please see the file
 LICENSE.

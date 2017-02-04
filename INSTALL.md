@@ -2,12 +2,13 @@ Installing codplayer
 ====================
 
 For further information on hardware and OS setup examples, see
-https://github.com/petli/codplayer/wiki
+the `doc` directory.
 
 Dependencies
 ------------
 
-codplayer has been tested with Python 2.7.
+codplayer has been tested with Python 2.7, and will not work with
+Python 3. 
 
 codplayer depends on a number of libraries and utilities.  On a Ubuntu
 system this should install them all:
@@ -83,10 +84,9 @@ current directory (you can also specify a target directory on the
 command line).  Edit them to reflect the CD device, database paths
 etc.
 
-`codplayerd` and `codrestd` look for their config files in
-`sys.prefix/local/etc` by default.  In the virtualenv setup above
-would be `~/cod/local/etc`, and in a system-wide install
-`/usr/local/etc`.
+The daemons look for their config files in `sys.prefix/local/etc` by
+default.  In the virtualenv setup above would be `~/cod/local/etc`,
+and in a system-wide install `/usr/local/etc`.
 
 
 ### ZeroMQ configuration
@@ -119,10 +119,9 @@ Copy these scripts to `/usr/local/bin` and make sure they are executable:
 
 Edit the files if `codctl` isn't installed in `/usr/local/bin` too.
 
-On a RaspberryPi, it seems that it doesn't detect any events unless
-someone uses the USB CDROM device.  The script
-[`tools/trigger_rpi_cdrom_udev.sh`](https://github.com/petli/codplayer/blob/master/tools/trigger_rpi_cdrom_udev.sh)
-can be run by a cron job to solve that.
+*Note: systemd-based dists, which includes Raspbian 8 and most modern
+dists, require different scripts.  These variants all have a
+`-systemd` suffix.*
 
 
 Database initialisation

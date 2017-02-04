@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# Uncomment to investigate problems running the script
+#exec >>/var/run/codplayer/udev.log 2>&1
+
+/usr/local/bin/codctl -q -t 10 eject
