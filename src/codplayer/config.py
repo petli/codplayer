@@ -101,17 +101,6 @@ class PlayerConfig(DaemonConfig):
         )
 
 
-class RestConfig(DaemonConfig):
-    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codrest.conf')
-
-    CONFIG_PARAMS = (
-        serialize.Attr('database', str),
-        serialize.Attr('host', str),
-        serialize.Attr('port', int),
-        serialize.Attr('players', list),
-        )
-
-
 class LCDConfig(DaemonConfig):
     DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codlcd.conf')
 

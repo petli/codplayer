@@ -5,6 +5,9 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 from pkg_resources import resource_filename
+import os
+import sys
+import time
 import traceback
 
 from tornado import web
@@ -14,10 +17,77 @@ from tornado import ioloop
 import musicbrainzngs
 
 from . import version
+from . import config
+from . import command
 from . import db
 from . import model
 from . import serialize
+from . import zerohub
 from .codaemon import Daemon
+
+
+class RemotePlayer(object):
+    TIMEOUT = 5
+
+    def __init__(self, id, name, mq_config_file):
+        self.id = id
+        self.name = name
+        self._mq_config_file = mq_config_file
+        self._cfg = None
+        self._io_loop = None
+
+    @property
+    def json(self):
+        # Very simple serialization...
+        return { 'id': self.id, 'name': self.name }
+
+
+    def load_mq_config(self, config_path):
+        self._cfg = config.MQConfig(os.path.join(os.path.dirname(config_path),
+                                                 self._mq_config_file))
+
+    def start(self, io_loop):
+        self._io_loop = io_loop
+
+
+    def call(self, cmd, on_response=None, on_error=None):
+        assert self._io_loop is not None
+
+        def on_call_timeout():
+            client.close()
+            on_error('timeout')
+
+        def on_call_response(response):
+            self._io_loop.remove_timeout(timeout)
+            client.close()
+            on_response(response)
+
+        def on_call_error(error):
+            self._io_loop.remove_timeout(timeout)
+            client.close()
+            on_error(error)
+
+        timeout = self._io_loop.add_timeout(time.time() + self.TIMEOUT, on_call_timeout)
+        client = zerohub.AsyncRPCClient(self._cfg.player_rpc, io_loop=self._io_loop, name='codrestd')
+        command_client = command.AsyncCommandRPCClient(client)
+        command_client.call(cmd, on_response=on_call_response, on_error=on_call_error)
+
+
+
+class RestConfig(config.DaemonConfig):
+    DEFAULT_FILE = os.path.join(sys.prefix, 'local/etc/codrest.conf')
+
+    CONFIG_PARAMS = (
+        serialize.Attr('database', str),
+        serialize.Attr('host', str),
+        serialize.Attr('port', int),
+        serialize.Attr('players', list_type=RemotePlayer),
+        )
+
+    def __init__(self, config_file=None):
+        super(RestConfig, self).__init__(config_file=config_file)
+        for player in self.players:
+            player.load_mq_config(self.config_path)
 
 
 class DiscOverview(model.Disc):
@@ -49,11 +119,9 @@ class RestDaemon(Daemon):
 
     @property
     def io_loop(self):
-        # Use full tornado IOLoop here instead of ZMQ mini version
+        # Just log errors on cod log file without quitting (as in the default daemon ioloop)
         if self._io_loop is None:
-            self._io_loop = ioloop.IOLoop()
-
-            # Force logging onto cod log file
+            self._io_loop = zerohub.IOLoop()
             self._io_loop.handle_callback_exception = self._log_exception
 
         return self._io_loop
@@ -66,7 +134,9 @@ class RestDaemon(Daemon):
             web.URLSpec('^/discs$', DiscListHandler, params),
             web.URLSpec('^/discs/([^/]+)$', DiscHandler, params),
             web.URLSpec('^/discs/([^/]+)/musicbrainz$', MusicbrainzHandler, params),
-            web.URLSpec('^/players$', PlayersHandler, params),
+            web.URLSpec('^/players$', PlayerListHandler, params),
+            web.URLSpec('^/players/([^/]+)$', PlayerHandler, params),
+            web.URLSpec('^/players/([^/]+)/([^/]+)$', PlayerCommandHandler, params),
             web.URLSpec('^/(.*)', web.StaticFileHandler, {
                 'path': resource_filename('codplayer', 'data/dbadmin'),
                 'default_filename': 'codadmin.html'
@@ -89,6 +159,9 @@ class RestDaemon(Daemon):
         # Cannot access IOLoop until after fork, since the epoll FD is lost otherwise
         server = httpserver.HTTPServer(self._app, io_loop=self.io_loop)
         server.add_sockets(self._server_sockets)
+
+        for p in self.config.players:
+            p.start(self.io_loop)
 
         self.log('listening on {}:{}', self.config.host, self.config.port)
         self.io_loop.start()
@@ -202,6 +275,48 @@ class MusicbrainzHandler(BaseHandler):
             raise web.HTTPError(500, 'Musicbrainz web service error: {0}'.format(e))
 
 
-class PlayersHandler(BaseHandler):
+class PlayerListHandler(BaseHandler):
     def get(self):
-        self._send_json(self._daemon.config.players)
+        self._send_json([p.json for p in self._daemon.config.players])
+
+
+class PlayerHandler(BaseHandler):
+    def get(self, player_id):
+        for p in self._daemon.config.players:
+            if p.id == player_id:
+                self._send_json(p.json)
+                return
+
+        raise web.HTTPError(404, 'Unknown player ID: {}'.format(player_id))
+
+
+class PlayerCommandHandler(BaseHandler):
+    @web.asynchronous
+    def get(self, player_id, cmd):
+        for p in self._daemon.config.players:
+            if p.id == player_id:
+                p.call(str(cmd),
+                       on_response=self._on_player_response,
+                       on_error=self._on_player_error)
+                return
+
+        raise web.HTTPError(404, 'Unknown player ID: {}'.format(player_id))
+
+    post = get
+    put = get
+
+    def _on_player_response(self, response):
+        if response:
+            self._send_json(response)
+        else:
+            self.set_status(204)
+            self.finish()
+
+
+    def _on_player_error(self, error):
+        if isinstance(error, command.CommandError):
+            self.set_status(400, str(error))
+        else:
+            self.set_status(500, str(error))
+
+        self.finish(str(error))
