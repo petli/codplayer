@@ -87,11 +87,57 @@ $(function(){
     //
 
     var Player = Backbone.Model.extend({
+        initialize: function() {
+            this.set('state', null);
+            this.set('rip_state', null);
+            this.set('selected', false);
+        },
     });
 
     var PlayerList = Backbone.Collection.extend({
         url: 'players',
         model: Player,
+
+        initialize: function() {
+            var self = this;
+            var url = location.protocol + '//' + location.host + '/client';
+
+            this.stateClient = new SockJS(url);
+            this.stateClient.onmessage = function(e) {
+                var player = self.get(e.data.id);
+                if (player) {
+                    if (e.data.state) {
+                        var state = e.data.state;
+
+                        state.positionString = self.formatTime(state.position);
+                        state.lengthString = self.formatTime(state.length);
+
+                        player.set('state', state);
+                    }
+
+                    if (e.data.rip_state) {
+                        player.set('rip_state', e.data.rip_state);
+                    }
+                }
+            };
+        },
+
+        formatTime: function(seconds) {
+            var sign = '';
+            if (seconds < 0) {
+                sign = '-';
+                seconds = -seconds;
+            }
+
+            var minPart = Math.floor(seconds / 60).toString();
+            var secPart = (seconds % 60).toString();
+
+            if (secPart.length === 1) {
+                secPart = '0' + secPart;
+            }
+
+            return sign + minPart + ':' + secPart;
+        }
     });
 
 
@@ -698,36 +744,12 @@ $(function(){
         tagName: 'div',
 
         events: {
-            'click .panel-heading': 'onToggleView',
+            'changed input.active-player': 'onSelectedChanged',
         },
 
         initialize: function() {
-            var self = this;
-
-            this.expanded = false;
-            this.iframe = null;
             this.activeRadio = null;
-            this.headingState = null;
-
-            $(window).on('message', function(event) {
-                var ev = event.originalEvent;
-                var data;
-
-                if (self.iframe && ev.source === self.iframe.contentWindow) {
-                    data = JSON.parse(ev.data);
-                    if (data &&
-                        data.codplayer &&
-                        data.codplayer.state &&
-                        data.codplayer.state.summary &&
-                        self.headingState) {
-                        self.headingState.text(data.codplayer.state.summary);
-                    }
-                    else {
-                        console.warn('unexpected message: %j', data);
-                    }
-                }
-            });
-
+            this.listenTo(this.model, 'change', this.render);
             this.listenTo(Backbone, 'play-disc', this.onPlayDisc);
         },
 
@@ -735,55 +757,19 @@ $(function(){
 
         render: function() {
             this.$el.html(this.template(this.model.toJSON()));
-            this.iframe = this.$('iframe.player').get(0);
             this.activeRadio = this.$('input.active-player');
-            this.headingState = this.$('.player-state');
-
-            if (this.model.get('default')) {
-                this.activeRadio.prop('checked', true);
-            }
-
             return this;
         },
 
-        onToggleView: function(event) {
-            if (event.target.tagName.toUpperCase() === 'INPUT') {
-                /* Ignore clicks on the radio button */
-                return;
+        onSelectedChanged: function() {
+            if (this.activeRadio) {
+                this.model.set('selected', this.activeRadio.prop('checked'));
             }
-
-            if (this.expanded) {
-                this.headingState.fadeIn();
-                this.$('.panel-collapse').collapse('hide');
-            }
-            else
-            {
-                // fadeOut doesn't look good together with the expanding panel
-                this.headingState.hide();
-                this.$('.panel-collapse').collapse('show');
-            }
-
-            this.expanded = !this.expanded;
         },
 
         onPlayDisc: function(discID) {
-            if (this.activeRadio && this.activeRadio.prop('checked')) {
-                // This is the target, so send a message to the
-                // control widget in the iframe
-                if (this.iframe && this.iframe.contentWindow) {
-                    console.log('Telling %s to play %s', this.iframe.src, discID);
-                    this.iframe.contentWindow.postMessage(
-                        JSON.stringify({
-                            codplayer: {
-                                play: {
-                                    disc: discID,
-                                },
-                            }
-                        }), "*");
-                }
-                else {
-                    console.warning('should send play message, but there is no iframe or window in it');
-                }
+            if (!this.model.get('selected')) {
+                return;
             }
         },
     });
@@ -825,6 +811,11 @@ $(function(){
 
     players.fetch({
         success: function(collection) {
+            var firstPlayer = collection.first();
+            if (firstPlayer) {
+                firstPlayer.set('selected', true);
+            }
+
             playersView = new PlayersView({ collection: collection });
             playersView.render();
         }

@@ -9,11 +9,13 @@ import os
 import sys
 import time
 import traceback
+import json
 
 from tornado import web
 from tornado import httpserver
 from tornado import netutil
 from tornado import ioloop
+from sockjs.tornado import SockJSRouter, SockJSConnection
 import musicbrainzngs
 
 from . import version
@@ -22,11 +24,26 @@ from . import command
 from . import db
 from . import model
 from . import serialize
+from . import state
 from . import zerohub
 from .codaemon import Daemon
 
 
 class RemotePlayer(object):
+    """Represents a codplayer instance that can be controlled and subscribed to.
+
+    All state updates are sent as a JSON dictionary on this format.
+    'id' is always being present, while the other properties
+    are omitted or null if they are unchanged or not known.
+
+    {
+        'id': <player ID>,
+        'state': { ... },
+        'rip_state' { ... },
+        'disc': { ... }
+    }
+    """
+
     TIMEOUT = 5
 
     def __init__(self, id, name, mq_config_file):
@@ -34,7 +51,13 @@ class RemotePlayer(object):
         self.name = name
         self._mq_config_file = mq_config_file
         self._cfg = None
-        self._io_loop = None
+        self._daemon = None
+        self._socket_router = None
+        self._current_state = None
+        self._current_rip_state = None
+        self._current_disc = None
+        self._state_client = None
+        self._subscribers = set()
 
     @property
     def json(self):
@@ -46,31 +69,122 @@ class RemotePlayer(object):
         self._cfg = config.MQConfig(os.path.join(os.path.dirname(config_path),
                                                  self._mq_config_file))
 
-    def start(self, io_loop):
-        self._io_loop = io_loop
+    def start(self, daemon, socket_router):
+        self._daemon = daemon
+        self._socket_router = socket_router
 
 
     def call(self, cmd, on_response=None, on_error=None):
-        assert self._io_loop is not None
+        assert self._daemon is not None
 
         def on_call_timeout():
+            self._daemon.log('player {}: timeout for cmd {}', self.id, cmd)
             client.close()
-            on_error('timeout')
+            if on_error:
+                on_error('timeout')
 
         def on_call_response(response):
-            self._io_loop.remove_timeout(timeout)
+            self._daemon.io_loop.remove_timeout(timeout)
             client.close()
             on_response(response)
 
         def on_call_error(error):
-            self._io_loop.remove_timeout(timeout)
+            self._daemon.log('player {}: error for cmd {}: {}', self.id, cmd, error)
+            self._daemon.io_loop.remove_timeout(timeout)
             client.close()
-            on_error(error)
+            if on_error:
+                on_error(error)
 
-        timeout = self._io_loop.add_timeout(time.time() + self.TIMEOUT, on_call_timeout)
-        client = zerohub.AsyncRPCClient(self._cfg.player_rpc, io_loop=self._io_loop, name='codrestd')
+        timeout = self._daemon.io_loop.add_timeout(time.time() + self.TIMEOUT, on_call_timeout)
+        client = zerohub.AsyncRPCClient(self._cfg.player_rpc, io_loop=self._daemon.io_loop, name='codrestd')
         command_client = command.AsyncCommandRPCClient(client)
         command_client.call(cmd, on_response=on_call_response, on_error=on_call_error)
+
+
+    def subscribe(self, connection):
+        """Subscribe a SockJS connection to state updates.
+        """
+
+        self._subscribers.add(connection)
+        self._daemon.log('player {}: client subscribing (count {})', self.id, len(self._subscribers))
+
+        if not self._state_client:
+            self._daemon.log('player {}: subscribing to player state updates ', self.id)
+
+            self._current_state = None
+            self._current_rip_state = None
+            self._current_disc = None
+            self._state_client = state.StateClient(
+                self._cfg.state, io_loop=self._daemon.io_loop,
+                on_state=self._on_state,
+                on_rip_state=self._on_rip_state,
+                on_disc=self._on_disc)
+
+            # Fetch info immediately
+            self.call('state', on_response=self._on_state)
+            self.call('rip_state', on_response=self._on_rip_state)
+            self.call('source', on_response=self._on_disc)
+
+        else:
+            connection.send({
+                'id': self.id,
+                'state': self._current_state,
+                'rip_state': self._current_rip_state,
+                'disc': self._current_disc
+            })
+
+
+    def unsubscribe(self, connection):
+        """Unsubscribe a SockJS connection from state updates.
+        """
+        self._subscribers.discard(connection)
+        self._daemon.log('player {}: client unsubscribing (count {})', self.id, len(self._subscribers))
+
+        if not self._subscribers and self._state_client:
+            self._daemon.log('player {}: unsubscribing from player state updates ', self.id)
+
+            self._state_client.close()
+            self._state_client = None
+            self._current_state = None
+            self._current_rip_state = None
+            self._current_disc = None
+
+
+    def _on_state(self, state):
+        # Pass state through JSON serialization back to dict,
+        # since sockjs-tornado expects objects that can be
+        # serialized without any of the codplayer special stuff.
+
+        self._current_state = json.loads(serialize.get_jsons(state))
+
+        self._socket_router.broadcast(
+            self._subscribers,
+            {
+                'id': self.id,
+                'state': self._current_state
+            })
+
+
+    def _on_rip_state(self, rip_state):
+        self._current_rip_state = json.loads(serialize.get_jsons(rip_state))
+
+        self._socket_router.broadcast(
+            self._subscribers,
+            {
+                'id': self.id,
+                'rip_state': self._current_rip_state
+            })
+
+
+    def _on_disc(self, disc):
+        self._current_disc = json.loads(serialize.get_jsons(disc))
+
+        self._socket_router.broadcast(
+            self._subscribers,
+            {
+                'id': self.id,
+                'disc': self._current_disc
+            })
 
 
 
@@ -110,6 +224,7 @@ class DiscOverview(model.Disc):
 class RestDaemon(Daemon):
     def __init__(self, cfg, database, debug = False):
         self._database = database
+        self._debug_mode = debug
         super(RestDaemon, self).__init__(cfg, debug = debug)
 
     @property
@@ -128,7 +243,22 @@ class RestDaemon(Daemon):
 
 
     def setup_prefork(self):
+        # Create sockets manually before fork so they can open privileged ports
+        self._server_sockets = netutil.bind_sockets(port=self.config.port, address=self.config.host, reuse_port=True)
+        for s in self._server_sockets:
+            self.preserve_file(s)
+
+
+    def run(self):
+        # Cannot access IOLoop until after fork, since the epoll FD is lost otherwise
+
         params = { 'daemon': self }
+
+        # Helper function to pass players into the connection handler
+        def connection(*args):
+            return PlayerClientConnection(self.config.players, *args)
+
+        socket_router = SockJSRouter(connection, prefix='/client', io_loop=self.io_loop)
 
         urls = [
             web.URLSpec('^/discs$', DiscListHandler, params),
@@ -144,24 +274,18 @@ class RestDaemon(Daemon):
         ]
 
         self._app = web.Application(
-            urls,
+            socket_router.urls + urls,
             serve_traceback=True,
-            compress_response=True,
+            compress_response=not self._debug_mode,
+            static_hash_cache=not self._debug_mode,
             log_function=self._log_request)
 
-        # Create sockets manually before fork so they can open privileged ports
-        self._server_sockets = netutil.bind_sockets(port=self.config.port, address=self.config.host, reuse_port=True)
-        for s in self._server_sockets:
-            self.preserve_file(s)
 
-
-    def run(self):
-        # Cannot access IOLoop until after fork, since the epoll FD is lost otherwise
         server = httpserver.HTTPServer(self._app, io_loop=self.io_loop)
         server.add_sockets(self._server_sockets)
 
         for p in self.config.players:
-            p.start(self.io_loop)
+            p.start(self, socket_router)
 
         self.log('listening on {}:{}', self.config.host, self.config.port)
         self.io_loop.start()
@@ -320,3 +444,20 @@ class PlayerCommandHandler(BaseHandler):
             self.set_status(500, str(error))
 
         self.finish(str(error))
+
+
+class PlayerClientConnection(SockJSConnection):
+    def __init__(self, players, *args):
+        self._players = players
+        super(PlayerClientConnection, self).__init__(*args)
+
+    def on_open(self, request):
+        for p in self._players:
+            p.subscribe(self)
+
+    def on_close(self):
+        for p in self._players:
+            p.unsubscribe(self)
+
+    def on_message(self, msg):
+        pass

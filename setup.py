@@ -74,6 +74,7 @@ setup(
 
         'rest': [
             'tornado ~= 4.4',
+            'sockjs-tornado ~= 1.0',
             'musicbrainzngs >= 0.5',
         ],
     },

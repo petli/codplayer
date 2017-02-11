@@ -165,6 +165,11 @@ class StateClient(object):
         self._reciever = zerohub.Receiver(
             channel, io_loop = io_loop, callbacks = subscriptions, )
 
+    def close(self):
+        if self._reciever:
+            self._reciever.close()
+            self._reciever = None
+
     def _parse_message(self, msg, cls):
         if len(msg) < 2:
             raise StateError('zeromq: missing message parts: {0}'.format(msg))

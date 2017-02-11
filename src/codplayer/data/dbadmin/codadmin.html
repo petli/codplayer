@@ -13,7 +13,8 @@
   <link rel="stylesheet" href="libs/bootstrap.min.css">
   <link rel="stylesheet" href="libs/bootstrap-theme.min.css">
   <script src="libs/bootstrap.min.js"></script>
-
+  <script src="libs/sockjs.min.js"></script>
+  
   <!-- Our own stuff --> 
   <link rel="stylesheet" href="codadmin.css" type="text/css">
   <script src="codadmin.js"></script>
@@ -53,7 +54,11 @@
   </div>
 
   <!-- Holder for player elements -->
-  <div id="players">
+  <div id="players-container">
+    <div class="container">
+      <div id="players" class="row">
+      </div>
+    </div>
   </div>
 
   <!-- Disc selection modal popup -->
@@ -391,15 +396,16 @@
     -- TEMPLATE: Player container
     -->
   <script type="text/template" id="player-template">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <input type="radio" class="active-player radio-inline"
-               name="active-player">
-        <%- name %> <span class="player-state pull-right"></span>
-      </div>
-      <div class="panel-collapse collapse">
-        <iframe class="player" src="<%- url %>">
-        </iframe>
+    <div class="col-xs-12 col-md-6 col-lg-4">
+      <div class="well well-sm">
+        <input type="radio" class="active-player radio-inline" name="active-player"
+               <% if (selected) { %> checked <% } %> >
+        <%- name %>
+        <% if (state && state.state !== 'NO_DISC') { %>
+        <%- state.state %>
+        <%- state.track %>/<%- state.no_tracks %>
+        <%- state.positionString %>/<%- state.lengthString %>
+        <% } %>
       </div>
     </div>
   </script>
