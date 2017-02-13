@@ -29,6 +29,14 @@ from . import zerohub
 from .codaemon import Daemon
 
 
+class ClientCommand(serialize.Serializable):
+    MAPPING = (
+        serialize.Attr('id', str),
+        serialize.Attr('command', str),
+        serialize.Attr('args', list_type=str, optional=True),
+    )
+
+
 class RemotePlayer(object):
     """Represents a codplayer instance that can be controlled and subscribed to.
 
@@ -74,7 +82,7 @@ class RemotePlayer(object):
         self._socket_router = socket_router
 
 
-    def call(self, cmd, on_response=None, on_error=None):
+    def call(self, cmd, args=(), on_response=None, on_error=None):
         assert self._daemon is not None
 
         def on_call_timeout():
@@ -86,7 +94,8 @@ class RemotePlayer(object):
         def on_call_response(response):
             self._daemon.io_loop.remove_timeout(timeout)
             client.close()
-            on_response(response)
+            if on_response:
+                on_response(response)
 
         def on_call_error(error):
             self._daemon.log('player {}: error for cmd {}: {}', self.id, cmd, error)
@@ -98,7 +107,7 @@ class RemotePlayer(object):
         timeout = self._daemon.io_loop.add_timeout(time.time() + self.TIMEOUT, on_call_timeout)
         client = zerohub.AsyncRPCClient(self._cfg.player_rpc, io_loop=self._daemon.io_loop, name='codrestd')
         command_client = command.AsyncCommandRPCClient(client)
-        command_client.call(cmd, on_response=on_call_response, on_error=on_call_error)
+        command_client.call(cmd, args, on_response=on_call_response, on_error=on_call_error)
 
 
     def subscribe(self, connection):
@@ -256,7 +265,7 @@ class RestDaemon(Daemon):
 
         # Helper function to pass players into the connection handler
         def connection(*args):
-            return PlayerClientConnection(self.config.players, *args)
+            return PlayerClientConnection(self, self.config.players, *args)
 
         socket_router = SockJSRouter(connection, prefix='/client', io_loop=self.io_loop)
 
@@ -447,7 +456,8 @@ class PlayerCommandHandler(BaseHandler):
 
 
 class PlayerClientConnection(SockJSConnection):
-    def __init__(self, players, *args):
+    def __init__(self, daemon, players, *args):
+        self._daemon = daemon
         self._players = players
         super(PlayerClientConnection, self).__init__(*args)
 
@@ -460,4 +470,12 @@ class PlayerClientConnection(SockJSConnection):
             p.unsubscribe(self)
 
     def on_message(self, msg):
-        pass
+        try:
+            cmd = serialize.load_jsons(ClientCommand, msg)
+        except serialize.LoadError, e:
+            self._daemon.log('invalid message: {}: {}', e, msg)
+            return
+
+        for p in self._players:
+            if p.id == cmd.id:
+                p.call(cmd.command, cmd.args or ())

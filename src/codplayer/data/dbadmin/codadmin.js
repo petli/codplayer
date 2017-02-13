@@ -4,7 +4,7 @@
 //
 // Distributed under an MIT license, please see LICENSE in the top dir.
 
-/* global Backbone, $, _ */
+/* global Backbone, $, _, SockJS */
 
 $(function(){
     'use strict';
@@ -120,6 +120,12 @@ $(function(){
                     }
                 }
             };
+
+            this.listenTo(Backbone, 'client-command', this.onClientCommand);
+        },
+
+        onClientCommand: function(cmd) {
+            this.stateClient.send(JSON.stringify(cmd));
         },
 
         formatTime: function(seconds) {
@@ -137,7 +143,7 @@ $(function(){
             }
 
             return sign + minPart + ':' + secPart;
-        }
+        },
     });
 
 
@@ -744,7 +750,7 @@ $(function(){
         tagName: 'div',
 
         events: {
-            'changed input.active-player': 'onSelectedChanged',
+            'change input.active-player': 'onSelected',
         },
 
         initialize: function() {
@@ -761,21 +767,25 @@ $(function(){
             return this;
         },
 
-        onSelectedChanged: function() {
+        onSelected: function() {
             if (this.activeRadio) {
-                this.model.set('selected', this.activeRadio.prop('checked'));
+                Backbone.trigger('player-selected', this.model.id);
             }
         },
 
         onPlayDisc: function(discID) {
-            if (!this.model.get('selected')) {
-                return;
+            if (this.model.get('selected')) {
+                Backbone.trigger('client-command', { id: this.model.id, command: 'disc', args: [discID] });
             }
         },
     });
 
     var PlayersView = Backbone.View.extend({
         el: $('#players'),
+
+        initialize: function() {
+            this.listenTo(Backbone, 'player-selected', this.onPlayerSelected);
+        },
 
         render: function() {
             var self = this;
@@ -787,6 +797,12 @@ $(function(){
                 self.$el.append(view.render().el);
             });
             this.$el.fadeIn();
+        },
+
+        onPlayerSelected: function(id) {
+            this.collection.each(function(player) {
+                player.set('selected', player.id === id);
+            });
         },
     });
 
