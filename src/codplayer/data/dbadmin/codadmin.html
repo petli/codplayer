@@ -420,6 +420,15 @@
             <% } %>
             <%- state.track %>/<%- state.no_tracks %>
             <%- state.positionString %>/<%- state.lengthString %>
+            <% if (rip_state && rip_state.state !== 'INACTIVE') {
+               switch (rip_state.state) {
+               case 'AUDIO': %>
+            <%- rip_state.progress %>%
+            <% break; case 'TOC': %>
+            TOC
+            <% break; default: %>
+            <%- rip_state.state %>
+            <% } } %>
           </div>
           <div class="col-xs-6 text-right">
             <button type="button" class="player-prev btn btn-default">
