@@ -396,17 +396,51 @@
     -- TEMPLATE: Player container
     -->
   <script type="text/template" id="player-template">
-    <div class="col-xs-12 col-md-6 col-lg-4">
+    <div class="col-xs-12 col-md-8 col-lg-6">
       <div class="well well-sm">
-        <input type="radio" class="active-player radio-inline" name="active-player"
-               <% if (selected) { %> checked <% } %> >
-        <%- name %>
-        <% if (state && state.state !== 'NO_DISC') { %>
-        <%- state.state %>
-        <%- state.track %>/<%- state.no_tracks %>
-        <%- state.positionString %>/<%- state.lengthString %>
+        <div class="row">
+          <div class="col-xs-3">
+            <input type="radio" class="active-player radio-inline" name="active-player"
+                   <% if (selected) { %> checked <% } %> >
+            <%- name %>
+          </div>
+          <div class="col-xs-3">
+            <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') {
+               switch (state.state) {
+               case 'PLAY': %>
+            <span class="glyphicon glyphicon-play"></span>
+            <% break; case 'PAUSE': %>
+            <span class="glyphicon glyphicon-pause"></span>
+            <% break; case 'STOP': %>
+            <span class="glyphicon glyphicon-stop"></span>
+            <% break; case 'WORKING': %>
+            <span class="glyphicon glyphicon-refresh"></span>
+            <% break; default: %>
+            <%- state.state %>
+            <% } %>
+            <%- state.track %>/<%- state.no_tracks %>
+            <%- state.positionString %>/<%- state.lengthString %>
+          </div>
+          <div class="col-xs-6 text-right">
+            <button type="button" class="player-prev btn btn-default">
+              <span class="glyphicon glyphicon-step-backward"></span>
+            </button>
+            <button type="button" class="player-play-pause btn btn-default">
+              <span class="glyphicon glyphicon-pause"></span>
+              <span class="glyphicon glyphicon-play"></span>
+            </button>
+            <button type="button" class="player-next btn btn-default">
+              <span class="glyphicon glyphicon-step-forward"></span>
+            </button>
+            <button type="button" class="player-stop btn btn-default">
+              <span class="glyphicon glyphicon-stop"></span>
+            </button>
+            <button type="button" class="player-eject btn btn-default">
+              <span class="glyphicon glyphicon-eject"></span>
+            </button>
+          </div>
         <% } %>
-      </div>
+      </div></div>
     </div>
   </script>
 </body>

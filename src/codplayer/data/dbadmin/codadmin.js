@@ -751,6 +751,11 @@ $(function(){
 
         events: {
             'change input.active-player': 'onSelected',
+            'click button.player-prev': function() { this.onButton('prev'); },
+            'click button.player-stop': function() { this.onButton('stop'); },
+            'click button.player-play-pause': function() { this.onButton('play_pause'); },
+            'click button.player-next': function() { this.onButton('next'); },
+            'click button.player-eject': function() { this.onButton('eject'); },
         },
 
         initialize: function() {
@@ -777,6 +782,10 @@ $(function(){
             if (this.model.get('selected')) {
                 Backbone.trigger('client-command', { id: this.model.id, command: 'disc', args: [discID] });
             }
+        },
+
+        onButton: function(command) {
+            Backbone.trigger('client-command', { id: this.model.id, command: command });
         },
     });
 
