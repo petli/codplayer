@@ -399,36 +399,48 @@
     <div class="col-xs-12 col-md-8 col-lg-6">
       <div class="well well-sm">
         <div class="row">
-          <div class="col-xs-3">
+          <div class="col-xs-6">
+            <div class="pull-right">
+            <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') { %>
+              <% switch (state.state) {
+                 case 'PLAY': %>
+              <span class="glyphicon glyphicon-play"></span>
+              <% break; case 'PAUSE': %>
+              <span class="glyphicon glyphicon-pause"></span>
+              <% break; case 'STOP': %>
+              <span class="glyphicon glyphicon-stop"></span>
+              <% break; case 'WORKING': %>
+              <span class="glyphicon glyphicon-refresh"></span>
+              <% break; default: %>
+              <%- state.state %>
+              <% } %>
+              <%- state.track %>/<%- state.no_tracks %>
+              <%- state.positionString %>/<%- state.lengthString %>
+              <% if (rip_state && rip_state.state !== 'INACTIVE') {
+                 switch (rip_state.state) {
+                 case 'AUDIO': %>
+              <%- rip_state.progress %>%
+              <% break; case 'TOC': %>
+              TOC
+              <% break; default: %>
+              <%- rip_state.state %>
+              <% } } %>
+            </div>
             <input type="radio" class="active-player radio-inline" name="active-player"
                    <% if (selected) { %> checked <% } %> >
             <%- name %>
-          </div>
-          <div class="col-xs-3">
-            <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') {
-               switch (state.state) {
-               case 'PLAY': %>
-            <span class="glyphicon glyphicon-play"></span>
-            <% break; case 'PAUSE': %>
-            <span class="glyphicon glyphicon-pause"></span>
-            <% break; case 'STOP': %>
-            <span class="glyphicon glyphicon-stop"></span>
-            <% break; case 'WORKING': %>
-            <span class="glyphicon glyphicon-refresh"></span>
-            <% break; default: %>
-            <%- state.state %>
-            <% } %>
-            <%- state.track %>/<%- state.no_tracks %>
-            <%- state.positionString %>/<%- state.lengthString %>
-            <% if (rip_state && rip_state.state !== 'INACTIVE') {
-               switch (rip_state.state) {
-               case 'AUDIO': %>
-            <%- rip_state.progress %>%
-            <% break; case 'TOC': %>
-            TOC
-            <% break; default: %>
-            <%- rip_state.state %>
-            <% } } %>
+            <br>
+            <% if (disc && state && state.disc_id === disc.disc_id) {
+               if (disc.artist) { %><%- disc.artist %>:<br><% }
+               if (disc.title) { %><%- disc.title %><br><% }
+               if (state.track > 0 && disc.tracks[state.track - 1]) {
+                 if (disc.tracks[state.track - 1].title) { 
+                 %><%- disc.tracks[state.track - 1].number %>: <%- disc.tracks[state.track - 1].title %><br><% }
+                 if (disc.tracks[state.track - 1].artist && disc.tracks[state.track - 1].artist !== disc.artist) {
+                   %>(<%- disc.tracks[state.track - 1].artist %>)<% 
+                 }
+               }
+             } %>
           </div>
           <div class="col-xs-6 text-right">
             <button type="button" class="player-prev btn btn-default">

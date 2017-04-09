@@ -90,6 +90,7 @@ $(function(){
         initialize: function() {
             this.set('state', null);
             this.set('rip_state', null);
+            this.set('disc', null);
             this.set('selected', false);
         },
     });
@@ -117,6 +118,10 @@ $(function(){
 
                     if (e.data.rip_state) {
                         player.set('rip_state', e.data.rip_state);
+                    }
+
+                    if (e.data.disc) {
+                        player.set('disc', e.data.disc);
                     }
                 }
             };
