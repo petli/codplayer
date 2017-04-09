@@ -399,9 +399,9 @@
     <div class="col-xs-12 col-md-8 col-lg-6">
       <div class="well well-sm">
         <div class="row">
+          <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') { %>
           <div class="col-xs-6">
             <div class="pull-right">
-            <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') { %>
               <% switch (state.state) {
                  case 'PLAY': %>
               <span class="glyphicon glyphicon-play"></span>
@@ -460,6 +460,12 @@
               <span class="glyphicon glyphicon-eject"></span>
             </button>
           </div>
+        <% } else { %>
+        <div class="col-xs-12">
+          <input type="radio" class="active-player radio-inline" name="active-player"
+                 <% if (selected) { %> checked <% } %> >
+          <%- name %>
+        </div>
         <% } %>
       </div></div>
     </div>
