@@ -426,9 +426,11 @@
               <%- rip_state.state %>
               <% } } %>
             </div>
-            <input type="radio" class="active-player radio-inline" name="active-player"
-                   <% if (selected) { %> checked <% } %> >
-            <%- name %>
+            <label>
+              <input type="radio" class="active-player radio-inline" name="active-player"
+                     <% if (selected) { %> checked <% } %> >
+              <%- name %>
+            </label>
             <br>
             <% if (disc && state && state.disc_id === disc.disc_id) {
                if (disc.artist) { %><%- disc.artist %>:<br><% }
@@ -462,9 +464,11 @@
           </div>
         <% } else { %>
         <div class="col-xs-12">
-          <input type="radio" class="active-player radio-inline" name="active-player"
-                 <% if (selected) { %> checked <% } %> >
-          <%- name %>
+          <label>
+            <input type="radio" class="active-player radio-inline" name="active-player"
+                   <% if (selected) { %> checked <% } %> >
+            <%- name %>
+          </label>
         </div>
         <% } %>
       </div></div>
