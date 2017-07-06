@@ -68,9 +68,10 @@ codplayer is intended to support different platforms and control
 interfaces.  E.g.:
 
 * `codctl`: command line interface
-* [Web interface](https://github.com/petli/codplayer-control-node)
+* `codrestd`: database admin and simple player UI
 * `codlircd`: IR remote control input events
 * `codlcd`: display state on an LCD and status LED
+* [Old standalone web interface](https://github.com/petli/codplayer-control-node)
 * Control apps (none implemented yet)
 
 

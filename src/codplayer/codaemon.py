@@ -118,6 +118,11 @@ class Daemon(object):
                 self.run()
 
 
+    @property
+    def config(self):
+        return self._daemon_config
+
+
     def _drop_privs(self):
         # Drop any privs to get ready for full operation.  Do this
         # before opening the sink, since we generally need to be

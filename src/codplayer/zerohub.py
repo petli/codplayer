@@ -23,10 +23,9 @@ default instance.
 import zmq
 from zmq.eventloop.zmqstream import ZMQStream
 
-# Rely on the ZeroMQ mini-version of the Tornado ioloop
+# Provide the ZeroMQ mini-version of the Tornado ioloop
+# here for the daemons that doesn't need full tornado
 from zmq.eventloop import ioloop
-#ioloop.install()
-
 from zmq.eventloop.ioloop import IOLoop
 
 

@@ -33,6 +33,11 @@ before installing codplayer:
     ~/cod/bin/pip install -U pip
     ~/cod/bin/pip install codplayer
 
+The database admin web UI `codrestd` require some additional
+dependencies which must be installed explicitly:
+
+    ~/cod/bin/pip install 'codplayer[rest]'
+
 Then continue with the configuration, described below.
 
 If you want to run codlcd, the virtual env needs access to the
@@ -66,10 +71,11 @@ in a virtualenv:
 This will link up the installation in the virtualenv with the source
 directory, so there's no need to re-install after changes.
 
-The LCD dependencies can be installed too by extending the command
+The REST and LCD dependencies can be installed too by extending the command
 line:
 
     ~/cod/bin/python setup.py develop easy_install 'codplayer[lcd]'
+    ~/cod/bin/python setup.py develop easy_install 'codplayer[rest]'
 
 To install fully in a virtual env:
 

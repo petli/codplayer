@@ -4,6 +4,19 @@ codplayer releases
 2.1 ????-??-??
 --------------
 
+### Breaking changes
+
+* `codrestd` now control players directly over ZeroMQ, instead of
+  embedding the Node.js control web widget.  As a result of this the
+  format for specifying the list of players in `codrest.conf` has
+  changed.  The example config file shows the new format.
+
+* The additional dependencies for `codrestd` must be installed
+  specifically, which probably won't happen during a regular update.
+  See [](INSTALL.md) for more details.
+
+### Other fixes
+
 * New command: `ejected`.  This is used by the `on_cd_eject.sh` script
   to avoid `codplayerd` trying to eject an already ejected disc.
 

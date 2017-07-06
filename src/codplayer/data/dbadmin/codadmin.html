@@ -13,7 +13,8 @@
   <link rel="stylesheet" href="libs/bootstrap.min.css">
   <link rel="stylesheet" href="libs/bootstrap-theme.min.css">
   <script src="libs/bootstrap.min.js"></script>
-
+  <script src="libs/sockjs.min.js"></script>
+  
   <!-- Our own stuff --> 
   <link rel="stylesheet" href="codadmin.css" type="text/css">
   <script src="codadmin.js"></script>
@@ -53,7 +54,11 @@
   </div>
 
   <!-- Holder for player elements -->
-  <div id="players">
+  <div id="players-container">
+    <div class="container">
+      <div id="players" class="row">
+      </div>
+    </div>
   </div>
 
   <!-- Disc selection modal popup -->
@@ -391,16 +396,82 @@
     -- TEMPLATE: Player container
     -->
   <script type="text/template" id="player-template">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <input type="radio" class="active-player radio-inline"
-               name="active-player">
-        <%- name %> <span class="player-state pull-right"></span>
-      </div>
-      <div class="panel-collapse collapse">
-        <iframe class="player" src="<%- url %>">
-        </iframe>
-      </div>
+    <div class="col-xs-12 col-md-8 col-lg-6">
+      <div class="well well-sm">
+        <div class="row">
+          <% if (state && state.state !== 'NO_DISC' && state.state !== 'OFF') { %>
+          <div class="col-xs-6">
+            <div class="pull-right">
+              <% switch (state.state) {
+                 case 'PLAY': %>
+              <span class="glyphicon glyphicon-play"></span>
+              <% break; case 'PAUSE': %>
+              <span class="glyphicon glyphicon-pause"></span>
+              <% break; case 'STOP': %>
+              <span class="glyphicon glyphicon-stop"></span>
+              <% break; case 'WORKING': %>
+              <span class="glyphicon glyphicon-refresh"></span>
+              <% break; default: %>
+              <%- state.state %>
+              <% } %>
+              <%- state.track %>/<%- state.no_tracks %>
+              <%- state.positionString %>/<%- state.lengthString %>
+              <% if (rip_state && rip_state.state !== 'INACTIVE') {
+                 switch (rip_state.state) {
+                 case 'AUDIO': %>
+              <%- rip_state.progress %>%
+              <% break; case 'TOC': %>
+              TOC
+              <% break; default: %>
+              <%- rip_state.state %>
+              <% } } %>
+            </div>
+            <label>
+              <input type="radio" class="active-player radio-inline" name="active-player"
+                     <% if (selected) { %> checked <% } %> >
+              <%- name %>
+            </label>
+            <br>
+            <% if (disc && state && state.disc_id === disc.disc_id) {
+               if (disc.artist) { %><%- disc.artist %>:<br><% }
+               if (disc.title) { %><%- disc.title %><br><% }
+               if (state.track > 0 && disc.tracks[state.track - 1]) {
+                 if (disc.tracks[state.track - 1].title) { 
+                 %><%- disc.tracks[state.track - 1].number %>: <%- disc.tracks[state.track - 1].title %><br><% }
+                 if (disc.tracks[state.track - 1].artist && disc.tracks[state.track - 1].artist !== disc.artist) {
+                   %>(<%- disc.tracks[state.track - 1].artist %>)<% 
+                 }
+               }
+             } %>
+          </div>
+          <div class="col-xs-6 text-right">
+            <button type="button" class="player-prev btn btn-default">
+              <span class="glyphicon glyphicon-step-backward"></span>
+            </button>
+            <button type="button" class="player-play-pause btn btn-default">
+              <span class="glyphicon glyphicon-pause"></span>
+              <span class="glyphicon glyphicon-play"></span>
+            </button>
+            <button type="button" class="player-next btn btn-default">
+              <span class="glyphicon glyphicon-step-forward"></span>
+            </button>
+            <button type="button" class="player-stop btn btn-default">
+              <span class="glyphicon glyphicon-stop"></span>
+            </button>
+            <button type="button" class="player-eject btn btn-default">
+              <span class="glyphicon glyphicon-eject"></span>
+            </button>
+          </div>
+        <% } else { %>
+        <div class="col-xs-12">
+          <label>
+            <input type="radio" class="active-player radio-inline" name="active-player"
+                   <% if (selected) { %> checked <% } %> >
+            <%- name %>
+          </label>
+        </div>
+        <% } %>
+      </div></div>
     </div>
   </script>
 </body>

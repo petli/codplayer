@@ -176,6 +176,7 @@ class CodEncoder(json.JSONEncoder):
             return obj.__name__
 
         if isinstance(obj, Serializable):
+            # TODO: strip out anything starting with underscore
             return obj.__dict__
 
         super(CodEncoder, self).default(obj)

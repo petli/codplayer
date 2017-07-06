@@ -17,7 +17,7 @@ from codplayer import full_version
 
 def main(args):
     try:
-        cfg = config.RestConfig(args.config)
+        cfg = rest.RestConfig(args.config)
         database = db.Database(cfg.database)
 
     except config.ConfigError, e:

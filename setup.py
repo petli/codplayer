@@ -6,7 +6,7 @@ from setuptools.command.test import test as TestCommand
 
 setup(
     name = 'codplayer',
-    version = '2.0',
+    version = '2.1',
     license = 'MIT',
     description = 'Complicated CD player',
     author = 'Peter Liljenberg',
@@ -57,10 +57,8 @@ setup(
     # Core player dependencies
     install_requires = [
         'python-daemon >= 2.1',
-        'bottle',
         'lockfile',
         'discid >= 1.1',
-        'musicbrainzngs >= 0.5',
         'pyzmq',
     ],
 
@@ -72,7 +70,13 @@ setup(
         'lcd': [
             'Adafruit_CharLCD >= 1.0.0',
             'RPIO',
-            ]
+        ],
+
+        'rest': [
+            'tornado ~= 4.4',
+            'sockjs-tornado ~= 1.0',
+            'musicbrainzngs >= 0.5',
+        ],
     },
 
     setup_requires = [
