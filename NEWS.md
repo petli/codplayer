@@ -20,6 +20,14 @@ codplayer releases
 * New command: `ejected`.  This is used by the `on_cd_eject.sh` script
   to avoid `codplayerd` trying to eject an already ejected disc.
 
+* Update `codlcd` dependencies to handle Linux v4 kernels.  You may
+  have to update some packages for this to work:
+
+      ~/cod/bin/pip install -U Adafruit-GPIO Adafruit-CharLCD
+
+  You may also have to install this patched version of RPIO:
+  https://github.com/petli/RPIO/tree/v0.10.1-petli
+
 
 2.0 2016-04-09
 --------------

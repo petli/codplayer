@@ -48,15 +48,15 @@ needed.  Set it up like this instead:
     ~/cod/bin/pip install -U pip
     ~/cod/bin/pip install 'codplayer[lcd]'
 
-It seems that on Raspbian setuptools may not be able to install
-non-pypi dependencies.  In that case, try installing them manually
-before installing codplayer:
+There's a problem with RPIO 0.10.1 on RPi model B rev 2 (and probably
+more versions) when updating to a Linux v4 kernel which stops it from
+identifying the platform and understanding the memory mapping.  A
+patch is available in this branch:
+https://github.com/petli/RPIO/tree/v0.10.1-petli
 
-    virtualenv --system-site-packages ~/cod
-    ~/cod/bin/pip install -U pip
-    ~/cod/bin/pip install https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master
-    ~/cod/bin/pip install git+https://github.com/adafruit/Adafruit_Python_CharLCD.git
-    ~/cod/bin/pip install 'codplayer[lcd]'
+Either clone it and install it, or uncomment the line in
+`dependency_links` in `setup.py` before running the install command
+above.
 
 
 Install from source

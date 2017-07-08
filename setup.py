@@ -63,13 +63,16 @@ setup(
     ],
 
     dependency_links = [
-        'git+https://github.com/adafruit/Adafruit_Python_CharLCD.git#egg=Adafruit_CharLCD-1.0.0',
+        # Uncomment this line to use a patched version of RPIO that supports
+        # Linux 4.x on RPi model B rev 2 (and possibly more versions)
+        # 'https://github.com/petli/RPIO/archive/v0.10.1-petli.zip#egg=RPIO-0.10.0'
     ],
 
     extras_require = {
         'lcd': [
-            'Adafruit_CharLCD >= 1.0.0',
-            'RPIO',
+            'Adafruit-GPIO ~= 1.0.0',
+            'Adafruit_CharLCD ~= 1.0.0',
+            'RPIO == 0.10.0',
         ],
 
         'rest': [
