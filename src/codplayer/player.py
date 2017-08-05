@@ -31,7 +31,7 @@ from .state import State, RipState
 from .command import CommandError
 from . import zerohub
 from .codaemon import Daemon, DaemonError
-
+from .sources import *
 
 class PlayerError(DaemonError):
     pass
@@ -366,7 +366,7 @@ class Player(Daemon):
         disc.tracks = [t for t in disc.tracks if not t.skip]
 
         is_ripping = self.ripper is not None
-        src = source.PCMDiscSource(self, disc, is_ripping)
+        src = PCMDiscSource(self, disc, is_ripping)
         return self.transport.new_source(src, track_number)
 
 
@@ -487,7 +487,7 @@ class Transport(object):
 
         # Write NO_DISC state at startup
         self.update_disc()
-        self.update_state()
+        self.update_state(self.state)
 
         # Kick off the threads
         source_thread = threading.Thread(target = self.source_thread,
@@ -531,10 +531,7 @@ class Transport(object):
             self.source = None
             self.start_track = None
             self.update_disc()
-
-            self.state = State()
-            self.state.state = State.OFF
-            self.update_state()
+            self.update_state(State(state = State.OFF))
 
             return copy.copy(self.state)
 
@@ -725,8 +722,7 @@ class Transport(object):
 
         # this is not a new context, the sink just pauses packet playback
         if self.sink.pause():
-            self.state.state = State.PAUSE
-            self.update_state()
+            self.update_state(State(self.state, state = State.PAUSE))
             self.paused_by_user = True
         else:
             self.log('sink refused to pause, keeping PLAY')
@@ -739,8 +735,7 @@ class Transport(object):
             # This is not a new context, we want to keep
             # playing buffered packets
             self.sink.resume()
-            self.state.state = State.PLAY
-            self.update_state()
+            self.update_state(State(self.state, state = State.PLAY))
 
         else:
             self.log('paused after track, playing')
@@ -759,38 +754,35 @@ class Transport(object):
         self.context += 1
         self.source_context_changed.set()
         self.sink_context_changed.set()
-        self.log('setting new context: {0}'.format(self.context))
+        self.debug('setting new context: {0}'.format(self.context))
 
     def set_state_no_disc(self):
-        self.state = State()
-        self.update_state()
+        self.update_state(State())
         
 
     def set_state_working(self):
-        self.state.state = State.WORKING
-        self.state.disc_id = self.source.disc.disc_id
-        self.state.source_disc_id = self.source.disc.source_disc_id
-        self.state.track = self.start_track + 1
-        self.state.no_tracks = len(self.source.disc.tracks)
-        self.state.index = 0
-        self.state.position = 0
-        self.state.length = 0
-        self.update_state()
+        self.update_state(self.source.initial_state(
+            State(state = State.WORKING,
+                  track = self.start_track + 1)))
 
                 
     def set_state_stop(self):
-        self.state.state = State.STOP
-        self.state.track = 0
-        self.state.index = 0
-        self.state.position = 0
-        self.state.length = 0
-        self.update_state()
+        self.update_state(State(self.state,
+                                state = State.STOP,
+                                track = 0,
+                                index = 0,
+                                position = 0,
+                                length = 0))
     
 
-    def update_state(self, log_state = True):
-        if log_state:
-            self.debug('state: {0}', self.state)
+    def update_state(self, state):
+        # Log significant changes
+        if (state.state != self.state.state or
+            state.source != self.state.source or
+            state.track != self.state.track):
+            self.debug('state: {0}', state)
 
+        self.state = state
         self.player.publish_state(self.state)
 
 
@@ -825,7 +817,7 @@ class Transport(object):
                 self.start_track = None
 
                 self.source_context_changed.clear()
-                self.log('using new context: {0}'.format(context))
+                self.debug('using new context: {0}'.format(context))
 
             if src and start_track is not None:
                 self.debug('starting source: {0} at track {1}'.format(src.disc, start_track))
@@ -880,7 +872,7 @@ class Transport(object):
                         state = IDLE
                     context = self.context
                     self.sink_context_changed.clear()
-                    self.log('using new context: {0}'.format(context))
+                    self.debug('using new context: {0}'.format(context))
 
             # Discard packets for an older context
             if packet.context != context:
@@ -918,15 +910,12 @@ class Transport(object):
                 self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
 
                 self.sink.start(packet.format)
-                self.state.state = State.PLAY
-                self.state.disc_id = packet.disc.disc_id
-                self.state.no_tracks = len(packet.disc.tracks)
-                self.state.track = packet.track_number + 1
-                self.state.index = packet.index
-                self.state.position = int(packet.rel_pos / packet.format.rate)
-                self.state.length = int((packet.track.length - packet.track.pregap_offset)
-                                        / packet.format.rate)
-                self.update_state()
+
+                state = self.source.initial_state(State(state = State.PLAY))
+                packet_state = packet.update_state(state)
+                if packet_state:
+                    state = packet_state
+                self.update_state(state)
 
                 return True
             else:
@@ -941,8 +930,7 @@ class Transport(object):
                 self.sink.stop()
 
                 if paused_after_track:
-                    self.state.state = State.PAUSE
-                    self.update_state()
+                    self.update_state(State(self.state, state = State.PAUSE))
                     self.paused_by_user = False
 
                     # Usually this is signalled from the main thread,
@@ -989,8 +977,7 @@ class Transport(object):
         with self.lock:
             # Always update the device error, regardless of context
             if error != self.state.error:
-                self.state.error = error
-                self.update_state()
+                self.update_state(State(self.state, error = error))
 
             if not packet:
                 return
@@ -999,34 +986,6 @@ class Transport(object):
             if packet.context != self.context:
                 return
             
-            pos = int(packet.rel_pos / packet.format.rate)
-
-            if self.state.disc_id != packet.disc.disc_id:
-                self.state.disc_id = packet.disc.disc_id
-                self.state.no_tracks = len(packet.disc.tracks)
-                self.state.track = packet.track_number + 1
-                self.state.index = packet.index
-                self.state.position = pos
-                self.state.length = int((packet.track.length - packet.track.pregap_offset)
-                                        / packet.format.rate)
-                self.update_state()
-
-            elif (self.state.track != packet.track_number + 1
-                or self.state.index != packet.index):
-                self.state.track = packet.track_number + 1
-                self.state.index = packet.index
-                self.state.position = pos
-                self.state.length = int((packet.track.length - packet.track.pregap_offset)
-                                        / packet.format.rate)
-                self.update_state()
-
-            # Moved backward in track
-            elif pos < self.state.position:
-                self.state.position = pos
-                self.update_state()
-
-            # Moved a second (not worth logging)
-            elif pos != self.state.position:
-                self.state.position = pos
-                self.update_state(False)
-
+            state = packet.update_state(self.state)
+            if state:
+                self.update_state(state)
