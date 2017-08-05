@@ -35,4 +35,4 @@ class AudioPacket(object):
         State object should only be returned if anything has changed
         since that, otherwise return None to keep the current state.
         """
-        raise NotImplementedError()
+        return None

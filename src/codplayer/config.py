@@ -1,6 +1,6 @@
 # codplayer - common configuration
 #
-# Copyright 2013-2015 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2013-2017 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -17,6 +17,7 @@ from . import command
 from . import zerohub
 from . import lcd
 from . import codaemon
+from . import radio
 
 class ConfigError(Exception):
     pass
@@ -91,6 +92,7 @@ class PlayerConfig(DaemonConfig):
         serialize.Attr('audio_device_type', str),
         serialize.Attr('start_without_device', bool),
         serialize.Attr('log_performance', bool),
+        serialize.Attr('radio_stations', list_type=radio.Station, optional=True),
 
         # File device options
         serialize.Attr('file_play_speed', int),

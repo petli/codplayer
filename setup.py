@@ -60,6 +60,7 @@ setup(
         'lockfile',
         'discid >= 1.1',
         'pyzmq',
+        'requests',
     ],
 
     dependency_links = [

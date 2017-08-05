@@ -15,12 +15,17 @@ system this should install them all:
 
     apt-get install libdiscid0 cdrdao cdparanoia eject \
         libasound2-dev python-dev python-virtualenv python-pip \
-        libzmq3 libzmq3-dev
+        libzmq3 libzmq3-dev libmad0 libmad0-dev
 
 If you want to run codlcd, you also need to install this:
 
     apt-get install python-smbus
 
+To stream mp3 radio the pymad library is used.  Unfortunately it
+cannot be installed as a pip dependency, so you have to download it
+from here and install it following the package instructions (do this
+using the virtualenv python binary set up below):
+https://pypi.python.org/pypi/pymad/0.9
 
 Install released package
 ------------------------

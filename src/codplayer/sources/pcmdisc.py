@@ -21,7 +21,7 @@ class PCMDiscSource(Source):
         super(PCMDiscSource, self).__init__()
 
         self.player = player
-        self.disc = disc
+        self._disc = disc
         self.log = player.log
         self.debug = player.debug
 
@@ -43,6 +43,10 @@ class PCMDiscSource(Source):
 
         self.audio_file = None
 
+
+    @property
+    def disc(self):
+        return self._disc
 
     # TODO: this method is not called. Was this logic moved into player.Transport
     # and should it thus be removed from here?

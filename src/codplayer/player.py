@@ -198,6 +198,16 @@ class Player(Daemon):
         return self.play_disc(disc)
 
 
+    def cmd_radio(self, args):
+        if not self.cfg.radio_stations:
+            raise CommandError('no radio stations configured')
+
+        # TODO: look up radio station "track" index by id
+        station_number = 0
+        return self.transport.new_source(RadioStreamSource(self, self.cfg.radio_stations, station_number),
+                                         station_number)
+
+
     def cmd_stop(self, args):
         return self.transport.stop()
 
@@ -540,9 +550,6 @@ class Transport(object):
         with self.lock:
             if self.state.state == State.WORKING:
                 raise CommandError('ignoring new_source while WORKING')
-
-            self.debug('new source for disc: {0} state: {1}'.format(
-                    source.disc.disc_id, self.state.state.__name__))
 
             if self.state.state in (State.PLAY, State.PAUSE):
                 self.sink.stop()
@@ -907,7 +914,7 @@ class Transport(object):
     def sink_start_playing(self, packet):
         with self.lock:
             if packet.context == self.context:
-                self.debug('starting to play disc: {0}'.format(packet.disc.disc_id))
+                self.debug('starting to play new source')
 
                 self.sink.start(packet.format)
 

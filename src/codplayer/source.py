@@ -11,6 +11,10 @@ class Source(object):
     """Abstract base class representing a source of audio packets.
     """
 
+    @property
+    def disc(self):
+        return None
+
     def initial_state(self, state):
         """Add any source-specific information to the inital state when this
         source starts playing.
