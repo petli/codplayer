@@ -1,6 +1,6 @@
 # codplayer - PCM disc audio source
 #
-# Copyright 2014-2017 Peter Liljenberg <peter.liljenberg@gmail.com>
+# Copyright 2014-2018 Peter Liljenberg <peter.liljenberg@gmail.com>
 #
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
@@ -17,11 +17,12 @@ class PCMDiscSource(Source):
     """Generate audio packets from a database disc in PCM format.
     """
 
-    def __init__(self, player, disc, is_ripping):
+    def __init__(self, player, disc, track_number, is_ripping):
         super(PCMDiscSource, self).__init__()
 
-        self.player = player
+        self._player = player
         self._disc = disc
+        self._track_number = track_number
         self.log = player.log
         self.debug = player.debug
 
@@ -36,9 +37,9 @@ class PCMDiscSource(Source):
             self.is_ripping = None
 
         # Construct full path to data file
-        db_id = self.player.db.disc_to_db_id(self.disc.disc_id)
+        db_id = self._player.db.disc_to_db_id(self.disc.disc_id)
         self.path = os.path.join(
-            self.player.db.get_disc_dir(db_id),
+            self._player.db.get_disc_dir(db_id),
             self.disc.data_file_name)
 
         self.audio_file = None
@@ -62,12 +63,13 @@ class PCMDiscSource(Source):
                      source = 'disc:{}'.format(self.disc.disc_id),
                      disc_id = self.disc.disc_id,
                      source_disc_id = self.disc.source_disc_id,
+                     track = self._track_number + 1,
                      no_tracks = len(self.disc.tracks))
 
 
-    def iter_packets(self, track_number, packet_rate):
-        self.debug('generating packets for {0} track {1}',
-                   self.disc, track_number)
+    def iter_packets(self):
+        self.debug('generating packets for {0} starting at track {1}',
+                   self.disc, self._track_number)
 
         # Retry opening file if the ripping process is in progress
         # and might not have had time to create it yet
@@ -86,23 +88,84 @@ class PCMDiscSource(Source):
 
         # Iterate over all packets, reading data into them
 
-        for p in PCMDiscAudioPacket.iterate(self.disc, track_number, packet_rate):
+        for p in PCMDiscAudioPacket.iterate(self.disc, self._track_number):
 
             try:
-                self.read_data_into_packet(p)
+                self._read_data_into_packet(p)
             except IOError, e:
                 raise SourceError('error reading from file {0}: {1}'.format(self.path, e))
 
             # Send out packet to transport
             yield p
 
-        self.debug('iterator reached end of disc, finishing')
+            if p.flags & p.PAUSE_AFTER:
+                # Playback will effectively stop here, so remember the track number to start
+                # playing at again and return to signal end of stream
+                self.debug('disc pausing after track {}, stopping for now', p.track_number + 1)
+                self._track_number = p.track_number + 1
+                return
+
+        # Reset this so hitting PLAY again in STOP will start from the beginning of the disc
+        self._track_number = 0
 
 
-    def read_data_into_packet(self, p):
-        """Thread helper method for populating data into packet P."""
+    def next_source(self, state):
+        if state.state == State.STOP:
+            self.log('disc playing from STOP on command next')
+            return self._new_source_track(0)
 
-        perf_log = self.player.audio_streamer_perf_log
+        elif state.state in (State.PLAY, State.PAUSE):
+            # Since state.track is 1-based, comparison and next
+            # track here don't need to add 1
+            if state.track < state.no_tracks:
+                self.log('disc skipping to next track')
+                return self._new_source_track(state.track)
+            else:
+                self.log('disc stopping on skipping past last track')
+                return None
+
+        else:
+            self.log('disc ignoring next in state {}', state.state)
+            return self
+
+
+    def prev_source(self, state):
+        if state.state == State.STOP:
+            self.log('disc playing from STOP on command prev')
+            return self._new_source_track(len(self._disc.tracks) - 1)
+
+        elif state.state in (State.PLAY, State.PAUSE):
+            # Calcualte which track is next (first track in state is 1)
+            assert state.track >= 1
+
+            # If the track position is within the first two seconds or
+            # the pregap, skip to the previous track.  Otherwise replay
+            # this track from the start
+
+            if state.position < 2:
+                self.log('disc skipping to previous track')
+                tn = state.track - 1
+            else:
+                self.log('disc restarting current track')
+                tn = state.track
+
+            if tn > 0:
+                return self._new_source_track(tn - 1)
+            else:
+                self.log('disc stopping on skipping past first track')
+                return None
+
+        else:
+            self.log('disc ignoring prev in state {}', state.state)
+            return self
+
+
+    def _new_source_track(self, track):
+        return PCMDiscSource(self._player, self._disc, track, self.is_ripping and self.is_ripping.is_set())
+
+
+    def _read_data_into_packet(self, p):
+        """Helper method for populating data into packet P."""
 
         length = p.length * self.disc.audio_format.bytes_per_frame
 
@@ -112,18 +175,9 @@ class PCMDiscSource(Source):
 
         else:
             file_pos = p.file_pos * self.disc.audio_format.bytes_per_frame
-
-            if perf_log:
-                start_read = time.time()
-
             self.audio_file.seek(file_pos)
+
             p.data = self.audio_file.read(length)
-
-            if perf_log:
-                now = time.time()
-                perf_log.write(
-                    '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(p.data)))
-
             length -= len(p.data)
             file_pos += len(p.data)
 
@@ -136,16 +190,8 @@ class PCMDiscSource(Source):
             while length > 0 and self.is_ripping and self.is_ripping.is_set():
                 time.sleep(1)
 
-                if perf_log:
-                    start_read = time.time()
-
                 self.audio_file.seek(file_pos)
                 d = self.audio_file.read(length)
-
-                if perf_log:
-                    now = time.time()
-                    perf_log.write(
-                        '{0:06f} {1:06f} read {2}\n'.format(start_read, now, len(d)))
 
                 length -= len(d)
                 file_pos += len(d)
@@ -192,7 +238,7 @@ class PCMDiscAudioPacket(audio.AudioPacket):
 
     """
 
-    PAUSE_AFTER = 0x01
+    PACKETS_PER_SECOND = 5
 
     def __init__(self, disc, track, track_number, abs_pos, length, flags = 0):
         super(PCMDiscAudioPacket, self).__init__(disc.audio_format, flags)
@@ -251,12 +297,9 @@ class PCMDiscAudioPacket(audio.AudioPacket):
 
 
     @classmethod
-    def iterate(cls, disc, track_number, packets_per_second):
+    def iterate(cls, disc, track_number):
         """Iterate over DISC, splitting it into packets starting at
         TRACK_NUMBER index 1.
-
-        The maximum size of the packets returned is controlled by
-        PACKETS_PER_SECOND.
 
         This call will ensure that no packets cross a track or pregap
         boundary, and will also obey any edits to the disc.
@@ -270,7 +313,7 @@ class PCMDiscAudioPacket(audio.AudioPacket):
         track = disc.tracks[track_number]
 
         packet_frame_size = (
-            disc.audio_format.rate / packets_per_second)
+            disc.audio_format.rate / cls.PACKETS_PER_SECOND)
 
         # Mock up a packet that ends at the start of index 1, so the
         # first packet generated starts at that position
