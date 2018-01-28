@@ -674,17 +674,22 @@ class Transport(object):
     #
 
     def do_pause(self):
-        if not self.source.pausable:
-            raise CommandError('stream cannot be paused')
+        if self.source.pausable:
+            self.log('transport pausing')
 
-        self.log('transport pausing')
+            # this is not a new context, the sink just pauses packet playback
+            if self.sink.pause():
+                self.update_state(State(self.state, state = State.PAUSE))
+                self.paused_by_user = True
+            else:
+                self.log('sink refused to pause, keeping PLAY')
 
-        # this is not a new context, the sink just pauses packet playback
-        if self.sink.pause():
-            self.update_state(State(self.state, state = State.PAUSE))
-            self.paused_by_user = True
         else:
-            self.log('sink refused to pause, keeping PLAY')
+            self.log('transport stopping')
+            self.sink.stop()
+            self.new_context()
+            self.set_state_stop()
+
 
 
     def do_resume(self):
