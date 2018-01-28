@@ -674,6 +674,9 @@ class Transport(object):
     #
 
     def do_pause(self):
+        if not self.source.pausable:
+            raise CommandError('stream cannot be paused')
+
         self.log('transport pausing')
 
         # this is not a new context, the sink just pauses packet playback
@@ -806,7 +809,14 @@ class Transport(object):
                         self.queue.put(self.END_OF_STREAM(context))
 
                 except source.SourceError, e:
-                    self.log('source error for disc {0}: {1}'.format(src.disc, e))
+                    self.log('source error: {}', e)
+
+                    # Don't get stuck if source fails, stop immediately
+                    with self.lock:
+                        self.update_state(State(self.state, error = str(e)))
+                        self.sink.stop()
+                        self.new_context()
+                        self.set_state_stop()
 
                 src.stopped()
 
