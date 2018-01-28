@@ -60,7 +60,6 @@ setup(
         'lockfile ~= 0.12',
         'discid ~= 1.1',
         'pyzmq ~= 16.0',
-        'urllib3 ~= 1.22',
         'pymad ~= 0.10'
     ],
 

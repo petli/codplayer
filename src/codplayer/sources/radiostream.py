@@ -5,7 +5,12 @@
 # Distributed under an MIT license, please see LICENSE in the top dir.
 
 import sys
-import urllib3
+import urllib
+import httplib
+import socket
+import select
+import time
+
 import mad
 
 from .. import audio
@@ -31,8 +36,6 @@ class RadioStreamSource(Source):
         self._player = player
         self._stations = stations
         self._current = stations[index]
-
-        self._http = urllib3.PoolManager()
         self._stream = None
         self._stalled = False
 
@@ -47,7 +50,7 @@ class RadioStreamSource(Source):
         self.log('streaming from {}', self._current.url)
 
         while True:
-            self._stream = HttpMpegStream(self._player, self._http, self._current.url)
+            self._stream = HttpMpegStream(self._player, self._current.url)
             self._stalled = False
 
             try:
@@ -86,39 +89,51 @@ class RadioStreamSource(Source):
 
 class HttpMpegStream(object):
     PACKETS_PER_SECOND = 10
-    TIMEOUT = urllib3.Timeout(connect=15, read=5)
+    START_STREAMING_TIMEOUT = 15
 
-    def __init__(self, player, http, url):
+    def __init__(self, player, url):
         self.log = player.log
         self.debug = player.debug
-        self._http = http
-        self._url = url
         self._response_error = None
         self._format = None
+        self._mpeg = None
+        self._connect(url)
 
+    def _connect(self, url):
         try:
-            self._response = self._http.request('GET', url,
-                                                preload_content=False,
-                                                timeout=self.TIMEOUT,
-                                                retries=False,
-                                                redirect=2)
-        except urllib3.exceptions.HTTPError as e:
+            # TODO: there's no way to control how long to wait here.  It can potentially
+            # block forever if the socket connection is established but the server then
+            # doesn't respond to the request (unlikely, but not good)
+            r = urllib.urlopen(url)
+        except (httplib.HTTPException, IOError) as e:
             raise SourceError('stream error: {}'.format(e))
 
-        self.debug('response headers: {}', self._response.headers)
+        headers = r.info()
+        self.debug('response headers: {}', headers)
 
-        if self._response.status != 200:
-            raise SourceError('stream error: HTTP response code {}'.format(self._response.status))
+        if r.getcode() != 200:
+            raise SourceError('stream error: HTTP response code {}'.format(r.getcode()))
 
-        content_type = self._response.headers.get('content-type')
+        content_type = headers.get('content-type')
         if content_type != 'audio/mpeg':
             raise SourceError('unsupported stream type: {}'.format(content_type))
 
-    @property
-    def format(self):
-        return self._format
+        transfer_encoding = headers.get('transfer-encoding')
+        if transfer_encoding:
+            raise SourceError('unsupported transfer encoding: {}'.format(transfer_encoding))
 
-    def iter_packets(self):
+        content_encoding = headers.get('content-encoding')
+        if transfer_encoding:
+            raise SourceError('unsupported content encoding: {}'.format(content_encoding))
+
+        # Take over the socket to do raw streaming ourselves, so the request object
+        # can be closed
+        self._socket = socket.fromfd(r.fileno(), socket.AF_INET, socket.SOCK_STREAM)
+        r.close()
+
+        self._poll = select.poll()
+        self._poll.register(self._socket, select.POLLIN)
+
         try:
             mf = mad.MadFile(self)
         except RuntimeError as e:
@@ -129,17 +144,23 @@ class HttpMpegStream(object):
 
         self.debug('stream rate: {} Hz, layer: {}, bitrate: {}', mf.samplerate(), mf.layer(), mf.bitrate())
         self._format = model.Format(rate=mf.samplerate(), big_endian=(sys.byteorder != 'little'))
+        self._mpeg = mf
 
+    @property
+    def format(self):
+        return self._format
+
+    def iter_packets(self):
         packet_size = (self._format.channels * self._format.bytes_per_sample
                        * self._format.rate) / self.PACKETS_PER_SECOND
 
         while True:
             data = ''
             while len(data) < packet_size:
-                assert self._response is not None
+                assert self._socket is not None
 
                 try:
-                    d = mf.read()
+                    d = self._mpeg.read()
                 except RuntimeError as e:
                     raise StreamError('mpeg decoding error: {}'.format(e))
 
@@ -162,23 +183,42 @@ class HttpMpegStream(object):
 
 
     def close(self):
-        if self._response:
-            self._response.release_conn()
-            self._response = None
+        self._poll = None
+        if self._socket:
+            self._socket.close()
+            self._socket = None
 
 
     def read(self, length):
         """MadFile doesn't necessarily pass through exceptions correct,
-        so handle them locally and just pass on EOF instead.
+        but it passes on EOF fine while allowing us to retry reading
+        later.  So handle errors here and treat them as EOF.
         """
-        try:
-            d = self._response.read(length, cache_content=False)
-            if not d:
-                self._response_error = 'stream closed by server'
-            return d
 
-        except urllib3.exceptions.TimeoutError:
-            return ''
+        try:
+            timeout = time.time() + self.START_STREAMING_TIMEOUT
+
+            data = ''
+            while len(data) < length:
+                for fd, event in self._poll.poll(1000):
+                    if fd == self._socket.fileno() and event & select.POLLIN:
+                        d = self._socket.recv(length - len(data))
+                        if d:
+                            data += d
+                        else:
+                            self._response_error = 'stream closed by server'
+
+                if self._mpeg is not None:
+                    # Once the mpeg file header has been read and we're streaming
+                    # samples, just return what we've got, not necessarily all
+                    # the data asked for. MadFile will keep retrying.
+                    break
+
+                if time.time() > timeout:
+                    self._response_error = 'timeout waiting for stream to start'
+                    return ''
+
+            return data
 
         except Exception as e:
             self._response_error = e
