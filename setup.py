@@ -56,11 +56,12 @@ setup(
 
     # Core player dependencies
     install_requires = [
-        'python-daemon >= 2.1',
-        'lockfile',
-        'discid >= 1.1',
-        'pyzmq',
-        'requests',
+        'python-daemon ~= 2.1',
+        'lockfile ~= 0.12',
+        'discid ~= 1.1',
+        'pyzmq ~= 16.0',
+        'urllib3 ~= 1.22',
+        'pymad ~= 0.10'
     ],
 
     dependency_links = [
@@ -79,7 +80,7 @@ setup(
         'rest': [
             'tornado ~= 4.4',
             'sockjs-tornado ~= 1.0',
-            'musicbrainzngs >= 0.5',
+            'musicbrainzngs ~= 0.5',
         ],
     },
 
