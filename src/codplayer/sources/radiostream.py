@@ -27,15 +27,15 @@ class RadioStreamSource(Source):
     """Output audio packets from streamed internet radio.
     """
 
-    def __init__(self, player, stations, index):
+    def __init__(self, player, stream):
         super(RadioStreamSource, self).__init__()
 
         self.log = player.log
         self.debug = player.debug
 
         self._player = player
-        self._stations = stations
-        self._current = stations[index]
+        self._stations = player.cfg.radio_stations
+        self._current = stream
         self._stream = None
         self._stalled = False
 
@@ -47,7 +47,7 @@ class RadioStreamSource(Source):
         return State(state, source = 'radio:{}:{}'.format(self._current.id, self._current.name))
 
     def iter_packets(self):
-        self.log('streaming from {}', self._current.url)
+        self.log('streaming {} from {}', self._current.name, self._current.url)
 
         while True:
             self._stream = HttpMpegStream(self._player, self._current.url)
@@ -85,6 +85,22 @@ class RadioStreamSource(Source):
 
     def stalled(self):
         self._stalled = True
+
+
+    def next_source(self, state):
+        if len(self._stations) < 2:
+            return self
+
+        index = self._stations.index(self._current)
+        return RadioStreamSource(self._player, self._stations[(index + 1) % len(self._stations)])
+
+
+    def prev_source(self, state):
+        if len(self._stations) < 2:
+            return self
+
+        index = self._stations.index(self._current)
+        return RadioStreamSource(self._player, self._stations[index - 1])
 
 
 class HttpMpegStream(object):

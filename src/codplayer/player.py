@@ -202,9 +202,24 @@ class Player(Daemon):
         if not self.cfg.radio_stations:
             raise CommandError('no radio stations configured')
 
-        # TODO: look up radio station "track" index by id
-        station_number = 0
-        return self.transport.new_source(RadioStreamSource(self, self.cfg.radio_stations, station_number))
+        if args:
+            station_id = args[0]
+
+            stations = [s for s in self.cfg.radio_stations if s.id == station_id]
+            if stations:
+                station = stations[0]
+            else:
+                try:
+                    index = int(station_id)
+                    station = self.cfg.radio_stations[index]
+                except ValueError:
+                    raise CommandError('unknown station id: {}'.format(station_id))
+                except IndexError:
+                    raise CommandError('station index out of range: {}'.format(station_id))
+        else:
+            station = self.cfg.radio_stations[0]
+
+        return self.transport.new_source(RadioStreamSource(self, station))
 
 
     def cmd_stop(self, args):
