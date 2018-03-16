@@ -44,7 +44,7 @@ class RadioStreamSource(Source):
         return False
 
     def initial_state(self, state):
-        return State(state, source = 'radio:{}:{}'.format(self._current.id, self._current.name))
+        return State(state, stream = self._current.name)
 
     def iter_packets(self):
         self.log('streaming {} from {}', self._current.name, self._current.url)

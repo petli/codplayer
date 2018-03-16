@@ -766,7 +766,8 @@ class Transport(object):
     def update_state(self, state):
         # Log significant changes
         if (state.state != self.state.state or
-            state.source != self.state.source or
+            state.stream != self.state.stream or
+            state.disc_id != self.state.disc_id or
             state.track != self.state.track):
             self.debug('state: {0}', state)
 

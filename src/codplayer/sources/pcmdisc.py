@@ -60,7 +60,6 @@ class PCMDiscSource(Source):
 
     def initial_state(self, state):
         return State(state,
-                     source = 'disc:{}'.format(self.disc.disc_id),
                      disc_id = self.disc.disc_id,
                      source_disc_id = self.disc.source_disc_id,
                      track = self._track_number + 1,
