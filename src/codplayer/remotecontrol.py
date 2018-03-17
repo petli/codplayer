@@ -14,14 +14,18 @@ class RemoteControl(codaemon.Plugin):
     """
 
     # Button names to codplayer commands
-    COMMAND_MAPPING = (
-        ('PLAY', 'play'),
-        ('PAUSE', 'pause'),
-        ('PREVIOUS', 'prev'),
-        ('NEXT', 'next'),
-        ('STOP', 'stop'),
-        ('EJECT', 'eject'),
-    )
+    COMMAND_MAPPING = {
+        'PLAY': 'play',
+        'PAUSE': 'pause',
+        'PREVIOUS': 'prev',
+        'NEXT': 'next',
+        'STOP': 'stop',
+        'EJECT': 'eject',
+    }
+
+    def __init__(self, **custom_commands):
+        self._commands = dict(self.COMMAND_MAPPING)
+        self._commands.update(custom_commands)
 
     def setup_prefork(self, player, cfg, mq_cfg):
         self._player = player
@@ -32,7 +36,7 @@ class RemoteControl(codaemon.Plugin):
     def setup_postfork(self):
         callbacks = {}
 
-        for button, cmd in self.COMMAND_MAPPING:
+        for button, cmd in self._commands.items():
             callbacks['button.press.' + button] = self._get_button_handler(cmd)
 
         button_receiver = zerohub.Receiver(
