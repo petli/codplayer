@@ -51,6 +51,8 @@ class RemoteControl(codaemon.Plugin):
 
 
     def _get_button_handler(self, cmd):
+        cmdparts = cmd.split(' ')
+
         def handle(receiver, msg):
             now = time.time()
             try:
@@ -61,8 +63,8 @@ class RemoteControl(codaemon.Plugin):
 
             if ts > now or (now - ts) < 0.5:
                 # Accept button press as recent enough
-                self.debug('sending {} on {}', cmd, msg)
-                self._cmd_sender.send_multipart([cmd])
+                self.debug('sending {} on {}', cmdparts, msg)
+                self._cmd_sender.send_multipart(cmdparts)
             else:
                 self.log('warning: ignoring {}s old message', now - ts)
 

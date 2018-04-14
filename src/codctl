@@ -149,7 +149,10 @@ parser_disc.add_argument('id', nargs = '?', help = 'Disc or database ID, if omit
 
 parser_radio = subparsers.add_parser(
     'radio', help = 'play a radio stream')
-parser_radio.add_argument('id', nargs = '?', help = 'Radio stream or index (counting from 0)')
+parser_radio.add_argument('id', nargs = '?',
+                          help = ('Radio stream or index (counting from 0). '
+                                  'If omitted the first stream is played. '
+                                  'The special ID "toggle" will either start or stop streaming.'))
 
 parser_play = subparsers.add_parser(
     'play', help = 'play stopped disc from start or resume paused disc')

@@ -202,9 +202,16 @@ class Player(Daemon):
         if not self.cfg.radio_stations:
             raise CommandError('no radio stations configured')
 
-        if args:
-            station_id = args[0]
+        station_id = args[0] if args else None
 
+        if station_id == 'toggle':
+            state = self.transport.get_state()
+            if state.stream:
+                return self.transport.eject()
+
+            station = self.cfg.radio_stations[0]
+
+        elif station_id:
             stations = [s for s in self.cfg.radio_stations if s.id == station_id]
             if stations:
                 station = stations[0]
