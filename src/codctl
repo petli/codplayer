@@ -66,6 +66,10 @@ def main(args):
                 else:
                     sys.exit('invalid disc or db id: {0}'.format(args.id))
 
+        elif args.command == 'radio':
+            if args.id is not None:
+                cmd_args.append(args.id)
+
         on_response = print_response_and_stop
         if args.quiet:
             on_response = quiet_and_stop
@@ -142,6 +146,13 @@ parser_source = subparsers.add_parser(
 parser_disc = subparsers.add_parser(
     'disc', help = 'notify player that a new disc has been inserted, or play disc from database')
 parser_disc.add_argument('id', nargs = '?', help = 'Disc or database ID, if omitted inserted CD is played')
+
+parser_radio = subparsers.add_parser(
+    'radio', help = 'play a radio stream')
+parser_radio.add_argument('id', nargs = '?',
+                          help = ('Radio stream or index (counting from 0). '
+                                  'If omitted the first stream is played. '
+                                  'The special ID "toggle" will either start or stop streaming.'))
 
 parser_play = subparsers.add_parser(
     'play', help = 'play stopped disc from start or resume paused disc')

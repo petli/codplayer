@@ -4,7 +4,17 @@ codplayer releases
 2.1 ????-??-??
 --------------
 
+### New features
+
+* `codplayerd` can now play mp3 radio streams too.  The streams are
+  configured in `codplayer.conf`, see the example there.  Play streams
+  by running `codctl radio [STATIONID/NUMBER]`.
+
+
 ### Breaking changes
+
+* Additional libraries must be installed before updating:
+  `apt-get install libmad0 libmad0-dev`
 
 * `codrestd` now control players directly over ZeroMQ, instead of
   embedding the Node.js control web widget.  As a result of this the

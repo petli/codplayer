@@ -348,6 +348,7 @@ class LCDFormatterBase(ILCDFormatter):
         self._rip_state = None
         self._disc = None
         self._current_track_number = 0
+        self._current_stream = None
         self._info_generator = None
         self._info_lines = ''
         self._next_info_lines = None
@@ -434,13 +435,22 @@ class LCDFormatterBase(ILCDFormatter):
         else:
             # No current errors, show disc info
 
-            # Show new disc info lines when disc change, or
+            # Show new disc info lines when disc or stream change, or
             # when coming back from error
-            if self._disc is not disc or self._errors:
+            if (self._disc is not disc
+                or self._current_stream != state.stream
+                or self._errors):
+
                 self._errors = None
-                if disc is None:
+
+                if state.stream is not None:
+                    self._current_stream = state.stream
+                    self._info_generator = self.generate_stream_lines(now)
+                    self._next_info_lines = now
+                elif disc is None:
                     self._disc = None
                     self._current_track_number = 0
+                    self._current_stream = None
                     self._info_generator = None
                     self._next_info_lines = None
                     self._info_lines = ''
@@ -486,6 +496,14 @@ class LCDFormatterBase(ILCDFormatter):
 
     def generate_track_lines(self, now):
         """Return an iterator that provides information for a new track.
+        Behaves the same way as generate_disc_lines().
+
+        This is not called if self._errors is non-empty.
+        """
+        raise NotImplementedError()
+
+    def generate_stream_lines(self, now):
+        """Return an iterator that provides information for a new radio stream.
         Behaves the same way as generate_disc_lines().
 
         This is not called if self._errors is non-empty.
@@ -547,10 +565,16 @@ class LCDFormatter16x2(LCDFormatterBase):
             return 'No disc'
 
         elif s.state is State.STOP:
-            return 'Stop {0.no_tracks:>4d} tracks'.format(s)
+            if s.stream is None:
+                return 'Stop {0.no_tracks:>4d} tracks'.format(s)
+            else:
+                return 'Stop'
 
         elif s.state is State.WORKING:
-            return 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
+            if s.stream is None:
+                return 'Working {0.track:d}/{0.no_tracks:d}...'.format(s)
+            else:
+                return 'Working...'
 
         else:
             if s.state is State.PLAY:
@@ -559,6 +583,9 @@ class LCDFormatter16x2(LCDFormatterBase):
                 state_char = self.PAUSE
             else:
                 state_char = self.UNKNOWN_STATE
+
+            if s.stream is not None:
+                return state_char
 
             if s.position < 0:
                 # pregap
@@ -633,6 +660,11 @@ class LCDFormatter16x2(LCDFormatterBase):
 
         for line, next_update in self.generate_track_lines(now):
             yield line, next_update
+
+
+    def generate_stream_lines(self, now):
+        """Show radio stream name, scrolled initially"""
+        return self.scroll(self._current_stream, now)
 
 
     def generate_track_lines(self, now):

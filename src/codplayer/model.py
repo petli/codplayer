@@ -45,6 +45,14 @@ class PCM:
 
         return (((m * 60) + s) * 75 + f) * cls.audio_frames_per_cd_frame
 
+class Format(object):
+    """Format for streams that might not be straight PCM.
+    """
+    def __init__(self, channels=2, bytes_per_sample=2, rate=44100, big_endian=True):
+        self.channels = channels
+        self.bytes_per_sample = bytes_per_sample
+        self.rate = rate
+        self.big_endian = big_endian
 
 
 class RAW_CD:

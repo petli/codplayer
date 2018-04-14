@@ -15,7 +15,7 @@ system this should install them all:
 
     apt-get install libdiscid0 cdrdao cdparanoia eject \
         libasound2-dev python-dev python-virtualenv python-pip \
-        libzmq3 libzmq3-dev
+        libzmq3 libzmq3-dev libmad0 libmad0-dev
 
 If you want to run codlcd, you also need to install this:
 

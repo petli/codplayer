@@ -31,6 +31,8 @@ class State(serialize.Serializable):
     play, which may be different from disc_id (e.g. for aliased
     discs).  Set to `None` if the disc isn't linked to another one.
 
+    stream: Name of current radio stream, or None
+
     track: Current track being played, counting from 1. 0 if
                   stopped or no disc is loaded.
 
@@ -69,33 +71,37 @@ class State(serialize.Serializable):
                           'next', 'prev', 'eject')
 
 
-    def __init__(self, state = NO_DISC, disc_id = None, source_disc_id = None,
-                 track = 0, no_tracks = 0, index = 0, position = 0, length = 0,
-                 error = None):
-        self.state = state
-        self.disc_id = disc_id
-        self.source_disc_id = source_disc_id
-        self.track = track
-        self.no_tracks = no_tracks
-        self.index = index
-        self.position = position
-        self.length = length
-        self.error = error
+    def __init__(self, old_state=None, **kwargs):
+        self.state = State.NO_DISC
+        self.disc_id = None
+        self.source_disc_id = None
+        self.stream = None
+        self.track = 0
+        self.no_tracks = 0
+        self.index = 0
+        self.position = 0
+        self.length = 0
+        self.error = None
 
+        # Copy or update attributes from previous state or arguments
+        for m in self.MAPPING:
+            if m.name in kwargs:
+                setattr(self, m.name, kwargs[m.name])
+            elif old_state:
+                setattr(self, m.name, getattr(old_state, m.name))
 
     def __str__(self):
-        return ('{state.__name__} disc: {disc_id} source: {source_disc_id} '
+        return ('{state.__name__} disc: {disc_id} source: {source_disc_id} stream: {stream} '
                 'track: {track}/{no_tracks} '
                 'index: {index} position: {position} length: {length} '
                 'error: {error}'
                 .format(**self.__dict__))
 
-
-    # Deserialisation methods
     MAPPING = (
         serialize.Attr('state', enum = (OFF, NO_DISC, WORKING, PLAY, PAUSE, STOP)),
         serialize.Attr('disc_id', str),
         serialize.Attr('source_disc_id', str, optional = True),
+        serialize.Attr('stream', str),
         serialize.Attr('track', int),
         serialize.Attr('no_tracks', int),
         serialize.Attr('index', int),
