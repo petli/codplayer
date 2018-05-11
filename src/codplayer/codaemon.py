@@ -187,8 +187,12 @@ class Daemon(object):
 
 
     def log(self, msg, *args, **kwargs):
+        text = msg.format(*args, **kwargs)
+        if text is unicode:
+            text = text.encode('utf-8')
+
         m = (time.strftime('%Y-%m-%d %H:%M:%S ') + threading.current_thread().name + ': '
-             + msg.format(*args, **kwargs) + '\n')
+             + text + '\n')
         self._log_file.write(m)
         self._log_file.flush()
 

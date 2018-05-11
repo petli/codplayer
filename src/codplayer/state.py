@@ -8,11 +8,33 @@
 The player states and a subscriber for state updates.
 """
 
+import time
+
 from . import zerohub
 from . import serialize
 from . import model
 
 class StateError(Exception): pass
+
+class BaseInfo(serialize.Serializable):
+    def __init__(self, title = None, artist = None):
+        self.title = title
+        self.artist = artist
+
+    def __str__(self):
+        return u'{title}/{artist}'.format(**self.__dict__)
+
+    MAPPING = (
+        serialize.Attr('title', serialize.str_unicode),
+        serialize.Attr('artist', serialize.str_unicode),
+    )
+
+class SongInfo(BaseInfo):
+    pass
+
+class AlbumInfo(BaseInfo):
+    pass
+
 
 class State(serialize.Serializable):
     """Player state as visible to external users.  Attributes:
@@ -45,6 +67,11 @@ class State(serialize.Serializable):
 
     length: Length of current track in whole seconds, counting
     from index 1.
+
+    album_info: Information about the album of the current song, if
+    known.
+
+    song_info: Information about the current song, if known.
 
     error: A string giving the error state of the player, if any.
     """
@@ -81,6 +108,8 @@ class State(serialize.Serializable):
         self.index = 0
         self.position = 0
         self.length = 0
+        self.album_info = None
+        self.song_info = None
         self.error = None
 
         # Copy or update attributes from previous state or arguments
@@ -91,11 +120,12 @@ class State(serialize.Serializable):
                 setattr(self, m.name, getattr(old_state, m.name))
 
     def __str__(self):
-        return ('{state.__name__} disc: {disc_id} source: {source_disc_id} stream: {stream} '
-                'track: {track}/{no_tracks} '
-                'index: {index} position: {position} length: {length} '
-                'error: {error}'
-                .format(**self.__dict__))
+        return (u'{state.__name__} disc: {disc_id} source: {source_disc_id} stream: {stream} '
+                u'track: {track}/{no_tracks} '
+                u'index: {index} position: {position} length: {length} '
+                u'album: {album_info} song: {song_info} '
+                u'error: {error}'
+                .format(**self.__dict__)).encode('utf-8')
 
     MAPPING = (
         serialize.Attr('state', enum = (OFF, NO_DISC, WORKING, PLAY, PAUSE, STOP)),
@@ -107,6 +137,8 @@ class State(serialize.Serializable):
         serialize.Attr('index', int),
         serialize.Attr('position', int),
         serialize.Attr('length', int),
+        serialize.Attr('album_info', AlbumInfo, optional = True),
+        serialize.Attr('song_info', SongInfo, optional = True),
         serialize.Attr('error', serialize.str_unicode),
         )
 
@@ -158,15 +190,27 @@ class StateClient(object):
     """Subscribe to state published on a zerohub.Topic."""
 
     def __init__(self, channel, io_loop = None,
-                 on_state = None, on_rip_state = None, on_disc = None):
+                 on_state = None, on_rip_state = None, on_disc = None,
+                 max_age_seconds = None):
+
+        """Subscribe to the provided channel, using the provided IO loop or the default one.
+
+        The event callbacks will be called with the deserialised
+        State, RipState or Disc object as a single argument.
+
+        If max_age_seconds is set messages older that that will be
+        discarded without being parsed.
+        """
 
         subscriptions = {}
         if on_state:
-            subscriptions['state'] = (lambda receiver, msg: on_state(self._parse_message(msg, State)))
+            subscriptions['state'] = (lambda receiver, msg: self._parse_message(msg, State, on_state))
         if on_rip_state:
-            subscriptions['rip_state'] = (lambda receiver, msg: on_rip_state(self._parse_message(msg, RipState)))
+            subscriptions['rip_state'] = (lambda receiver, msg: self._parse_message(msg, RipState, on_rip_state))
         if on_disc:
-            subscriptions['disc'] = (lambda receiver, msg: on_disc(self._parse_message(msg, model.ExtDisc)))
+            subscriptions['disc'] = (lambda receiver, msg: self._parse_message(msg, model.ExtDisc, on_disc))
+
+        self._max_age_seconds = max_age_seconds
 
         self._reciever = zerohub.Receiver(
             channel, io_loop = io_loop, callbacks = subscriptions, )
@@ -176,12 +220,19 @@ class StateClient(object):
             self._reciever.close()
             self._reciever = None
 
-    def _parse_message(self, msg, cls):
+    def _parse_message(self, msg, cls, callback):
         if len(msg) < 2:
             raise StateError('zeromq: missing message parts: {0}'.format(msg))
 
+        if len(msg) > 2 and self._max_age_seconds:
+            send_time = float(msg[2])
+            age = time.time() - send_time
+            if age > self._max_age_seconds:
+                return
+
         try:
-            return serialize.load_jsons(cls, msg[1])
+            obj = serialize.load_jsons(cls, msg[1])
         except serialize.LoadError, e:
             raise StateError('zeromq: malformed message object: {0}'.format(msg))
 
+        callback(obj)

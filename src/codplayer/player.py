@@ -433,13 +433,13 @@ class Player(Daemon):
     #
 
     def publish_state(self, state):
-        self.state_pub.send_multipart(['state', serialize.get_jsons(state)])
+        self.state_pub.send_multipart(['state', serialize.get_jsons(state), '{:.2f}'.format(time.time())])
 
     def publish_rip_state(self, rip_state):
-        self.state_pub.send_multipart(['rip_state', serialize.get_jsons(rip_state)])
+        self.state_pub.send_multipart(['rip_state', serialize.get_jsons(rip_state), '{:.2f}'.format(time.time())])
 
     def publish_disc(self, disc):
-        self.state_pub.send_multipart(['disc', serialize.get_jsons(disc)])
+        self.state_pub.send_multipart(['disc', serialize.get_jsons(disc), '{:.2f}'.format(time.time())])
 
     def force_state_update(self):
         self.publish_state(self.transport.get_state())

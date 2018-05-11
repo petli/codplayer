@@ -11,7 +11,7 @@ import threading
 
 from .. import audio
 from ..source import *
-from ..state import State
+from ..state import State, AlbumInfo, SongInfo
 
 class PCMDiscSource(Source):
     """Generate audio packets from a database disc in PCM format.
@@ -59,7 +59,20 @@ class PCMDiscSource(Source):
 
 
     def initial_state(self, state):
+        if self._disc.title or self._disc.artist:
+            album_info = AlbumInfo(self._disc.title, self._disc.artist)
+        else:
+            album_info = None
+
+        t = self._disc.tracks[self._track_number]
+        if t.title or t.artist:
+            song_info = SongInfo(t.title, t.artist)
+        else:
+            song_info = None
+
         return State(state,
+                     album_info = album_info,
+                     song_info = song_info,
                      disc_id = self.disc.disc_id,
                      source_disc_id = self.disc.source_disc_id,
                      track = self._track_number + 1,
@@ -280,7 +293,15 @@ class PCMDiscAudioPacket(audio.AudioPacket):
         # New track
         if (state.track != self.track_number + 1
             or state.index != self.index):
+
+            t = self.disc.tracks[self.track_number]
+            if t.title or t.artist:
+                song_info = SongInfo(t.title, t.artist)
+            else:
+                song_info = None
+
             return State(state,
+                         song_info = song_info,
                          track = self.track_number + 1,
                          index = self.index,
                          position = pos,

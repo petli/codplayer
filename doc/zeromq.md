@@ -29,12 +29,15 @@ Example structure:
 {
   "disc_id": "IAFL61gCjwAGpOwBz3kjG7QWMa8-",
   "source_disc_id": null,
+  "stream": null,
   "error": null,
   "index": 1,
   "no_tracks": 4,
   "position": 27,
   "state": "PLAY",
-  "track": 1
+  "track": 1,
+  "song_info": { "artist": "Kraftwerk", "title: "Taschenrechner" },
+  "album_info": { "artist": "Kraftwerk", "title: "Computerwelt" }
 }
 ```
 
@@ -49,11 +52,14 @@ Properties:
   * `STOP`:    Playing finished, but disc is still loaded
 
 * `disc_id`: The Musicbrainz disc ID of the currently loaded disc,
-  or `null` if no disc is loaded.
+  or `null` if not currently playing a disc.
 
 * `source_disc_id`: The source disc ID that triggered the current
   play, which may be different from disc_id (e.g. for aliased discs).
   Set to `null` if the disc isn't linked to another one.
+
+* `stream`: Name of the current radio stream, or `null` if not
+  streaming.  Only one of `disc_id` and `stream` may be set.
 
 * `track`: Current track number being played, counting from 1. 0 if
   stopped or no disc is loaded.
@@ -71,6 +77,12 @@ Properties:
   from index 1 (i.e. not including any pregap).
 
 * `error`: A string giving the error state of the player, if any.
+
+* `song_info`: An object providing `title` and `artist` for the
+  currently playing song, or `null` if not known.
+
+* `album_info`: An object providing `title` and `artist` for the
+  album of the currently playing song, or `null` if not known.
 
 
 state.RipState
@@ -115,6 +127,11 @@ If using ZeroMQ directly, create a `SUB` socket and connect to the
 addresses defined by the Topic.  Remember to subscribe to `''` (or
 more specific event prefixes) to receive any events.
 
+All the events include a timestamp for when the message was sent, to
+help the client discard stale messages.  The timestamp is the
+Unix time from `time.time()` on the codplayer server.
+
+
 Topic: state
 ------------
 
@@ -129,6 +146,7 @@ Frame format:
 
     0: "state"
     1: JSON: state.State
+    2: timestamp: float
 
 ### rip_state
 
@@ -139,6 +157,7 @@ Frame format:
 
     0: "rip_state"
     1: JSON: state.RipState
+    2: timestamp: float
 
 ### disc
 
@@ -151,6 +170,7 @@ Frame format:
 
     0: "disc"
     1: JSON: model.ExtDisc object or null
+    2: timestamp: float
 
 
 Topic: input

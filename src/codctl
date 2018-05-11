@@ -38,6 +38,7 @@ def main(args):
             # set up a state subscription
             subscriber = state.StateClient(
                 cfg.state,
+                max_age_seconds = args.max_age_seconds,
                 on_state = print_response,
                 on_rip_state = print_response,
                 on_disc = print_response
@@ -139,6 +140,8 @@ parser_state = subparsers.add_parser(
     'state', help = 'output current player state')
 parser_state.add_argument('-f', '--follow', action = 'store_true',
                           help = 'follow state updates, if supported by the publisher')
+parser_state.add_argument('-m', '--max-age-seconds', type=int,
+                          help = 'discard state updates older than this number of seconds')
 
 parser_source = subparsers.add_parser(
     'source', help = 'get the current source disc')
