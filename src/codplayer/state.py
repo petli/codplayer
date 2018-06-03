@@ -24,6 +24,19 @@ class BaseInfo(serialize.Serializable):
     def __str__(self):
         return u'{title}/{artist}'.format(**self.__dict__)
 
+    def __eq__(self, other):
+        if not isinstance(other, type(self)):
+            return False
+
+        if self is other:
+            return True
+
+        return self.title == other.title and self.artist == other.artist
+
+    def __ne__(self, other):
+        return not self == other
+
+
     MAPPING = (
         serialize.Attr('title', serialize.str_unicode),
         serialize.Attr('artist', serialize.str_unicode),

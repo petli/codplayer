@@ -52,7 +52,7 @@ class ILCDFormatter(object):
     COLUMNS = None
     LINES = None
 
-    def format(self, state, rip_state, disc, now):
+    def format(self, state, rip_state, now):
         """Format the current player state into a string
         that can be sent to the LCD display.
 
@@ -70,9 +70,6 @@ class ILCDFormatter(object):
 
         state and rip_state can only be null at startup before the
         state have been received from the player.
-
-        If disc is non-null, it corresponds to the disc currently
-        loaded so the formatter does not need to check that.
 
         now is the current time.time(), as considered by the LCD
         display.  The formatter should use this rather than
@@ -112,7 +109,6 @@ class LCD(Daemon):
 
         self._state = None
         self._rip_state = None
-        self._disc = None
 
         self._led_selector = LEDPatternSelector()
         self._led_pattern = None
@@ -152,9 +148,9 @@ class LCD(Daemon):
         state_receiver = StateClient(
             channel = self._mq_cfg.state,
             io_loop = self.io_loop,
+            max_age_seconds = 2,
             on_state = self._on_state,
-            on_rip_state = self._on_rip_state,
-            on_disc = self._on_disc
+            on_rip_state = self._on_rip_state
         )
 
         # Blink LED on button presses
@@ -172,7 +168,6 @@ class LCD(Daemon):
                 name = 'codlcd',
                 io_loop = self.io_loop))
 
-        rpc_client.call('source', on_response = self._on_disc)
         rpc_client.call('state', on_response = self._on_state)
         rpc_client.call('rip_state', on_response = self._on_rip_state)
 
@@ -216,13 +211,6 @@ class LCD(Daemon):
         self._rip_state = rip_state
         self._lcd_update()
         self._led_update()
-
-
-    def _on_disc(self, disc):
-        self.debug('got disc: {}', disc)
-
-        self._disc = disc
-        self._lcd_update()
 
 
     def _on_button_press(self, receiver, msg):
@@ -275,14 +263,8 @@ class LCD(Daemon):
 
 
     def _lcd_update(self):
-        # Only pass the formatter a disc object relevant to the state
-        if self._state and self._disc and self._state.disc_id == self._disc.disc_id:
-            disc = self._disc
-        else:
-            disc = None
-
         now = time.time()
-        msg, timeout = self._cfg.formatter.format(self._state, self._rip_state, disc, now)
+        msg, timeout = self._cfg.formatter.format(self._state, self._rip_state, now)
         if timeout is not None:
             self.io_loop.add_timeout(timeout, self._lcd_update)
 
@@ -325,6 +307,65 @@ class LCD(Daemon):
 # LCD Formatters
 #
 
+class GeneratedLine(object):
+    """Helper class to handle lines that might be updated from generators.
+    """
+    def __init__(self, columns):
+        self._columns = columns
+        self._text = ''
+        self._suffix = ''
+        self._generator = None
+        self._next_update = None
+
+    @property
+    def next_update(self):
+        return self._next_update
+
+
+    def set_text(self, text):
+        self._text = text or ''
+        self._generator = None
+        self._next_update = None
+
+
+    def set_generator(self, generator):
+        self._text = ''
+        self._generator = generator
+        self._next_update = None
+        self._update()
+
+
+    def set_suffix(self, suffix):
+        self._suffix = suffix or ''
+
+
+    def update_text(self, now):
+        """Update the current line if it's time, and return it or the old one.
+        The line will be padded if necessary to the required number of columns.
+        """
+
+        while self._generator and self._next_update and now >= self._next_update:
+            self._update()
+
+        columns = self._columns - len(self._suffix)
+        line = self._text[:columns]
+        line += ' ' * (columns - len(line))
+        line += self._suffix
+
+        return line
+
+
+    def _update(self):
+        try:
+            self._text, self._next_update = self._generator.next()
+        except StopIteration:
+            # Keep last line and stop updating
+            self._next_update = None
+
+        if not self._next_update:
+            self._generator = None
+
+
 class LCDFormatterBase(ILCDFormatter):
     """Base class for LCD formatters of different sizes."""
 
@@ -346,29 +387,18 @@ class LCDFormatterBase(ILCDFormatter):
     def __init__(self):
         self._state = None
         self._rip_state = None
-        self._disc = None
         self._current_track_number = 0
+        self._current_disc_id = None
         self._current_stream = None
-        self._info_generator = None
-        self._info_lines = ''
-        self._next_info_lines = None
+        self._current_stream_song = None
         self._errors = None
 
+        self._lines = [GeneratedLine(self.COLUMNS) for x in range(self.LINES)]
 
-    def fill(self, *lines):
-        """Return a set of lines filled out to the full width and height of
-        the display as a newline-separated string.
-        """
-        output_lines = []
-        for line in lines:
-            line = line[:self.COLUMNS]
-            line = line + ' ' * (self.COLUMNS - len(line))
-            output_lines.append(line)
 
-        while len(output_lines) < self.LINES:
-            output_lines.append(' ' * self.COLUMNS)
-
-        return '\n'.join(output_lines[:self.LINES])
+    @property
+    def lines(self):
+        return self._lines
 
 
     def scroll(self, text, now, prefix = '', columns = None, loop = False):
@@ -406,14 +436,37 @@ class LCDFormatterBase(ILCDFormatter):
                     return
 
 
-    def format(self, state, rip_state, disc, now):
+    def format(self, state, rip_state, now):
         if state is None:
-            return self.fill(
-                full_version(),
-                'Waiting on state'), None
+            self._state = None
+            self._rip_state = None
+        else:
+            self._state = state
+            self._rip_state = rip_state
 
-        self._state = state
-        self._rip_state = rip_state
+        self._compare_and_update_state(now)
+
+        lines = (line.update_text(now) for line in self.lines)
+        next_updates = (line.next_update for line in self.lines)
+        if next_updates:
+            next_update = min(next_updates)
+        else:
+            next_update = None
+
+        return '\n'.join(lines), next_update
+
+
+    def _compare_and_update_state(self, now):
+        """Compare state to what's currently displayed and call the correct
+        update*() method.
+        """
+
+        state = self._state
+        rip_state = self._rip_state
+
+        if state is None:
+            self.update_on_no_state(now)
+            return
 
         # Check if there are error messages
         errors = None
@@ -426,96 +479,95 @@ class LCDFormatterBase(ILCDFormatter):
                 errors = [rip_state.error]
 
         if errors:
+            # Forget all current state so displays restart from the
+            # beginning when the error has been resolved.
+            self._current_disc_id = None
+            self._current_track_number = None
+            self._current_stream = None
+            self._current_stream_song = None
+
             if self._errors != errors:
                 self._errors = errors
-                # Need new formatter
-                self._info_generator = self.generate_error_lines(now)
-                self._next_info_lines = now
+                self.update_on_new_errors(now)
+            else:
+                self.update_on_same_errors(now)
 
-        else:
-            # No current errors, show disc info
+            return
 
-            # Show new disc info lines when disc or stream change, or
-            # when coming back from error
-            if (self._disc is not disc
-                or self._current_stream != state.stream
-                or self._errors):
+        self._errors = None
 
-                self._errors = None
+        # No current errors, show whats playing instead
 
-                if state.stream is not None:
-                    self._current_stream = state.stream
-                    self._info_generator = self.generate_stream_lines(now)
-                    self._next_info_lines = now
-                elif disc is None:
-                    self._disc = None
-                    self._current_track_number = 0
-                    self._current_stream = None
-                    self._info_generator = None
-                    self._next_info_lines = None
-                    self._info_lines = ''
-                else:
-                    self._disc = disc
-                    self._current_track_number = state.track
-                    self._info_generator = self.generate_disc_lines(now)
-                    self._next_info_lines = now
+        # Disc playing
+        if state.disc_id:
+            self._current_stream = None
 
-            # Show new track info when switching track on a disc
-            elif self._disc and self._current_track_number != state.track:
+            if state.disc_id != self._current_disc_id:
+                self._current_disc_id = state.disc_id
                 self._current_track_number = state.track
-                self._info_generator = self.generate_track_lines(now)
-                self._next_info_lines = now
+                self.update_on_new_disc(now)
+                return
 
-        # Update info line if there is still a generator
-        # and the time has come
-        while (self._info_generator is not None and
-               self._next_info_lines is not None and
-               now >= self._next_info_lines):
-            try:
-                self._info_lines, self._next_info_lines = self._info_generator.next()
-            except StopIteration:
-                # Keep the current info and stop generating new lines
-                self._info_generator = None
-                self._next_info_lines = None
+            if self._current_track_number != state.track:
+                self._current_track_number = state.track
+                self.update_on_new_disc_track(now)
+                return
 
-        return self.do_format(), self._next_info_lines
+            self.update_on_disc_state_change(now)
+            return
 
-    def do_format(self):
+        self._current_disc_id = None
+        self._current_track_number = 0
+
+        # Radio streaming
+        if state.stream:
+            if state.stream != self._current_stream:
+                self._current_stream = state.stream
+                self._current_stream_song = state.song_info
+                self.update_on_new_stream(now)
+                return
+
+            if self._current_stream_song != state.song_info:
+                self._current_stream_song = state.song_info
+                self.update_on_new_stream_song(now)
+                return
+
+            self.update_on_stream_state_change(now)
+            return
+
+        self._current_stream = None
+
+        self.update_on_unknown_state_change(now)
+
+
+    def update_on_no_state(self, now):
         raise NotImplementedError()
 
-    def generate_disc_lines(self, now):
-        """Return an iterator that provides information for a new disc.
-        The generated values should be a tuple: (lines, next_update)
-
-        This is not called if self._errors is non-empty.
-
-        next_update is the unix time when the next value should be
-        shown.  The final generated value should have next_update = None
-        """
+    def update_on_new_errors(self, now):
         raise NotImplementedError()
 
-    def generate_track_lines(self, now):
-        """Return an iterator that provides information for a new track.
-        Behaves the same way as generate_disc_lines().
-
-        This is not called if self._errors is non-empty.
-        """
+    def update_on_same_errors(self, now):
         raise NotImplementedError()
 
-    def generate_stream_lines(self, now):
-        """Return an iterator that provides information for a new radio stream.
-        Behaves the same way as generate_disc_lines().
-
-        This is not called if self._errors is non-empty.
-        """
+    def update_on_new_disc(self, now):
         raise NotImplementedError()
 
-    def generate_error_lines(self, now):
-        """Return an iterator that provides information for errors.
-        Behaves the same way as generate_disc_lines().
+    def update_on_new_disc_track(self, now):
+        raise NotImplementedError()
 
-        This is only called if self._errors is non-empty.
-        """
+    def update_on_disc_state_change(self, now):
+        raise NotImplementedError()
+
+    def update_on_new_stream(self, now):
+        raise NotImplementedError()
+
+    def update_on_new_stream_song(self, now):
+        raise NotImplementedError()
+
+    def update_on_stream_state_change(self, now):
+        raise NotImplementedError()
+
+    def update_on_unknown_state_change(self, now):
         raise NotImplementedError()
 
 
@@ -550,12 +602,56 @@ class LCDFormatter16x2(LCDFormatterBase):
             text, now, prefix = prefix, columns = scroll_columns, loop = loop)
 
 
-    def do_format(self):
-        return self.fill(
-            self.do_format_state_line(),
-            self.do_format_info_line())
+    def update_on_no_state(self, now):
+        self.lines[0].set_text(full_version())
+        self.lines[1].set_text('Waiting on state')
 
-    def do_format_state_line(self):
+
+    def update_on_new_errors(self, now):
+        self._update_state()
+        self.lines[1].set_generator(self.scroll('; '.join(self._errors), now, loop = True))
+
+
+    def update_on_same_errors(self, now):
+        self._update_state()
+
+
+    def update_on_new_disc(self, now):
+        self._update_state()
+        self.lines[1].set_generator(self._generate_disc_lines(now))
+
+
+    def update_on_new_disc_track(self, now):
+        self._update_state()
+        self.lines[1].set_generator(self._generate_track_lines(now))
+
+
+    def update_on_disc_state_change(self, now):
+        self._update_state()
+
+
+    def update_on_new_stream(self, now):
+        self.lines[1].set_generator(self._generate_stream_lines(now))
+
+    def update_on_new_stream_song(self, now):
+        # TODO
+        pass
+
+    def update_on_stream_state_change(self, now):
+        # TODO
+        pass
+
+
+    def update_on_unknown_state_change(self, now):
+        self._update_state()
+
+
+    def _update_state(self):
+        self.lines[0].set_text(self._format_state_line())
+        self.lines[1].set_suffix(self._format_rip_state_suffix())
+
+
+    def _format_state_line(self):
         s = self._state
 
         if s.state is State.OFF:
@@ -576,6 +672,9 @@ class LCDFormatter16x2(LCDFormatterBase):
             else:
                 return 'Working...'
 
+        elif s.stream is not None:
+            return 'Streaming'
+
         else:
             if s.state is State.PLAY:
                 state_char = self.PLAY
@@ -583,9 +682,6 @@ class LCDFormatter16x2(LCDFormatterBase):
                 state_char = self.PAUSE
             else:
                 state_char = self.UNKNOWN_STATE
-
-            if s.stream is not None:
-                return state_char
 
             if s.position < 0:
                 # pregap
@@ -619,27 +715,31 @@ class LCDFormatter16x2(LCDFormatterBase):
             return state_line
 
 
-    def do_format_info_line(self):
+    def _format_rip_state_suffix(self):
         s = self._rip_state
 
         if s and s.state is RipState.AUDIO:
             if s.progress is not None:
-                return u'{0:<12s}{1:3d}%'.format(self._info_lines[:12], s.progress)
+                return '{:3d}%'.format(s.progress)
             else:
-                return u'{0:<12s} RIP'.format(self._info_lines[:12])
+                return ' RIP'
+
         elif s and s.state == RipState.TOC:
-            return u'{0:<12s} TOC'.format(self._info_lines[:12])
+            return ' TOC'
+
         else:
-            return self._info_lines
+            return ''
 
 
-    def generate_disc_lines(self, now):
+    def _generate_disc_lines(self, now):
         """Show album title and artist in sequence, then switch to track title.
         All are scrolled if necessary
         """
 
-        if self._disc.title:
-            for line, next_update in self.scroll(self._disc.title, now):
+        info = self._state.album_info
+
+        if info and info.title:
+            for line, next_update in self.scroll(info.title, now):
                 if next_update is None:
                     # Pause until switching to disc artist
                     now += self.DISC_INFO_SWITCH_SPEED
@@ -648,8 +748,8 @@ class LCDFormatter16x2(LCDFormatterBase):
                     now = next_update
                     yield line, next_update
 
-        if self._disc.artist:
-            for line, next_update in self.scroll(self._disc.artist, now):
+        if info and info.artist:
+            for line, next_update in self.scroll(info.artist, now):
                 if next_update is None:
                     # Pause until switching to track title
                     now += self.DISC_INFO_SWITCH_SPEED
@@ -658,37 +758,37 @@ class LCDFormatter16x2(LCDFormatterBase):
                     now = next_update
                     yield line, next_update
 
-        for line, next_update in self.generate_track_lines(now):
+        for line, next_update in self._generate_track_lines(now):
             yield line, next_update
 
 
-    def generate_stream_lines(self, now):
+    def _generate_stream_lines(self, now):
         """Show radio stream name, scrolled initially"""
         return self.scroll(self._current_stream, now)
 
 
-    def generate_track_lines(self, now):
+    def _generate_track_lines(self, now):
         """Show track title, scrolled initially.
         """
 
+        album_info = self._state.album_info
+        song_info = self._state.song_info
+
         if self._state.track == 0:
-            return self.scroll(self._disc.title or '', now)
+            return self.scroll((album_info and album_info.title) or '', now)
 
         else:
-            track_index = self._state.track - 1
-            if track_index >= len(self._disc.tracks):
-                return iter([('Bad track list!', None)])
-            else:
-                track = self._disc.tracks[track_index]
-                track_title = track.title or ''
-                if track.number != self._state.track:
-                    # Track numbering is off, so show actual number here
-                    prefix = '{}. '.format(track.number)
-                else:
-                    prefix = ''
-                return self.scroll(track_title, now, prefix)
+            song_title = (song_info and song_info.title) or ''
 
-    def generate_error_lines(self, now):
+            if False: # TODO: track.number != self._state.track:
+                # Track numbering is off, so show actual number here
+                prefix = '{}. '.format(track.number)
+            else:
+                prefix = ''
+
+            return self.scroll(song_title, now, prefix)
+
+    def _generate_error_lines(self, now):
         return self.scroll('; '.join(self._errors), now, loop = True)
 
 
