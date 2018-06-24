@@ -358,6 +358,85 @@ class TestLCDFormatter16x2(unittest.TestCase):
         self.assertIsNone(update)
 
 
+    def test_radio_stream_song_info(self):
+        #                     0123456789abcdef
+        song_info = SongInfo('Test Song Title X',
+                             'Test Song Artist X')
+
+        #         0123456789abcdef
+        stream = 'Test Radio Station'
+
+        state = State(state = State.PLAY, stream=stream, song_info=song_info)
+
+        # Start scrolling radio station only
+        now = 0
+
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Streaming       \n' +
+                         'Test Radio Stati')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Streaming       \n' +
+                         'est Radio Statio')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Streaming       \n' +
+                         'st Radio Station')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Streaming       \n' +
+                         'Test Radio Stati')
+
+        # Flip to scrolling song title and artist
+        now += self._formatter.STREAM_INFO_SWITCH_SPEED
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Test Song Artist\n' +
+                         'Test Song Title ')
+
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'est Song Artist \n' +
+                         'est Song Title X')
+
+        now += self._formatter.SCROLL_SPEED
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'st Song Artist X\n' +
+                         'est Song Title X')
+
+        # Then remain on non-scrolled song info
+        now += self._formatter.SCROLL_PAUSE
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Test Song Artist\n' +
+                         'Test Song Title ')
+
+
+    def test_radio_stream_stopped_no_song_info(self):
+        #         0123456789abcdef
+        stream = 'Test Radio'
+
+        state = State(state = State.STOP, stream=stream)
+
+        # Start scrolling radio station only
+        now = 0
+
+        msg, update = self._formatter.format(state, RipState(), now)
+        self.assertEqual(msg,
+                         'Stopped         \n' +
+                         'Test Radio      ')
+        self.assertIsNone(update)
+
+
 class TestGPIO_LCDFactory(unittest.TestCase):
     def setUp(self):
         self._lcd_factory = lcd.GPIO_LCDFactory(

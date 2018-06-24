@@ -391,6 +391,7 @@ class LCDFormatterBase(ILCDFormatter):
         self._current_disc_id = None
         self._current_stream = None
         self._current_stream_song = None
+        self._current_stream_state = None
         self._errors = None
 
         self._lines = [GeneratedLine(self.COLUMNS) for x in range(self.LINES)]
@@ -524,15 +525,20 @@ class LCDFormatterBase(ILCDFormatter):
             if state.stream != self._current_stream:
                 self._current_stream = state.stream
                 self._current_stream_song = state.song_info
+                self._current_stream_state = state.state
                 self.update_on_new_stream(now)
                 return
 
             if self._current_stream_song != state.song_info:
                 self._current_stream_song = state.song_info
+                self._current_stream_state = state.state
                 self.update_on_new_stream_song(now)
                 return
 
-            self.update_on_stream_state_change(now)
+            if self._current_stream_state != state.state:
+                self._current_stream_state = state.state
+                self.update_on_stream_state_change(now)
+
             return
 
         self._current_stream = None
@@ -584,6 +590,9 @@ class LCDFormatter16x2(LCDFormatterBase):
     # Seconds that disc title and artist is kept visible
     DISC_INFO_SWITCH_SPEED = 3
 
+    # Seconds that streaming radio station is kept visible
+    STREAM_INFO_SWITCH_SPEED = 3
+
 
     def scroll(self, text, now, prefix = '', loop = False):
         """Override to fit info line scroll into available space, which is
@@ -631,15 +640,14 @@ class LCDFormatter16x2(LCDFormatterBase):
 
 
     def update_on_new_stream(self, now):
-        self.lines[1].set_generator(self._generate_stream_lines(now))
+        self.update_on_stream_state_change(now)
 
     def update_on_new_stream_song(self, now):
-        # TODO
-        pass
+        self.update_on_stream_state_change(now)
 
     def update_on_stream_state_change(self, now):
-        # TODO
-        pass
+        self.lines[0].set_generator(self._generate_stream_line1(now))
+        self.lines[1].set_generator(self._generate_stream_line2(now))
 
 
     def update_on_unknown_state_change(self, now):
@@ -762,11 +770,6 @@ class LCDFormatter16x2(LCDFormatterBase):
             yield line, next_update
 
 
-    def _generate_stream_lines(self, now):
-        """Show radio stream name, scrolled initially"""
-        return self.scroll(self._current_stream, now)
-
-
     def _generate_track_lines(self, now):
         """Show track title, scrolled initially.
         """
@@ -790,6 +793,58 @@ class LCDFormatter16x2(LCDFormatterBase):
 
     def _generate_error_lines(self, now):
         return self.scroll('; '.join(self._errors), now, loop = True)
+
+
+    def _generate_stream_line1(self, now):
+        """Show 'Streaming/Stopped', then song_info artist if any"""
+
+        # To keep in sync with any station name scrolling, scroll
+        # it here too but output fixed texts
+
+        if self._state.state == State.PLAY:
+            stream_state = 'Streaming'
+        else:
+            stream_state = 'Stopped'
+
+        song = self._state.song_info
+
+        for line, next_update in self.scroll(self._state.stream, now):
+            if next_update is None:
+                if not song:
+                    yield stream_state, None
+                    return
+
+                # Pause until switching to song artist
+                now += self.STREAM_INFO_SWITCH_SPEED
+                yield stream_state, now
+            else:
+                now = next_update
+                yield stream_state, next_update
+
+        for line, next_update in self.scroll(song.artist or '', now):
+            yield line, next_update
+
+
+    def _generate_stream_line2(self, now):
+        """Show station name, then song_info title if any"""
+
+        song = self._state.song_info
+
+        for line, next_update in self.scroll(self._state.stream, now):
+            if next_update is None:
+                if not song:
+                    yield line, None
+                    return
+
+                # Pause until switching to song title
+                now += self.STREAM_INFO_SWITCH_SPEED
+                yield line, now
+            else:
+                now = next_update
+                yield line, next_update
+
+        for line, next_update in self.scroll(song.title or '', now):
+            yield line, next_update
 
 
 #
