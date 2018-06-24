@@ -60,7 +60,9 @@ setup(
         'lockfile ~= 0.12',
         'discid ~= 1.1',
         'pyzmq ~= 16.0',
-        'pymad ~= 0.10'
+        'pymad ~= 0.10',
+        'tornado ~= 4.4',
+        'musicbrainzngs ~= 0.5',
     ],
 
     dependency_links = [
@@ -71,15 +73,13 @@ setup(
 
     extras_require = {
         'lcd': [
-            'Adafruit-GPIO ~= 1.0.0',
-            'Adafruit_CharLCD ~= 1.0.0',
+            'Adafruit-GPIO ~= 1.0',
+            'Adafruit_CharLCD ~= 1.0',
             'RPIO == 0.10.0',
         ],
 
         'rest': [
-            'tornado ~= 4.4',
             'sockjs-tornado ~= 1.0',
-            'musicbrainzngs ~= 0.5',
         ],
     },
 
