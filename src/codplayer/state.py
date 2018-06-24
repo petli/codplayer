@@ -89,27 +89,12 @@ class State(serialize.Serializable):
     error: A string giving the error state of the player, if any.
     """
 
-    class OFF:
-        valid_commands = ()
-
-    class NO_DISC:
-        valid_commands = ('quit', 'disc', 'eject')
-
-    class WORKING:
-        valid_commands = ('quit', )
-
-    class PLAY:
-        valid_commands = ('quit', 'disc', 'pause', 'play_pause',
-                          'next', 'prev', 'stop', 'eject')
-
-    class PAUSE:
-        valid_commands = ('quit', 'disc', 'play', 'play_pause',
-                          'next', 'prev', 'stop', 'eject')
-
-    class STOP:
-        valid_commands = ('quit', 'disc', 'play', 'play_pause',
-                          'next', 'prev', 'eject')
-
+    class OFF: pass
+    class NO_DISC: pass
+    class WORKING: pass
+    class PLAY: pass
+    class PAUSE: pass
+    class STOP: pass
 
     def __init__(self, old_state=None, **kwargs):
         self.state = State.NO_DISC

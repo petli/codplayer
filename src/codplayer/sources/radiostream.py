@@ -49,12 +49,15 @@ class RadioStreamSource(Source):
     def iter_packets(self):
         self.log('streaming {} from {}', self._current.name, self._current.url)
 
+        if self._current.metadata:
+            self._current.metadata.start(self._player)
+
         while True:
             self._stream = HttpMpegStream(self._player, self._current.url)
             self._stalled = False
 
             try:
-                for p in self._stream.iter_packets():
+                for p in self._stream.iter_packets(self._current.metadata):
                     if p is None and self._stalled:
                         raise StreamError('transport stalled')
 
@@ -81,6 +84,9 @@ class RadioStreamSource(Source):
         if self._stream:
             self._stream.close()
             self._stream = None
+
+        if self._current.metadata:
+            self._current.metadata.stop()
 
 
     def stalled(self):
@@ -166,7 +172,7 @@ class HttpMpegStream(object):
     def format(self):
         return self._format
 
-    def iter_packets(self):
+    def iter_packets(self, metadata):
         packet_size = (self._format.channels * self._format.bytes_per_sample
                        * self._format.rate) / self.PACKETS_PER_SECOND
 
@@ -190,7 +196,7 @@ class HttpMpegStream(object):
                 data += str(d)
 
             if data:
-                p = audio.AudioPacket(self._format)
+                p = StreamAudioPacket(self._format, metadata)
                 p.data = data
                 yield p
             else:
@@ -240,3 +246,18 @@ class HttpMpegStream(object):
             self._response_error = e
             return ''
 
+
+class StreamAudioPacket(audio.AudioPacket):
+    def __init__(self, format, metadata):
+        super(StreamAudioPacket, self).__init__(format)
+        self._metadata = metadata
+
+    def update_state(self, state):
+        if not self._metadata:
+            return None
+
+        if state.song_info == self._metadata.song and state.album_info == self._metadata.album:
+            # No change
+            return None
+
+        return State(state, song_info=self._metadata.song, album_info=self._metadata.album)

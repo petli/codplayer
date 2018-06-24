@@ -767,7 +767,9 @@ class Transport(object):
                                 track = 0,
                                 index = 0,
                                 position = 0,
-                                length = 0))
+                                length = 0,
+                                # When stopped, no song can be playing
+                                song_info = None))
     
 
     def update_state(self, state):

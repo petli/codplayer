@@ -182,6 +182,7 @@ class Daemon(object):
         """
         if self._io_loop is None:
             self._io_loop = DaemonIOLoop()
+            self._io_loop.make_current()
             self._io_loop._cod_daemon = self
         return self._io_loop
 
