@@ -154,7 +154,7 @@ class FIPMetadata(Metadata):
 
         except (TypeError, ValueError, KeyError) as e:
             self._player.log('FIP: error processing body json: {}', e)
-            self._player.log('FIP: response: {}', body)
+            self._player.log('FIP: response: {}', body.encode('utf-8'))
             self._reschedule()
 
 
