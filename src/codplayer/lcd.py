@@ -652,6 +652,7 @@ class LCDFormatter16x2(LCDFormatterBase):
 
     def update_on_unknown_state_change(self, now):
         self._update_state()
+        self.lines[1].set_text('')
 
 
     def _update_state(self):
