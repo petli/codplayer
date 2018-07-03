@@ -6,6 +6,7 @@
 
 import time
 import json
+import threading
 from tornado.httpclient import AsyncHTTPClient
 
 from .state import SongInfo, AlbumInfo
@@ -56,31 +57,69 @@ class FIPMetadata(Metadata):
 
     METADATA_URL = 'https://www.fip.fr/livemeta/{channel}'
 
+    class Song(object):
+        def __init__(self, raw):
+            self.start = raw['start']
+            self.end = raw['end']
+            self.title = raw['title'].capitalize()
+            self.artist =  ' '.join((s.capitalize() for s in raw['authors'].split()))
+            self.album = raw.get('titreAlbum', '').capitalize()
+
     def __init__(self, channel=MAIN):
         self._url = self.METADATA_URL.format(channel=channel)
         self._current_request = 0
+        self._timeout = None
+
+        # The lock protects the following items
+        self._lock = threading.Lock()
         self._song_info = None
         self._album_info = None
+        self._song_queue = None
 
     def start(self, player):
         self._player = player
         self._player.io_loop.add_callback(self._fetch)
 
     def stop(self):
-        self._player = None
-        self._song_info = None
-        self._album_info = None
+        self._player.io_loop.add_callback(self._stop_fetching)
+
 
     @property
     def song(self):
-        return self._song_info
+        with self._lock:
+            self._update_info()
+            return self._song_info
 
     @property
     def album(self):
-        return self._album_info
+        with self._lock:
+            self._update_info()
+            return self._album_info
+
+
+    def _update_info(self):
+        now = time.time()
+        if not self._song_queue or now <= self._song_queue[0].end:
+            return
+
+        while self._song_queue and now > self._song_queue[0].end:
+            del self._song_queue[0]
+
+        if not self._song_queue or now < self._song_queue[0].start:
+            self._song_info = None
+            self._album_info = None
+            return
+
+        song = self._song_queue[0]
+        self._song_info = SongInfo(title=song.title, artist=song.artist)
+        self._album_info = SongInfo(title=song.album, artist=song.artist)
 
 
     def _fetch(self):
+        self._player.debug('FIP: fetching metadata')
+
+        self._timeout = None
+
         # Detect delayed responses and ignore them
         self._current_request += 1
         request_id = self._current_request
@@ -89,7 +128,8 @@ class FIPMetadata(Metadata):
             if not self._player or self._current_request != request_id:
                 self._player.debug('FIP: dropping stale response {}', request_id)
             else:
-                self._handle_response(response)
+                with self._lock:
+                    self._handle_response(response)
 
         self._player.debug('FIP: sending metadata request {} to {}', request_id, self._url)
 
@@ -97,10 +137,21 @@ class FIPMetadata(Metadata):
         client.fetch(self._url, callback)
 
 
-    def _handle_response(self, response):
-        def capitalize(name):
-            return ' '.join((s.capitalize() for s in name.split()))
+    def _stop_fetching(self):
+        self._player.debug('FIP: stopping metadata fetch')
 
+        if self._timeout:
+            self._player.io_loop.remove_timeout(self._timeout)
+            self._timeout = None
+
+        # By also ticking the request count any in-flight request will be considered stale and dropped
+        self._current_request += 1
+
+        self._song_info = None
+        self._album_info = None
+
+
+    def _handle_response(self, response):
         if response.error:
             self._player.log('FIP: metadata request failed: {}', response.error)
             self._reschedule()
@@ -124,33 +175,35 @@ class FIPMetadata(Metadata):
             self._reschedule()
             return
 
-        # Quick and dirty extraction of song info from JSON data.
-        # FIP provides info about upcoming songs, so that could be
-        # cached here to reduce HTTP requests and provide quicker updates.
+        # FIP provides both current, past and upcoming songs. Cache the current and the
+        # upcoming songs, to avoid fetching metadata as often
         try:
             data = json.loads(body)
 
-            levels = data['levels']
-            position = levels[0]['position']
-            items = levels[0]['items']
+            songs = [self.Song(raw)
+                     for raw in data['steps'].values()
+                     if raw.has_key('authors')]
 
-            current_id = items[position]
+            now = int(time.time())
+            self._song_queue = sorted((song for song in songs if song.end >= now),
+                                      key=lambda song: song.start)
 
-            steps = data['steps']
-            song = steps[current_id]
+            if not self._song_queue:
+                self._player.log('FIP: no current songs returned in metadata')
+                self._reschedule()
+                return
 
-            artist = capitalize(song['authors'])
-            song_info = SongInfo(title=capitalize(song['title']), artist=artist)
-            album_info = SongInfo(title=capitalize(song['titreAlbum']), artist=artist)
+            song = self._song_queue[0]
+            self._song_info = SongInfo(title=song.title, artist=song.artist)
+            self._album_info = SongInfo(title=song.album, artist=song.artist)
 
-            song_end = song['end'] + 1
+            for song in self._song_queue:
+                self._player.debug(u'FIP: song from {}s: {}', song.start - now, self._song_info)
 
-            self._player.debug('FIP: playing song {}, album {}, next in {}s',
-                               song_info, album_info, int(song_end - time.time()))
+            last_song_end = max((song.end for song in self._song_queue))
 
-            self._song_info = song_info
-            self._album_info = album_info
-            self._reschedule(song_end)
+            # Fetch more info some time before last song ends, or in ten minutes
+            self._reschedule(min(last_song_end - 30, now + 600))
 
         except (TypeError, ValueError, KeyError) as e:
             self._player.log('FIP: error processing body json: {}', e)
@@ -159,17 +212,21 @@ class FIPMetadata(Metadata):
 
 
     def _reschedule(self, next_fetch = None):
+        now = time.time()
+
         if not next_fetch:
             # error, retry in a bit
-            next_fetch = time.time() + 30
+            next_fetch = now + 30
 
             # And clean out any stale state
+            self._song_queue = None
             self._song_info = None
             self._album_info = None
 
-        elif next_fetch < time.time():
+        elif next_fetch < now:
             # don't spam the metadata API if song end times are out of sync
-            next_fetch = time.time() + 5
+            next_fetch = now + 20
 
-        self._player.io_loop.add_timeout(next_fetch, self._fetch)
+        self._player.debug('FIP: fetching metadata in {}s', int(next_fetch - now))
+        self._timeout = self._player.io_loop.add_timeout(next_fetch, self._fetch)
 
