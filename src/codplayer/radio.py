@@ -65,13 +65,13 @@ class FIPMetadata(Metadata):
             self.artist =  ' '.join((s.capitalize() for s in raw['authors'].split()))
             self.album = raw.get('titreAlbum', '').capitalize()
 
+        def __str__(self):
+            return u'{title}/{artist}/{album}'.format(**self.__dict__)
+
     def __init__(self, channel=MAIN):
         self._url = self.METADATA_URL.format(channel=channel)
         self._current_request = 0
         self._timeout = None
-
-        # The lock protects the following items
-        self._lock = threading.Lock()
         self._song_info = None
         self._album_info = None
         self._song_queue = None
@@ -81,38 +81,54 @@ class FIPMetadata(Metadata):
         self._player.io_loop.add_callback(self._fetch)
 
     def stop(self):
-        self._player.io_loop.add_callback(self._stop_fetching)
+        self._player.io_loop.add_callback(self._stop_metadata)
 
 
     @property
     def song(self):
-        with self._lock:
-            self._update_info()
-            return self._song_info
+        return self._song_info
 
     @property
     def album(self):
-        with self._lock:
-            self._update_info()
-            return self._album_info
+        return self._album_info
 
 
-    def _update_info(self):
-        now = time.time()
-        if not self._song_queue or now <= self._song_queue[0].end:
-            return
+    def _update_info(self, queue_updated=False):
+        now = int(time.time())
 
+        # First see if we need to drop anything from the queue
+        changes = queue_updated
         while self._song_queue and now > self._song_queue[0].end:
+            song = self._song_queue[0]
+            self._player.debug(u'FIP: dropping song finished {}s ago: {}', now - song.end, song)
             del self._song_queue[0]
+            changes = True
+
+        # TODO: if there are multiple current songs, drop the oldest ones.
+        # Might happen during Jazzafip?
+
+        if changes:
+            self._player.debug('FIP: new song queue:')
+            for song in self._song_queue:
+                self._player.debug(u'FIP: in {}s: {}', song.start - now, song)
 
         if not self._song_queue or now < self._song_queue[0].start:
+            self._player.debug('FIP: no current song')
             self._song_info = None
             self._album_info = None
+
+            # If we got here from fetching metadata, don't retry immediately
+            if queue_updated:
+                self._reschedule_fetch()
+            else:
+                self._fetch()
+
             return
 
         song = self._song_queue[0]
         self._song_info = SongInfo(title=song.title, artist=song.artist)
         self._album_info = SongInfo(title=song.album, artist=song.artist)
+        self._reschedule_update()
 
 
     def _fetch(self):
@@ -128,8 +144,7 @@ class FIPMetadata(Metadata):
             if not self._player or self._current_request != request_id:
                 self._player.debug('FIP: dropping stale response {}', request_id)
             else:
-                with self._lock:
-                    self._handle_response(response)
+                self._handle_response(response)
 
         self._player.debug('FIP: sending metadata request {} to {}', request_id, self._url)
 
@@ -137,8 +152,8 @@ class FIPMetadata(Metadata):
         client.fetch(self._url, callback)
 
 
-    def _stop_fetching(self):
-        self._player.debug('FIP: stopping metadata fetch')
+    def _stop_metadata(self):
+        self._player.debug('FIP: stopping metadata handling')
 
         if self._timeout:
             self._player.io_loop.remove_timeout(self._timeout)
@@ -149,84 +164,58 @@ class FIPMetadata(Metadata):
 
         self._song_info = None
         self._album_info = None
+        self._song_queue = None
 
 
     def _handle_response(self, response):
         if response.error:
             self._player.log('FIP: metadata request failed: {}', response.error)
-            self._reschedule()
+            self._reschedule_fetch()
             return
 
         if response.code != 200:
             self._player.log('FIP: metadata response not OK: {} {}', response.code, response.reason)
-            self._reschedule()
+            self._reschedule_fetch()
             return
 
         content_type = response.headers.get('Content-Type')
         if content_type != 'application/json':
             self._player.log('FIP: unexpected metadata response content type: {}', content_type)
-            self._reschedule()
+            self._reschedule_fetch()
             return
 
         try:
             body = response.body.decode('utf-8')
         except UnicodeDecodeError as e:
             self._player.log('FIP: error decoding body as UTF-8: {}', e)
-            self._reschedule()
+            self._reschedule_fetch()
             return
 
         # FIP provides both current, past and upcoming songs. Cache the current and the
         # upcoming songs, to avoid fetching metadata as often
         try:
+
             data = json.loads(body)
 
-            songs = [self.Song(raw)
-                     for raw in data['steps'].values()
-                     if raw.has_key('authors')]
+            self._song_queue = [self.Song(raw)
+                                for raw in data['steps'].values()
+                                if raw.has_key('authors')]
 
-            now = int(time.time())
-            self._song_queue = sorted((song for song in songs if song.end >= now),
-                                      key=lambda song: song.start)
+            self._song_queue.sort(key=lambda song: song.end)
 
-            if not self._song_queue:
-                self._player.log('FIP: no current songs returned in metadata')
-                self._reschedule()
-                return
-
-            song = self._song_queue[0]
-            self._song_info = SongInfo(title=song.title, artist=song.artist)
-            self._album_info = SongInfo(title=song.album, artist=song.artist)
-
-            for song in self._song_queue:
-                self._player.debug(u'FIP: song from {}s: {}', song.start - now, self._song_info)
-
-            last_song_end = max((song.end for song in self._song_queue))
-
-            # Fetch more info some time before last song ends, or in ten minutes
-            self._reschedule(min(last_song_end - 30, now + 600))
+            self._player.debug('FIP: updated metadata, fixing song queue')
+            self._update_info(queue_updated=True)
 
         except (TypeError, ValueError, KeyError) as e:
             self._player.log('FIP: error processing body json: {}', e)
             self._player.log('FIP: response: {}', body.encode('utf-8'))
-            self._reschedule()
+            self._reschedule_fetch()
 
 
-    def _reschedule(self, next_fetch = None):
-        now = time.time()
+    def _reschedule_update(self):
+        self._timeout = self._player.io_loop.add_timeout(time.time() + 5, self._update_info)
 
-        if not next_fetch:
-            # error, retry in a bit
-            next_fetch = now + 30
 
-            # And clean out any stale state
-            self._song_queue = None
-            self._song_info = None
-            self._album_info = None
-
-        elif next_fetch < now:
-            # don't spam the metadata API if song end times are out of sync
-            next_fetch = now + 20
-
-        self._player.debug('FIP: fetching metadata in {}s', int(next_fetch - now))
-        self._timeout = self._player.io_loop.add_timeout(next_fetch, self._fetch)
+    def _reschedule_fetch(self):
+        self._timeout = self._player.io_loop.add_timeout(time.time() + 30, self._fetch)
 
