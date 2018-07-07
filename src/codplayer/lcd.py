@@ -447,8 +447,9 @@ class LCDFormatterBase(ILCDFormatter):
 
         self._compare_and_update_state(now)
 
-        lines = (line.update_text(now) for line in self.lines)
-        next_updates = (line.next_update for line in self.lines)
+        lines = [line.update_text(now) for line in self.lines]
+        next_updates = [line.next_update for line in self.lines if line.next_update]
+
         if next_updates:
             next_update = min(next_updates)
         else:
